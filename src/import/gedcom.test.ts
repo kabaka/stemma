@@ -134,10 +134,12 @@ describe('buildRecordFromGedcom', () => {
     expect(union.children).not.toContain('I1');
   });
 
-  it('does not link a step / adopted / foster child as genetic offspring (_FREL/_MREL/PEDI)', () => {
-    // Step-son (via _FREL step) and adopted daughter (via PEDI) must NOT create a genetic
-    // parent edge to the step/adoptive father — otherwise he shows up as a blood relative.
-    // A `_MREL unknown` child (Ancestry's default) IS genetic and stays.
+  it('resolves step / adopted / foster per parent (drops only the step edge, keeps the biological one)', () => {
+    // Blended family in ONE FAM record: I3 is step to the father (I1) but biological to the
+    // mother (I2, no _MREL) — so I3 must keep I2 and lose only I1. I4 is adopted by both
+    // (PEDI) — no genetic parent here. I5 is `unknown`/`unknown` (Ancestry's biological
+    // default) — keeps both. This is the exact real-world shape where dropping the whole child
+    // would silently lose the biological mother's edge.
     const text = `0 @I1@ INDI
 1 NAME Step /Dad/
 1 SEX M
@@ -166,16 +168,39 @@ describe('buildRecordFromGedcom', () => {
 0 TRLR
 `;
     const parsed = parseGedcom(text);
-    const fam = parsed.families[0];
-    expect(fam.children).toEqual(['I5']); // step & adopted excluded, unknown kept
     expect(parsed.warnings.some((w) => /step, adopted, or foster/.test(w))).toBe(true);
 
     const record = buildRecordFromGedcom(parsed, 'I5')!;
     const idx = indexPeople(record.people, record.unions);
-    // The step-parent is not a genetic parent of the step/adopted children.
-    expect(parentsOf(idx, 'I3')).not.toContain('I1');
-    expect(parentsOf(idx, 'I4')).not.toContain('I1');
-    expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // own kid keeps both parents
+    expect(parentsOf(idx, 'I3').sort()).toEqual(['I2']); // step to father: keeps only bio mother
+    expect(parentsOf(idx, 'I4')).toEqual([]); // adopted by both: no genetic parent here
+    expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // biological: keeps both
+  });
+
+  it('honours the standard INDI.FAMC.PEDI adopted/foster tag (FamilySearch/Gramps convention)', () => {
+    // Spec-compliant exporters put pedigree on the individual's FAMC pointer, not the CHIL.
+    const text = `0 @I1@ INDI
+1 NAME A /Dad/
+1 SEX M
+0 @I2@ INDI
+1 NAME A /Mum/
+1 SEX F
+0 @I3@ INDI
+1 NAME Adopted /Child/
+1 SEX F
+1 FAMC @F1@
+2 PEDI adopted
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    const record = buildRecordFromGedcom(parsed, 'I1')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I3')).toEqual([]); // adopted via FAMC.PEDI — not a genetic child
+    expect(parsed.warnings.some((w) => /step, adopted, or foster/.test(w))).toBe(true);
   });
 });
 

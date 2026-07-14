@@ -349,6 +349,16 @@ function orderRow(
     const m = meanOf((unions[bu].parents ?? []).filter((p) => idx.has(p)).map((p) => idx.get(p)!));
     if (m != null) base.set(id, m);
   }
+  // A married-in person (no sibship of their own) anchors at the mean of their co-parents'
+  // anchors, so a person who bridges two families lands *between* them (and their two mates
+  // get pulled to the near edges of their respective sibships).
+  for (const id of row)
+    if (!base.has(id)) {
+      const m = meanOf(
+        (adj.coParents.get(id) ?? []).filter((c) => base.has(c)).map((c) => base.get(c)!),
+      );
+      if (m != null) base.set(id, m);
+    }
   for (const id of row)
     if (!base.has(id)) {
       const m = meanOf(
@@ -366,11 +376,20 @@ function orderRow(
       }
   for (const id of row) if (!base.has(id)) base.set(id, idx.get(id)!);
 
-  // A pure married-in leaf: no sibship and no children in view, tied only by marriage to
-  // someone who IS placed. Held out and inserted beside their mate at the very end, so a third
-  // (childless) marriage cannot scatter across the row or wedge into a nuclear couple.
-  const hasKids = (id: string): boolean => (adj.children.get(id) ?? []).some((c) => inRow.has(c));
-  const inChain = (id: string): boolean => adj.birthUnion.get(id) != null || hasKids(id);
+  // A married-in person is a *pendant* — held out and spliced beside their mate at the end, so
+  // a third (childless) marriage can't scatter across the row or wedge into a nuclear couple —
+  // UNLESS they *bridge* two or more distinct sibships (they have children with members of
+  // different families). A bridge must sit between those sibships as a real chain node; a
+  // pendant ties to only one, so splicing it beside that mate is safe.
+  const bridges = (id: string): boolean => {
+    const sibs = new Set<number>();
+    for (const c of adj.coParents.get(id) ?? []) {
+      const bu = adj.birthUnion.get(c);
+      if (inRow.has(c) && bu != null) sibs.add(bu);
+    }
+    return sibs.size >= 2;
+  };
+  const inChain = (id: string): boolean => adj.birthUnion.get(id) != null || bridges(id);
   const attach = new Set(
     row.filter(
       (id) => !inChain(id) && (adj.spouses.get(id) ?? []).some((s) => inRow.has(s) && inChain(s)),
@@ -450,11 +469,17 @@ function orderRow(
         seen.add(k);
         if (withKids || !(adj.coParents.get(a) ?? []).includes(b)) out.push([a, b]);
       }
-    return out.sort(
-      (p, q) =>
-        Math.min(base.get(p[0])!, base.get(p[1])!) - Math.min(base.get(q[0])!, base.get(q[1])!) ||
-        (p[0] < q[0] ? -1 : 1),
-    );
+    // Tie-break on the whole pair, not just its first id — a person with two marriages in the
+    // same category appears as `[P,Q]` and `[P,R]`, which share `p[0]`; comparing only `p[0]`
+    // is not a total order and would let the merge order vary across JS engines.
+    return out.sort((p, q) => {
+      const d =
+        Math.min(base.get(p[0])!, base.get(p[1])!) - Math.min(base.get(q[0])!, base.get(q[1])!);
+      if (d !== 0) return d;
+      const kp = `${p[0]}|${p[1]}`;
+      const kq = `${q[0]}|${q[1]}`;
+      return kp < kq ? -1 : kp > kq ? 1 : 0;
+    });
   };
   mergeAlong(couples(true));
   mergeAlong(couples(false));
