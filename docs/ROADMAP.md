@@ -163,7 +163,16 @@ accessibility, testing) — captured here so nothing is lost:
   the breast-cancer clustering trigger now counts relatives on the same lineage (maternal /
   paternal); 2+ breast cancers that don't concentrate on one recorded side downgrade to "discuss"
   with a prompt to record the side. Ovarian (any age) and breast < 50 stay side-independent
-  referral triggers.
+  referral triggers. **The same-lineage refinement was confirmed against NCCN v1.2025 by the
+  medical-domain-expert** (footnote "o": close relatives are counted "on the same side of the
+  family"), and the "discuss"-branch recommendation text was made severity-aware so it no longer
+  says "meets criteria" (guardrail #1).
+- **HBOC criteria sourcing & ancestry** (Phase 1, from the same sign-off). Cite the young-onset and
+  same-side branches as referral *screening* thresholds, not "NCCN testing criteria met": Stemma
+  flags breast cancer `< 50` (strict NCCN single-relative young-onset is `≤ 45`) and same-side `≥ 2`
+  (strict NCCN is a `≥ 3` same-side aggregate) — both slightly more sensitive, erring toward safety.
+  Also model **Ashkenazi-Jewish ancestry** as an any-age BRCA testing indication (currently not
+  represented).
 - ✅ **Lynch spectrum broadened** (Phase 1). Ovarian and upper-urinary-tract (renal pelvis /
   ureter urothelial) cancers now count toward the Lynch-spectrum tally. Ovarian intentionally
   seeds both HBOC and Lynch (different genes/pathways — a genetics evaluation disambiguates), with

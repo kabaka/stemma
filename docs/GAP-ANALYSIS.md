@@ -75,15 +75,36 @@ Small individually, but this is a safety-first product, so they are called out t
 - **#4 (screening keys off organs, not gender)** — the drawer's explicit
   "Screening keys off organs present, not gender." sentence was dropped. (prototype L268)
 
-## Behavioral change awaiting sign-off (by-design, not an omission)
+## Behavioral change — signed off (keep, with an accuracy fix)
 
 **HBOC referral sensitivity narrowed.** Two breast cancers split across *opposite* lineages
 (one maternal, one paternal), with no ovarian, no onset < 50, no first-degree, now yields
 **"Discuss"** where the prototype gave **"Referral"** (`src/domain/patterns.ts:137–154`). This is a
-per-lineage NCCN refinement (a pathogenic BRCA variant descends one lineage) — *not* a risk-number
-change — but it is the one case where the current engine is less aggressive than the prototype.
-**Status: routed to the `medical-domain-expert` for an evidence-grounded NCCN decision** (keep
-"Discuss" vs. revert to "Referral"). _(This section will record the verdict + rationale.)_
+per-lineage refinement (a pathogenic BRCA variant descends one lineage) — *not* a risk-number
+change.
+
+**Verdict (medical-domain-expert, NCCN-grounded): KEEP "Discuss."** NCCN Guidelines v1.2025
+(Genetic/Familial High-Risk Assessment: Breast, Ovarian, and Pancreatic) count close blood
+relatives "**on the same side of the family**" (footnote "o"), and the multi-case breast criterion
+is a same-side aggregate — so two opposite-lineage breast cancers (both > 50, nothing else) do
+**not** meet the testing-referral criterion. Reverting to "Referral" would assert a criterion that
+isn't met (guardrail #1). "Discuss" is the correct USPSTF-aligned surface-and-raise posture: it
+keeps the signal visible (≈39% of carriers miss NCCN criteria — Samadder 2024) and routes it to a
+clinician who can take a fuller history and run a validated model (Tyrer-Cuzick / CanRisk), without
+overstating.
+
+**Fix applied from the sign-off:** the HBOC flag's recommendation text was a single string
+regardless of severity, so the "discuss" branch still read *"Meets common criteria to discuss
+BRCA1/2 testing… Consider a genetics referral"* — overstating criteria-met for the exact case it
+was distinguishing (guardrail #1). The `rec` is now severity-aware: the referral wording is
+unchanged; the discuss branch states that per-lineage criteria are **not** met and still routes to a
+clinician + validated model (`src/domain/patterns.ts`, HBOC block).
+
+**Roadmap-level notes** (from the same review, filed in §7): the young-onset threshold is `< 50`
+where strict NCCN single-relative young-onset is `≤ 45` (Stemma's is a slightly-more-sensitive
+referral *screening* threshold — keep, but cite as such); the same-side ≥ 2 branch is likewise a
+screening heuristic a touch broader than the strict NCCN "≥ 3 same-side" testing aggregate; and
+Ashkenazi-Jewish ancestry (an NCCN any-age testing indication) is not modelled.
 
 ## Method & scope notes
 
