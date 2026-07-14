@@ -288,13 +288,16 @@ describe('large / imported tree layout (regression for unreadable connectors)', 
     expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
   });
 
-  it('keeps each couple’s partner bar short (partners adjacent, not spanning the row)', () => {
+  it('keeps every partner bar short (a small, bounded number of cells, never row-wide)', () => {
     const rec = importedTree();
     const { pos } = computeLayout(rec.people, rec.unions);
     for (const u of rec.unions) {
       if (u.parents.length !== 2) continue;
       const width = Math.abs(pos[u.parents[0]].x - pos[u.parents[1]].x);
-      expect(width).toBeLessThanOrEqual(96 * 1.5); // within ~1.5 cells, never a row-wide bar
+      // Keeping each partner in their own contiguous sibship means a marriage *between* two
+      // in-tree families spans the gap between their two blocks (~2 cells here) rather than
+      // interleaving them — still a short, bounded bar, never proportional to the row width.
+      expect(width).toBeLessThanOrEqual(96 * 2); // ≤ 2 cells, not the 8-cell row-wide tangle
     }
   });
 
@@ -308,6 +311,163 @@ describe('large / imported tree layout (regression for unreadable connectors)', 
     for (const p of included) expect(Number.isFinite(pos[p.id].x)).toBe(true);
     // The in-window union (c00×c10 → gc0,gc1) still connects.
     expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
+  });
+});
+
+/** Left-to-right id order of each generation, by laid-out x. */
+function rowsByGen(people: Person[], pos: Record<string, LayoutNode>): Map<number, string[]> {
+  const rows = new Map<number, string[]>();
+  for (const p of people) {
+    const a = rows.get(p.gen);
+    if (a) a.push(p.id);
+    else rows.set(p.gen, [p.id]);
+  }
+  for (const [, ids] of rows) ids.sort((a, b) => pos[a].x - pos[b].x);
+  return rows;
+}
+
+/** A person is "expected" under a union's sibling bus only if they're a child of it or the
+ * married-in partner of one of those children — anyone else between the first and last child
+ * is an unrelated interloper (the reported defect). */
+function unrelatedUnderBus(rec: FamilyRecord, pos: Record<string, LayoutNode>): string[][] {
+  const rows = rowsByGen(rec.people, pos);
+  const genOf = new Map(rec.people.map((p) => [p.id, p.gen]));
+  const bad: string[][] = [];
+  for (const u of rec.unions) {
+    const kids = (u.children ?? []).filter((id) => pos[id]);
+    if (kids.length < 2) continue;
+    const row = rows.get(genOf.get(kids[0])!)!;
+    const positions = kids.map((k) => row.indexOf(k)).sort((a, b) => a - b);
+    const span = row.slice(positions[0], positions[positions.length - 1] + 1);
+    const intruders = span.filter(
+      (id) =>
+        !kids.includes(id) &&
+        !kids.some((k) => rec.unions.some((v) => v.parents.includes(k) && v.parents.includes(id))),
+    );
+    if (intruders.length) bad.push(intruders);
+  }
+  return bad;
+}
+
+/** X-range each union's sibling bus occupies (children plus the parents' descent point). */
+function busOverlaps(rec: FamilyRecord, pos: Record<string, LayoutNode>): string[] {
+  const genOf = new Map(rec.people.map((p) => [p.id, p.gen]));
+  const ranges = rec.unions
+    .map((u) => {
+      const parts = u.parents.filter((id) => pos[id]);
+      const kids = (u.children ?? []).filter((id) => pos[id]);
+      if (!kids.length) return null;
+      const cxs = kids.map((id) => pos[id].x);
+      const mx = parts.length ? parts.reduce((s, id) => s + pos[id].x, 0) / parts.length : cxs[0];
+      return {
+        gen: genOf.get(kids[0])!,
+        label: u.parents.join('+'),
+        min: Math.min(...cxs, mx),
+        max: Math.max(...cxs, mx),
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null);
+  const clashes: string[] = [];
+  for (let i = 0; i < ranges.length; i++)
+    for (let j = i + 1; j < ranges.length; j++) {
+      const a = ranges[i];
+      const b = ranges[j];
+      if (a.gen === b.gen && Math.min(a.max, b.max) - Math.max(a.min, b.min) > 0.01)
+        clashes.push(`${a.label} vs ${b.label}`);
+    }
+  return clashes;
+}
+
+describe('sibship contiguity and remarriage (regression for merged lineage lines)', () => {
+  const mk = (id: string): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen: 0,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+  });
+
+  // Four founder couples, each with 3 children; a cross-family marriage; and a remarriage
+  // (one person with two married-in spouses). Reproduces the reported "unrelated people share
+  // one lineage line" and "divorce/marriage overlapping lines" defects.
+  function tangledTree(): FamilyRecord {
+    const people: Person[] = [];
+    const unions: Union[] = [];
+    const kidsByCouple: string[][] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = `f${i}a`,
+        b = `f${i}b`;
+      people.push(mk(a), mk(b));
+      const kids = [`c${i}0`, `c${i}1`, `c${i}2`];
+      kids.forEach((k) => people.push(mk(k)));
+      unions.push({ parents: [a, b], children: kids });
+      kidsByCouple.push(kids);
+    }
+    // cross-family marriage: c01 × c11 → two children
+    people.push(mk('gc0'), mk('gc1'));
+    unions.push({ parents: [kidsByCouple[0][1], kidsByCouple[1][1]], children: ['gc0', 'gc1'] });
+    // remarriage: c20 marries spouse X (→ rx) and spouse Y (→ ry)
+    people.push(mk('spX'), mk('spY'), mk('rx'), mk('ry'));
+    unions.push({ parents: [kidsByCouple[2][0], 'spX'], children: ['rx'] });
+    unions.push({ parents: [kidsByCouple[2][0], 'spY'], children: ['ry'] });
+    return layoutFromGraph({ people, unions, timeline: [], probandId: 'gc0' });
+  }
+
+  it('never draws an unrelated person under a sibling bus', () => {
+    const rec = tangledTree();
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(unrelatedUnderBus(rec, pos)).toEqual([]);
+  });
+
+  it('never overlaps two different unions’ sibling buses in the same generation', () => {
+    const rec = tangledTree();
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(busOverlaps(rec, pos)).toEqual([]);
+  });
+
+  it('places a remarried person between their two spouses, each marriage connecting its child', () => {
+    const rec = tangledTree();
+    const { pos } = computeLayout(rec.people, rec.unions);
+    // c20 married both spX and spY: c20 sits between them.
+    const [xX, xC, xY] = [pos.spX.x, pos.c20.x, pos.spY.x];
+    expect((xX < xC && xC < xY) || (xY < xC && xC < xX)).toBe(true);
+    // Both marriages' children still connect to their own bar.
+    expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
+  });
+
+  it('handles a person married to two siblings of the same sibship without blowing up', () => {
+    // Divorce-then-marry-the-sibling (or a sororate/levirate remarriage): `x` is the spouse
+    // of both `s1` and `s2`, who are siblings. Each person must appear exactly once and the
+    // canvas must stay bounded — a duplicated node here compounds across ordering rounds.
+    const rec = layoutFromGraph({
+      people: ['dad', 'mom', 's1', 's2', 'x', 'k1', 'k2'].map(mk),
+      unions: [
+        { parents: ['dad', 'mom'], children: ['s1', 's2'] },
+        { parents: ['s1', 'x'], children: ['k1'] },
+        { parents: ['s2', 'x'], children: ['k2'] },
+      ],
+      timeline: [],
+      probandId: 'k1',
+    });
+    const layout = computeLayout(rec.people, rec.unions);
+    // Every person positioned exactly once, no phantom coordinates.
+    expect(Object.keys(layout.pos).sort()).toEqual(rec.people.map((p) => p.id).sort());
+    // Canvas stays sane (a duplication bug ballooned this to millions of px).
+    expect(layout.cw).toBeLessThan(2000);
+    for (const p of rec.people) expect(Number.isFinite(layout.pos[p.id].x)).toBe(true);
+  });
+
+  it('keeps the seed and imported trees free of unrelated bus intruders', () => {
+    for (const rec of [seedRecord()]) {
+      const { pos } = computeLayout(rec.people, rec.unions);
+      expect(unrelatedUnderBus(rec, pos)).toEqual([]);
+      expect(busOverlaps(rec, pos)).toEqual([]);
+    }
   });
 });
 
