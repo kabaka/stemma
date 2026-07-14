@@ -36,6 +36,27 @@ describe('screeningsFor', () => {
   it('counts screenings that need action', () => {
     expect(dueCount(forMaya)).toBeGreaterThan(0);
   });
+
+  it('escalates the prostate PSA discussion on a family prostate-cancer signal', () => {
+    // Robert (sab m) has a prostate; his brother Tom is a first-degree blood relative.
+    // Giving Tom prostate cancer should escalate Robert's PSA discussion to Recommended.
+    const record = seedRecord();
+    record.people
+      .find((p) => p.id === 'tom')!
+      .conds.push({ id: 'prostate', onset: 62, prov: 'self' });
+    const psa = screeningsFor(record, 'robert').find((s) => s.id === 'prostate');
+    expect(psa).toBeDefined();
+    expect(psa!.status).toBe('Recommended');
+    expect(psa!.why).toMatch(/family history/);
+  });
+
+  it('leaves the prostate PSA discussion routine without a family signal', () => {
+    // Robert has a prostate but (in the unmodified seed) no prostate-cancer/BRCA signal
+    // among his blood relatives, so the screen stays routine.
+    const psa = screeningsFor(seedRecord(), 'robert').find((s) => s.id === 'prostate');
+    expect(psa).toBeDefined();
+    expect(psa!.status).toBe('Routine');
+  });
 });
 
 describe('familySignal', () => {

@@ -53,14 +53,14 @@ If a change to `domain` needs data from the outside world, it does **not** reach
 ## The condition catalog — regenerate, never hand-edit
 
 `src/data/conditions.ts` is **generated** and carries a `DO NOT EDIT BY HAND` banner. It is derived
-by `scripts/gen-conditions.mjs` from the prototype catalog (`prototype/conditions.js`) enriched with
-verified ICD-10-CM and SNOMED CT code maps.
+by `scripts/gen-conditions.mjs` from the self-contained base catalog
+(`scripts/conditions.source.json`) enriched with verified ICD-10-CM and SNOMED CT code maps.
 
 To change the curated catalog:
 
 ```bash
-# 1. Edit the source of truth — the prototype catalog and/or the code maps in the script:
-#    prototype/conditions.js        (id, name, cat, base, pattern, syn)
+# 1. Edit the source of truth — the base catalog and/or the code maps in the script:
+#    scripts/conditions.source.json  (id, name, cat, base, pattern, syn)
 #    scripts/gen-conditions.mjs      (the SNOMED / ICD10 maps, COMMON list)
 # 2. Regenerate:
 npm run gen:conditions
@@ -74,8 +74,8 @@ generator — so don't.
 ## How to extend Stemma
 
 ### Add a curated condition
-Add it to `prototype/conditions.js`; if it is high-signal, add its ICD-10-CM/SNOMED codes to the
-maps in `scripts/gen-conditions.mjs` and (optionally) to the `COMMON` list. Run
+Add it to `scripts/conditions.source.json`; if it is high-signal, add its ICD-10-CM/SNOMED codes to
+the maps in `scripts/gen-conditions.mjs` and (optionally) to the `COMMON` list. Run
 `npm run gen:conditions`. Use a valid `CategoryKey` (the generator asserts this at module load).
 The long tail of ICD-10 does **not** go here — it is reached at runtime via the vocabulary port.
 
