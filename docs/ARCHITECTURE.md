@@ -239,10 +239,15 @@ Stemma is **local-first** (ideation **§8**, "storage adapter #1"). The Zustand 
 `localStorage` under the key `stemma-record`. Persistence is **partialized** to the durable data —
 the `FamilyRecord`, long-tail catalog `extensions`, and `palette` — while transient UI state (current
 view, selection, vantage) is deliberately not persisted. Mutations clone the record
-(`structuredClone`) and set immutably.
+(`structuredClone`) and set immutably. On hydrate, a `merge`/`migrate` guard validates the persisted
+blob's shape and falls back to a clean seed if it is corrupt or schema-outdated, so the durable asset
+can't hydrate garbage into state.
 
 This is the cleanest privacy story: the record never leaves the browser, and the only runtime network
-call is the optional NLM vocabulary lookup. The ideation doc's **§8** describes the intended
+call is the optional NLM vocabulary lookup. **Caveat — unencrypted at rest:** because it lives in
+`localStorage`, the record is stored in plaintext in the browser profile (readable with device/profile
+access or by a malicious extension). At-rest encryption is deferred to the roadmap's storage adapter #2
+(end-to-end-encrypted, zero-knowledge); the local build's threat model assumes a trusted device. The ideation doc's **§8** describes the intended
 evolution — a **pluggable storage/sync layer** with a second adapter (a self-hosted, end-to-end
 encrypted, per-person-vault API) behind the *same* UI and export layer, so moving between a
 GitHub-Pages local build and a self-hosted deployment is not a rewrite. Today only the local adapter

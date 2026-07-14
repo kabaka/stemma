@@ -5,6 +5,8 @@
  * of the engine can treat curated and long-tail codes uniformly.
  */
 import type { CategoryKey, Condition } from './types';
+import { CONDITIONS, COMMON_CONDITIONS } from '@/data/conditions';
+import { CATEGORY_LABELS } from '@/data/categories';
 
 export interface CatalogHit {
   id: string;
@@ -84,4 +86,14 @@ export function createCatalog(
       return scored.slice(0, cap ?? 40).map((o) => toHit(o.c));
     },
   };
+}
+
+/**
+ * Build the default catalog: the curated conditions merged with any long-tail
+ * `extensions` the user attached via vocabulary search. Pure — lives in the core so
+ * the export layer and future import pipelines can assemble a catalog without reaching
+ * up into the store.
+ */
+export function buildCatalog(extensions: Condition[] = []): Catalog {
+  return createCatalog([...CONDITIONS, ...extensions], [...COMMON_CONDITIONS], CATEGORY_LABELS);
 }

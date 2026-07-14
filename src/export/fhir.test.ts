@@ -7,7 +7,7 @@ import type {
   FhirPatient,
 } from './fhir';
 import { seedRecord } from '@/data/seed';
-import { buildCatalog } from '@/store/useStore';
+import { buildCatalog } from '@/domain/catalog';
 
 const NOW = '2026-07-14T12:00:00.000Z';
 const catalog = buildCatalog([]);

@@ -1,12 +1,10 @@
-// Generate src/data/conditions.ts from the prototype catalog, enriched with
-// verified SNOMED CT (from the prototype) and ICD-10-CM codes (fetched via MCP).
+// Generate src/data/conditions.ts from the self-contained base catalog
+// (scripts/conditions.source.json), enriched with verified SNOMED CT and ICD-10-CM codes.
+// This owns its source, so prototype/ can be pruned without breaking the build.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const src = readFileSync('prototype/conditions.js', 'utf8');
-const windowShim = {};
-new Function('window', src)(windowShim);
-const conditions = windowShim.LINEAGE_CONDITIONS;
-if (!Array.isArray(conditions)) throw new Error('catalog not found');
+const conditions = JSON.parse(readFileSync('scripts/conditions.source.json', 'utf8'));
+if (!Array.isArray(conditions)) throw new Error('catalog source not found');
 
 const SNOMED = {
   brca: '254837009',
@@ -109,7 +107,7 @@ const header = `/**
  * (\`src/integrations/vocabulary.ts\`), so the app is never limited to this list.
  *
  * DO NOT EDIT BY HAND — regenerate with \`npm run gen:conditions\`, which re-derives it
- * from the prototype catalog and the verified code maps. See \`docs/ARCHITECTURE.md\`.
+ * from \`scripts/conditions.source.json\` and the verified code maps. See \`docs/ARCHITECTURE.md\`.
  *
  * Prevalences are illustrative (roadmap §3 tracks binding them to sourced epidemiology).
  * ICD-10-CM codes verified against FY2026; SNOMED CT concept ids are representative.

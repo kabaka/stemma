@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildPedigreeSvg } from './pedigree-svg';
 import { seedRecord } from '@/data/seed';
-import { buildCatalog } from '@/store/useStore';
+import { buildCatalog } from '@/domain/catalog';
 
 const catalog = buildCatalog([]);
 

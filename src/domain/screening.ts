@@ -31,7 +31,7 @@ export const SCREENING_DEFS: readonly ScreeningDef[] = [
     name: 'Mammogram',
     organ: 'breasts',
     flags: ['brca'],
-    base: 'Annual from 40',
+    base: 'From 40; annual (ACS/ACR) or biennial (USPSTF)',
     why: 'Breast tissue present',
   },
   {
@@ -46,8 +46,8 @@ export const SCREENING_DEFS: readonly ScreeningDef[] = [
     id: 'prostate',
     name: 'Prostate (PSA) discussion',
     organ: 'prostate',
-    flags: [],
-    base: 'Discuss from 50',
+    flags: ['prostate', 'brca'],
+    base: 'Discuss 55–69 (earlier with family history)',
     why: 'Prostate present',
   },
   {

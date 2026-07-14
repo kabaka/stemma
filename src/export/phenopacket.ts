@@ -87,9 +87,6 @@ export interface PhenopacketOptions {
   asOfYear?: number;
 }
 
-/** As-of year for living-age math; overridable via {@link PhenopacketOptions.asOfYear}. */
-export const AS_OF_YEAR = new Date().getFullYear();
-
 const FAMILY_ID = 'stemma-kindred';
 const SNOMED_RESOURCE: PhenopacketResource = {
   id: 'snomed',
@@ -111,7 +108,9 @@ export function buildPhenopacket(
   opts: PhenopacketOptions = {},
 ): Phenopacket {
   const idx = indexPeople(record.people, record.unions);
-  const asOfYear = opts.asOfYear ?? AS_OF_YEAR;
+  // Wall-clock defaults are evaluated per call (never at module load), so nothing goes
+  // stale across a year boundary; callers inject fixed values for deterministic output.
+  const asOfYear = opts.asOfYear ?? new Date().getFullYear();
   const created = opts.now ?? new Date().toISOString();
   const probandId = record.probandId;
   const proband = personById(idx, probandId);

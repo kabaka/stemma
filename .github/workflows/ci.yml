@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+# Least privilege: the checks only read the repo. (Deploy uses its own scoped token.)
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}

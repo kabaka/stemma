@@ -38,12 +38,6 @@ export interface PatternFlag {
   relatives: AffectedRelative[];
 }
 
-export const SEVERITY_META: Record<Severity, { color: string; bg: string; label: string }> = {
-  referral: { color: '#ff5d5d', bg: 'rgba(255,93,93,0.14)', label: 'Referral criteria' },
-  discuss: { color: '#ffb043', bg: 'rgba(255,176,67,0.14)', label: 'Discuss with clinician' },
-  note: { color: '#8b94a3', bg: 'rgba(255,255,255,0.05)', label: 'Note' },
-};
-
 const SEVERITY_RANK: Record<Severity, number> = { referral: 0, discuss: 1, note: 2 };
 
 /** Relationship of every person to `rootId`, keyed by person id. */
@@ -87,11 +81,16 @@ export function detectPatterns(
       });
 
   const flags: PatternFlag[] = [];
+  // Codes owned by a specific pattern block below; the generic autosomal-dominant
+  // sweep skips them so a condition is never double-flagged. Each block registers what
+  // it consumes, so adding a new specific pattern can't silently fall through here.
+  const handled = new Set<string>();
 
   // --- Hereditary breast & ovarian cancer (HBOC) ---
   {
     const breast = withCond('brca');
     const ovarian = withCond('ovarian');
+    handled.add('brca').add('ovarian');
     const reasons: string[] = [];
     if (breast.length >= 2) reasons.push(`${breast.length} relatives with breast cancer`);
     if (ovarian.length >= 1) reasons.push('ovarian cancer in a blood relative');
@@ -116,6 +115,7 @@ export function detectPatterns(
     const colo = withCond('colon');
     const endo = withCond('endometrial');
     const gast = withCond('gastric');
+    handled.add('colon').add('endometrial').add('gastric');
     const spectrum = [...colo, ...endo, ...gast];
     const reasons: string[] = [];
     const young = colo.filter((c) => c.onset != null && c.onset < 50);
@@ -133,7 +133,7 @@ export function detectPatterns(
         cat: 'canc',
         title: 'Lynch syndrome pattern (hereditary colorectal)',
         criterion: reasons.join('; '),
-        rec: 'Consistent with Amsterdam II-type criteria. Consider a genetics referral and earlier, more frequent colonoscopy (often from age 20–25, or 10 years before the earliest family diagnosis).',
+        rec: 'Suggestive of a hereditary (Lynch) pattern — a revised-Bethesda-type threshold, more sensitive than the stricter Amsterdam II criteria. Consider a genetics referral and earlier, more frequent colonoscopy (often from age 20–25, or 10 years before the earliest family diagnosis).',
         relatives: spectrum,
       });
   }
@@ -142,6 +142,7 @@ export function detectPatterns(
   {
     const cad = withCond('cad');
     const chol = withCond('chol');
+    handled.add('cad').add('chol');
     const premature = cad.filter(
       (c) =>
         c.degree === 1 &&
@@ -168,11 +169,10 @@ export function detectPatterns(
 
   // --- Generic autosomal-dominant vertical transmission ---
   {
-    const covered = new Set(['brca', 'ovarian', 'colon', 'endometrial', 'gastric', 'cad', 'chol']);
     const present = new Set<string>();
     for (const p of blood) for (const c of condIds(p)) present.add(c);
     for (const code of present) {
-      if (covered.has(code)) continue;
+      if (handled.has(code)) continue;
       const meta = catalog.get(code);
       if (!/dominant/i.test(meta.pattern ?? '')) continue;
       const aff = withCond(code);

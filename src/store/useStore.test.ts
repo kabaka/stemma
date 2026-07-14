@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildCatalog, useStore } from './useStore';
+import { useStore } from './useStore';
+import { buildCatalog } from '@/domain/catalog';
 
 const reset = () => useStore.getState().resetRecord();
 

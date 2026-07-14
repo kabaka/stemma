@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { useCatalog } from '../hooks';
+import { useAsOfYear, useCatalog } from '../hooks';
 import { buildFhirBundle, buildGedcom, buildPedigreeSvg, buildPhenopacket } from '@/export';
 
 type Format = 'fhir' | 'phenopacket' | 'gedcom' | 'svg';
@@ -66,14 +66,18 @@ export function ReportsView() {
   const record = useStore((s) => s.record);
   const palette = useStore((s) => s.palette);
   const catalog = useCatalog();
+  const asOfYear = useAsOfYear();
   const [preview, setPreview] = useState<{ format: Format; text: string } | null>(null);
 
   const render = (format: Format): string => {
+    // The document's generation time and as-of year are injected here (the sanctioned
+    // wall-clock boundary) so the serializers stay pure/deterministic.
+    const now = new Date().toISOString();
     switch (format) {
       case 'fhir':
-        return JSON.stringify(buildFhirBundle(record, catalog), null, 2);
+        return JSON.stringify(buildFhirBundle(record, catalog, { now }), null, 2);
       case 'phenopacket':
-        return JSON.stringify(buildPhenopacket(record, catalog), null, 2);
+        return JSON.stringify(buildPhenopacket(record, catalog, { now, asOfYear }), null, 2);
       case 'gedcom':
         return buildGedcom(record);
       case 'svg':

@@ -22,7 +22,7 @@ export type {
   FhirCoding,
 } from './fhir';
 
-export { buildPhenopacket, AS_OF_YEAR } from './phenopacket';
+export { buildPhenopacket } from './phenopacket';
 export type { Phenopacket, PhenopacketOptions } from './phenopacket';
 
 export { buildGedcom } from './gedcom';

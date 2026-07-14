@@ -141,6 +141,10 @@ Stemma is **not limited to a fixed condition list.** The catalog has two layers:
 
 - **Your data stays in your browser.** The whole record persists to `localStorage` (key
   `stemma-record`). There is no account, no server, and no upload.
+- **Stored unencrypted at rest.** Because the record lives in `localStorage`, it is held in
+  plaintext in your browser profile — readable by anyone with access to your device/profile or by
+  a malicious browser extension. Device security is your responsibility for now; an
+  end-to-end-encrypted, zero-knowledge storage adapter is on the [roadmap](docs/ROADMAP.md) (§5).
 - **One optional network call.** The only runtime request Stemma makes is the ICD-10 vocabulary
   lookup to the NLM Clinical Tables API — and only when you search for a long-tail condition.
 - **No lock-in.** Everything is designed to export to open standards (below), because a personal

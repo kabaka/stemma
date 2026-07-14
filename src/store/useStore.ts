@@ -20,17 +20,16 @@ import type {
 } from '@/domain/types';
 import type { Palette } from '@/data/categories';
 import { seedRecord } from '@/data/seed';
-import { CONDITIONS, COMMON_CONDITIONS } from '@/data/conditions';
-import { CATEGORY_LABELS } from '@/data/categories';
-import { createCatalog, type Catalog } from '@/domain/catalog';
+import { CONDITIONS } from '@/data/conditions';
 import { organsOf } from '@/domain/person';
+import { linkRelative, removePerson, type Relation } from '@/domain/record';
 
 /** The current calendar year, used as the "as of" date for age math. */
 export const CURRENT_YEAR = new Date().getFullYear();
 
 export type View = 'overview' | 'tree' | 'patterns' | 'timeline' | 'reports';
 
-export type Relation = 'partner' | 'child' | 'sibling' | 'parent';
+export type { Relation };
 
 /** Fields accepted when adding or editing a person. */
 export interface PersonInput {
@@ -113,6 +112,36 @@ function initialUi(record: FamilyRecord): UiState {
 
 const cloneRecord = (r: FamilyRecord): FamilyRecord => structuredClone(r);
 
+/**
+ * Minimal shape guard for a hydrated record. The persisted record is the durable asset
+ * ("a personal health record must outlive the app"), so a corrupt or schema-outdated
+ * blob must degrade to a clean seed rather than crash or hydrate garbage into state.
+ */
+function isValidRecord(r: unknown): r is FamilyRecord {
+  if (!r || typeof r !== 'object') return false;
+  const rec = r as Partial<FamilyRecord>;
+  return (
+    Array.isArray(rec.people) &&
+    Array.isArray(rec.unions) &&
+    Array.isArray(rec.timeline) &&
+    typeof rec.probandId === 'string' &&
+    rec.people.some((p) => (p as Person | undefined)?.id === rec.probandId)
+  );
+}
+
+/** Coerce a persisted blob (any version) into a valid PersistedState, or reset to seed. */
+function migratePersisted(persisted: unknown): PersistedState {
+  const s = (persisted ?? {}) as Partial<PersistedState>;
+  if (!isValidRecord(s.record)) {
+    return { record: seedRecord(), extensions: [], palette: 'default' };
+  }
+  return {
+    record: s.record,
+    extensions: Array.isArray(s.extensions) ? s.extensions : [],
+    palette: s.palette === 'colorblind' ? 'colorblind' : 'default',
+  };
+}
+
 const seed = seedRecord();
 
 export const useStore = create<Store>()(
@@ -131,11 +160,9 @@ export const useStore = create<Store>()(
       setTlType: (tlType) => set({ tlType }),
 
       addRelative: (anchorId, relation, input) => {
-        const record = cloneRecord(get().record);
-        const anchor =
-          record.people.find((p) => p.id === anchorId) ?? record.people.find((p) => p.isProband);
-        if (!anchor) return '';
         const id = newId();
+        // Build the person here (id + condition entries); the domain links it into the
+        // graph (unions, generation, layout). gen/x are placeholders — linkRelative sets them.
         const person: Person = {
           id,
           name: input.name.trim(),
@@ -143,47 +170,17 @@ export const useStore = create<Store>()(
           gender: input.gender,
           pronouns: input.pronouns,
           organs: input.organs,
-          gen: anchor.gen,
-          x: anchor.x + 84,
+          gen: 0,
+          x: 0,
           dead: input.dead,
           birth: input.birth,
           death: input.dead ? input.death : null,
           conds: input.condIds.map((cid) => ({ id: cid, onset: null, prov: 'self' as Provenance })),
         };
-
-        if (relation === 'partner') {
-          record.unions.push({ parents: [anchor.id, id], children: [] });
-        } else if (relation === 'child') {
-          let u = record.unions.find((x) => x.parents.includes(anchor.id));
-          if (!u) {
-            u = { parents: [anchor.id], children: [] };
-            record.unions.push(u);
-          }
-          u.children.push(id);
-          person.gen = anchor.gen + 1;
-          const px = u.parents.map((pid) => record.people.find((p) => p.id === pid)?.x ?? anchor.x);
-          person.x = px.reduce((s, v) => s + v, 0) / px.length;
-        } else if (relation === 'sibling') {
-          let u = record.unions.find((x) => x.children.includes(anchor.id));
-          if (!u) {
-            u = { parents: [], children: [anchor.id] };
-            record.unions.push(u);
-          }
-          u.children.push(id);
-          person.gen = anchor.gen;
-        } else {
-          // parent
-          let u = record.unions.find((x) => x.children.includes(anchor.id));
-          if (!u) {
-            u = { parents: [], children: [anchor.id] };
-            record.unions.push(u);
-          }
-          u.parents.push(id);
-          person.gen = anchor.gen - 1;
-        }
-
-        record.people.push(person);
-        set({ record });
+        const record = get().record;
+        const next = linkRelative(record, anchorId, relation, person);
+        if (next === record) return ''; // anchor not found
+        set({ record: next });
         return id;
       },
 
@@ -211,21 +208,13 @@ export const useStore = create<Store>()(
 
       deletePerson: (id) => {
         const state = get();
-        if (id === state.record.probandId) return;
-        const record = cloneRecord(state.record);
-        record.people = record.people.filter((p) => p.id !== id);
-        record.unions = record.unions
-          .map((u) => ({
-            ...u,
-            parents: u.parents.filter((x) => x !== id),
-            children: u.children.filter((x) => x !== id),
-          }))
-          .filter((u) => u.parents.length + u.children.length > 1);
+        const next = removePerson(state.record, id);
+        if (next === state.record) return; // proband delete is a no-op
         set({
-          record,
+          record: next,
           selectedId: null,
-          riskRoot: state.riskRoot === id ? record.probandId : state.riskRoot,
-          tlPerson: state.tlPerson === id ? record.probandId : state.tlPerson,
+          riskRoot: state.riskRoot === id ? next.probandId : state.riskRoot,
+          tlPerson: state.tlPerson === id ? next.probandId : state.tlPerson,
         });
       },
 
@@ -308,6 +297,10 @@ export const useStore = create<Store>()(
     {
       name: 'stemma-record',
       version: 1,
+      // migrate handles explicit version bumps; merge validates on *every* hydration,
+      // so a corrupt same-version blob also falls back to a clean seed.
+      migrate: (persisted) => migratePersisted(persisted),
+      merge: (persisted, current) => ({ ...current, ...migratePersisted(persisted) }),
       partialize: (s): PersistedState => ({
         record: s.record,
         extensions: s.extensions,
@@ -316,8 +309,3 @@ export const useStore = create<Store>()(
     },
   ),
 );
-
-/** Build the merged catalog (curated + user extensions). */
-export function buildCatalog(extensions: Condition[]): Catalog {
-  return createCatalog([...CONDITIONS, ...extensions], [...COMMON_CONDITIONS], CATEGORY_LABELS);
-}

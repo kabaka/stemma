@@ -1,8 +1,8 @@
 /** Derived-state hooks shared across views. Keep computation in the domain layer;
  * these just memoise it against the current store. */
 import { useMemo } from 'react';
-import { buildCatalog, CURRENT_YEAR, useStore } from '@/store/useStore';
-import type { Catalog } from '@/domain/catalog';
+import { CURRENT_YEAR, useStore } from '@/store/useStore';
+import { buildCatalog, type Catalog } from '@/domain/catalog';
 import { detectPatterns, familyFindings, relationMap, type PatternFlag } from '@/domain/patterns';
 import { calculatorsFor, screeningsFor } from '@/domain/screening';
 import type { RelationInfo } from '@/domain/graph';

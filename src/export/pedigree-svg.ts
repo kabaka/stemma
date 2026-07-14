@@ -28,8 +28,15 @@ const OUTLINE = '#1a1f28';
 const LINE = '#3a4150';
 const UNAFFECTED_FILL = '#ffffff';
 
+// Escapes for XML text content AND attribute values (quotes included), so the same
+// helper is safe if a name is ever interpolated into an attribute, not just text.
 function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /** Serialise a family record into a self-contained pedigree SVG string. */

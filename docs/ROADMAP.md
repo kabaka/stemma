@@ -133,7 +133,26 @@ These constrain every phase and are enforced in code and review:
 
 - Prevalence `base` values are illustrative until Phase 1 binds them to sourced data.
 - The seed record is fictional demo data; a first-run "start empty" path should be added.
-- No UI/interaction tests yet (domain + export are covered); add Testing-Library coverage
-  for the store mutations and key views.
-- `prototype/` is retained for reference (screenshots, ideation doc); it can be pruned once
-  the port is considered complete.
+- `prototype/` is retained for reference (screenshots, ideation doc); the catalog generator no
+  longer depends on it (`scripts/conditions.source.json` is the source), so it can be pruned.
+
+## 7. Review-driven follow-ups
+
+Deferred items surfaced by the specialist review panel (architecture, medical, security,
+accessibility, testing) — captured here so nothing is lost:
+
+- **Long-tail codes don't yet drive detection** (Phase 3 enabler). A condition attached via ICD-10
+  vocabulary search resolves to `cat:'other'` and does not count toward, e.g., the HBOC breast
+  tally. Add a code→curated-concept alias so imported/coded data participates in the pattern engine.
+- **HBOC should count same-lineage** (Phase 1). NCCN family-history criteria are per-side; the
+  current `breast ≥ 2` is lineage-agnostic (low-harm over-trigger for a *referral*). Refine to
+  same-side and cite NCCN.
+- **Lynch spectrum** (Phase 1). Add ovarian and upper-urinary-tract cancers to the Lynch-spectrum
+  set (a sensitivity gap), coordinating with HBOC so ovarian isn't double-counted.
+- **Async storage seam before Phase 5.** Every store mutation is synchronous; a zero-knowledge
+  remote vault is async. Design the repository/adapter interface (async hydrate/commit) before the
+  backend, not after — the sync→async shift is the real work, not the storage bytes.
+- **AI layer must consume the typed engine outputs** (`PatternFlag`/`FamilyFinding`), never
+  re-derive from free text, to keep the "no number the engine didn't produce" guard enforceable.
+- **GitHub Actions** are pinned to major tags (`@v4`); pin to commit SHAs for stricter supply-chain
+  hygiene when the project hardens further.

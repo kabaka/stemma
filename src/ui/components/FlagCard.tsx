@@ -1,4 +1,5 @@
-import { SEVERITY_META, type PatternFlag } from '@/domain/patterns';
+import type { PatternFlag } from '@/domain/patterns';
+import { SEVERITY_META } from '@/data/severity';
 
 /** A single hereditary-pattern flag: criterion met + advisory recommendation. */
 export function FlagCard({ flag }: { flag: PatternFlag }) {
