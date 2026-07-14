@@ -176,3 +176,8 @@ accessibility, testing) — captured here so nothing is lost:
   re-derive from free text, to keep the "no number the engine didn't produce" guard enforceable.
 - **GitHub Actions** are pinned to major tags (`@v4`); pin to commit SHAs for stricter supply-chain
   hygiene when the project hardens further.
+- **Hide background chrome from AT while a modal is open** (accessibility). The person add/edit
+  modal is `aria-modal="true"` with a focus trap, which covers Tab order, but the sidebar/other
+  view content isn't marked `inert`/`aria-hidden`, so a screen-reader user in browse mode can still
+  reach controls behind the backdrop. The clean fix is a portal + `inert` on siblings; it's a
+  cross-component change (App + views) deferred from the person-edit work.

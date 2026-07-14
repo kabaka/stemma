@@ -242,8 +242,17 @@
   color: var(--text);
   cursor: pointer;
 }
-.btn:hover {
+.btn:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+/* A real disabled state (WCAG 3.3.1): without this the author background/color on
+   .btn--primary overrides the UA's greyed chrome, so a disabled Save looked identical to
+   an enabled one. Dimmed + not-allowed reads as unavailable (and the hover rules exclude
+   :disabled so it doesn't brighten as if interactive); the "· required" name hint says
+   why. One rule covers every .btn/.btn--primary/.btn--danger in the app. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .btn--primary {
   background: var(--accent);
@@ -251,7 +260,7 @@
   border-color: var(--accent);
   font-weight: 600;
 }
-.btn--primary:hover {
+.btn--primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 .btn--sm {
@@ -296,7 +305,10 @@ textarea.field {
   font-size: 13px;
   width: 100%;
 }
-label.lbl {
+/* Not element-qualified: PersonForm labels its segmented-toggle / organ / conditions
+   groups with a <span class="lbl"> (a group heading isn't a single control's <label>),
+   and those must get the same small, dim caption styling as real <label class="lbl">s. */
+.lbl {
   display: block;
   font-size: 11px;
   color: var(--text-dim);
@@ -316,6 +328,90 @@ label.lbl {
   background: rgba(52, 226, 207, 0.12);
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* Minimal "x" used to remove an item from inside a chip/pill (see PersonForm's
+   selected-condition chips) — deliberately not a full .btn (too heavy at that size). */
+.chip-remove {
+  /* Pad the hit target out to a comfortable size without visually enlarging the glyph:
+     negative margins pull the surrounding chip back so density is unchanged. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 3px;
+  margin: -4px -2px -4px 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  /* Full-strength text, not --text-dim: the dim shade dipped just under 4.5:1 (WCAG
+     1.4.3) on the most saturated category-chip tints. */
+  color: var(--text);
+  cursor: pointer;
+}
+.chip-remove:hover {
+  color: var(--sev-referral);
+}
+
+/* Segmented toggle button (sex-assigned-at-birth / status / gender identity in
+   PersonForm) — a full-width alternative to .chip for a small exclusive-choice row. */
+.seg-btn {
+  flex: 1;
+  font-family: inherit;
+  text-align: center;
+  padding: 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-dim);
+}
+.seg-btn:hover {
+  background: var(--bg-hover);
+}
+.seg-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: rgba(52, 226, 207, 0.14);
+  color: var(--text);
+  /* A non-colour cue for the selected option, so the pressed state doesn't read by hue
+     alone (WCAG 1.4.1) — aria-pressed already covers assistive tech. */
+  font-weight: 600;
+}
+
+/* 2-column compact tiles summarising the selected person (Status/Lifespan/Kinship/
+   Lineage/Gender/Sex-at-birth) in PersonDrawer. */
+.identity-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.identity-tile {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.identity-tile__label {
+  font-size: 9.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.identity-tile__value {
+  font-size: 12.5px;
+  font-weight: 500;
+  margin-top: 3px;
+}
+
+/* 2-column "Add connected relative" quick-action grid in PersonDrawer; cells reuse
+   .btn so they inherit the standard hover/focus treatment. */
+.relative-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
 }
 
 .disclaimer {
@@ -590,6 +686,30 @@ label.lbl {
   gap: 16px;
 }
 
+/* ---- Modal (PersonForm) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.7);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 24px;
+}
+.modal {
+  width: 440px;
+  max-width: 100%;
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  padding: 24px;
+}
+
 .timeline-list {
   list-style: none;
   margin: 0;
@@ -607,6 +727,8 @@ label.lbl {
 /* ---- Focus ---- */
 .btn:focus-visible,
 .chip:focus-visible,
+.chip-remove:focus-visible,
+.seg-btn:focus-visible,
 .nav-item:focus-visible,
 .field:focus-visible,
 .pedigree-node:focus-visible {
