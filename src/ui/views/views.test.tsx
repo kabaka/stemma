@@ -325,6 +325,79 @@ describe('PedigreeView — empty record', () => {
   });
 });
 
+describe('PedigreeView — GEDCOM import', () => {
+  const SAMPLE = `0 HEAD
+0 @I1@ INDI
+1 NAME Alice /Green/
+1 SEX F
+1 BIRT
+2 DATE 1970
+0 @I2@ INDI
+1 NAME Bob /Green/
+1 SEX M
+1 BIRT
+2 DATE 2000
+0 @F1@ FAM
+1 HUSB @I1@
+1 CHIL @I2@
+0 TRLR
+`;
+  const gedcomFile = () => new File([SAMPLE], 'family.ged', { type: 'text/plain' });
+
+  it('seeds the pedigree from a GEDCOM file chosen in the empty state', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord(); // outer beforeEach loaded the sample; start empty
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+
+    // The parse summary and proband picker appear once the file is read.
+    const picker = await screen.findByRole('combobox', { name: /which of these is you/i });
+    expect(picker).toHaveValue('I1'); // defaults to the first individual
+
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    const record = useStore.getState().record;
+    expect(record.people.map((p) => p.name).sort()).toEqual(['Alice Green', 'Bob Green']);
+    expect(record.probandId).toBe('I1');
+    // And the imported people render into the tree.
+    expect(screen.getByRole('button', { name: /Alice Green/i })).toBeInTheDocument();
+  });
+
+  it('lets the user pick which imported person is the record owner', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+    const picker = await screen.findByRole('combobox', { name: /which of these is you/i });
+
+    await user.selectOptions(picker, 'I2');
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    expect(useStore.getState().record.probandId).toBe('I2');
+    expect(useStore.getState().record.people.find((p) => p.isProband)!.name).toBe('Bob Green');
+  });
+
+  it('confirms before replacing a record that is not the untouched default', async () => {
+    const user = userEvent.setup();
+    // The outer beforeEach loaded the example family, so the record is not pristine.
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+    await screen.findByRole('combobox', { name: /which of these is you/i });
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    // Cancelled — the original seed family survives untouched.
+    expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+  });
+});
+
 describe('ReportsView', () => {
   // Downloads route through the Blob/URL/anchor-click trio, none of which jsdom
   // actually performs — stub them so a click is observable without a real navigation.

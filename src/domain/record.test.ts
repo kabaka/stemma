@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
 import type { FamilyRecord, Person } from './types';
-import { linkRelative, removePerson } from './record';
+import { deriveGenerations, layoutFromGraph, linkRelative, removePerson } from './record';
 
 /** Minimal fixture for a brand-new relative; linkRelative overwrites gen/x per relation. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
@@ -135,5 +135,79 @@ describe('removePerson', () => {
     const next = removePerson(record, record.probandId);
     expect(next).toBe(record);
     expect(next.people.some((p) => p.id === record.probandId)).toBe(true);
+  });
+});
+
+describe('deriveGenerations', () => {
+  it('places children one generation below each parent and partners at the same generation', () => {
+    const people = [mkPerson('gp1'), mkPerson('gp2'), mkPerson('parent'), mkPerson('kid')];
+    const unions: FamilyRecord['unions'] = [
+      { parents: ['gp1', 'gp2'], children: ['parent'] },
+      { parents: ['parent'], children: ['kid'] },
+    ];
+    const gen = deriveGenerations(people, unions);
+    // Oldest generation is normalised to 0.
+    expect(gen.get('gp1')).toBe(0);
+    expect(gen.get('gp2')).toBe(0);
+    expect(gen.get('parent')).toBe(1);
+    expect(gen.get('kid')).toBe(2);
+  });
+
+  it('keeps siblings at one generation even when their union lists no parents', () => {
+    const people = [mkPerson('a'), mkPerson('b')];
+    const gen = deriveGenerations(people, [{ parents: [], children: ['a', 'b'] }]);
+    expect(gen.get('a')).toBe(gen.get('b'));
+  });
+
+  it('reproduces the seed family generations (child = parent + 1 across every union)', () => {
+    const record = seedRecord();
+    const gen = deriveGenerations(record.people, record.unions);
+    for (const u of record.unions) {
+      for (const parent of u.parents) {
+        for (const kid of u.children) {
+          expect(gen.get(kid)! - gen.get(parent)!).toBe(1);
+        }
+      }
+    }
+  });
+});
+
+describe('layoutFromGraph', () => {
+  it('assigns non-negative generations and distinct x within a generation', () => {
+    const record: FamilyRecord = {
+      people: [
+        mkPerson('gp1'),
+        mkPerson('gp2'),
+        mkPerson('p'),
+        mkPerson('you', { isProband: true }),
+      ],
+      unions: [
+        { parents: ['gp1', 'gp2'], children: ['p'] },
+        { parents: ['p'], children: ['you'] },
+      ],
+      timeline: [],
+      probandId: 'you',
+    };
+    const laid = layoutFromGraph(record);
+    const by = (id: string) => laid.people.find((p) => p.id === id)!;
+    expect(by('gp1').gen).toBe(0);
+    expect(by('p').gen).toBe(1);
+    expect(by('you').gen).toBe(2);
+    expect(laid.people.every((p) => p.gen >= 0)).toBe(true);
+    // The two grandparents share a generation but not a column.
+    expect(by('gp1').x).not.toBe(by('gp2').x);
+  });
+
+  it('preserves everything but gen/x and never mutates the input', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('a', { isProband: true, name: 'A', birth: 1950 })],
+      unions: [],
+      timeline: [],
+      probandId: 'a',
+    };
+    const snapshot = structuredClone(record);
+    const laid = layoutFromGraph(record);
+    expect(record).toEqual(snapshot); // input untouched
+    expect(laid.people[0]).toMatchObject({ id: 'a', name: 'A', birth: 1950, isProband: true });
   });
 });

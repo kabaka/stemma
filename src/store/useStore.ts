@@ -22,7 +22,7 @@ import type { Palette } from '@/data/categories';
 import { emptyRecord, seedRecord } from '@/data/seed';
 import { CONDITIONS } from '@/data/conditions';
 import { organsOf } from '@/domain/person';
-import { linkRelative, removePerson, type Relation } from '@/domain/record';
+import { isValidRecord, linkRelative, removePerson, type Relation } from '@/domain/record';
 
 /** The current calendar year, used as the "as of" date for age math. */
 export const CURRENT_YEAR = new Date().getFullYear();
@@ -123,23 +123,6 @@ function recordUi(
 }
 
 const cloneRecord = (r: FamilyRecord): FamilyRecord => structuredClone(r);
-
-/**
- * Minimal shape guard for a hydrated record. The persisted record is the durable asset
- * ("a personal health record must outlive the app"), so a corrupt or schema-outdated
- * blob must degrade to a clean seed rather than crash or hydrate garbage into state.
- */
-function isValidRecord(r: unknown): r is FamilyRecord {
-  if (!r || typeof r !== 'object') return false;
-  const rec = r as Partial<FamilyRecord>;
-  return (
-    Array.isArray(rec.people) &&
-    Array.isArray(rec.unions) &&
-    Array.isArray(rec.timeline) &&
-    typeof rec.probandId === 'string' &&
-    rec.people.some((p) => (p as Person | undefined)?.id === rec.probandId)
-  );
-}
 
 /** Coerce a persisted blob (any version) into a valid PersistedState, or reset to seed. */
 function migratePersisted(persisted: unknown): PersistedState {
@@ -312,6 +295,11 @@ export const useStore = create<Store>()(
       },
 
       replaceRecord: (record, extensions) => {
+        // The first real callers of this action hand it externally-built records (GEDCOM
+        // import, and future FHIR-pull). Validate at this boundary — the same guard the
+        // persist layer applies at hydration — so a malformed record can never overwrite
+        // good state; an invalid one is ignored rather than swapped in.
+        if (!isValidRecord(record)) return;
         set({ record: cloneRecord(record), extensions: extensions ?? [], ...recordUi(record) });
       },
     }),
