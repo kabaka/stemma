@@ -43,3 +43,10 @@ export function categoryColor(cat: CategoryKey | null | undefined, palette: Pale
   if (!cat || !CATEGORIES[cat]) return NEUTRAL;
   return palette === 'colorblind' ? CATEGORIES[cat].colorblind : CATEGORIES[cat].color;
 }
+
+// Note on scope (WCAG 1.4.1): the colorblind toggle only rewires *category* hues,
+// since category colour is the one place meaning is carried by colour alone (pedigree
+// node fill, condition swatches) and needs a safe alternate set. Severity (SEVERITY_META),
+// screening-status, band, and timeline-event colours are static across both palettes —
+// that's intentional, not an oversight: each of those is always rendered alongside a text
+// label/badge, so they never rely on colour as the sole channel and don't trigger 1.4.1.

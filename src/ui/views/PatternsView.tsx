@@ -53,7 +53,7 @@ export function PatternsView() {
       </p>
 
       <section style={{ marginBottom: 26 }}>
-        <div className="section-label">Detected patterns</div>
+        <h2 className="section-label">Detected patterns</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           {flags.length === 0 && (
             <div className="card" style={{ color: 'var(--text-dim)', fontSize: 13 }}>
@@ -68,7 +68,7 @@ export function PatternsView() {
 
       {calculators.length > 0 && (
         <section style={{ marginBottom: 26 }}>
-          <div className="section-label">Validated risk calculators</div>
+          <h2 className="section-label">Validated risk calculators</h2>
           <div
             style={{
               display: 'grid',
@@ -98,7 +98,7 @@ export function PatternsView() {
       )}
 
       <section>
-        <div className="section-label">Per-condition family findings</div>
+        <h2 className="section-label">Per-condition family findings</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {findings.map((f) => (
             <div className="card" key={f.id} style={{ padding: '12px 14px' }}>

@@ -64,7 +64,7 @@ export function OverviewView() {
         style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 22 }}
       >
         <section>
-          <div className="section-label">Family history flags</div>
+          <h2 className="section-label">Family history flags</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
             {topFlags.length === 0 && (
               <div className="card" style={{ color: 'var(--text-dim)', fontSize: 13 }}>
@@ -89,7 +89,7 @@ export function OverviewView() {
         </section>
 
         <section>
-          <div className="section-label">Screening status</div>
+          <h2 className="section-label">Screening status</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {screenings.map((s) => (
               <div className="card" key={s.id} style={{ padding: '12px 14px' }}>

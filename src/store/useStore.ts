@@ -153,6 +153,9 @@ export const useStore = create<Store>()(
       ...initialUi(seed),
 
       setView: (view) => set({ view }),
+      // Swaps only the CategoryKey → colour mapping read via `categoryColor` (see
+      // src/data/categories.ts). Severity/screening/band/event colours are intentionally
+      // out of scope — they're always paired with a text label, so they're not a 1.4.1 risk.
       setPalette: (palette) => set({ palette }),
       selectPerson: (selectedId) => set({ selectedId }),
       setRiskRoot: (riskRoot) => set({ riskRoot }),

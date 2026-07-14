@@ -33,18 +33,22 @@ export function Sidebar() {
         <div className="brand-tag">Family health intelligence</div>
       </div>
 
-      <nav className="nav" aria-label="Primary">
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="nav-item"
-            aria-current={view === item.id}
-            onClick={() => setView(item.id)}
-          >
-            <span>{item.label}</span>
-          </button>
-        ))}
+      <nav aria-label="Primary">
+        <ul className="nav">
+          {NAV.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className="nav-item"
+                aria-current={view === item.id ? 'page' : undefined}
+                aria-label={item.label}
+                onClick={() => setView(item.id)}
+              >
+                <span>{item.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </nav>
 
       <div className="sidebar__foot">
@@ -60,9 +64,9 @@ export function Sidebar() {
 
         {proband && (
           <div>
-            <div className="overline" style={{ marginBottom: 9 }}>
+            <h2 className="overline" style={{ marginBottom: 9 }}>
               Proband
-            </div>
+            </h2>
             <div className="row who">
               <span className="avatar">{proband.name.charAt(0)}</span>
               <div>

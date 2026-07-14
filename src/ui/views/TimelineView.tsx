@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useRelations } from '../hooks';
 import { EVENT_META, EVENT_TYPES } from '@/data/events';
@@ -16,6 +16,7 @@ export function TimelineView() {
   const relations = useRelations(record.probandId);
 
   const [adding, setAdding] = useState(false);
+  const personSelectId = useId();
 
   // Fall back gracefully rather than assert: a replaced/imported record whose probandId
   // matches nobody must not crash the view.
@@ -41,7 +42,11 @@ export function TimelineView() {
           {isProband ? 'My Health Timeline' : `${person.name}’s Timeline`}
         </h1>
         <div className="row" style={{ gap: 8 }}>
+          <label className="visually-hidden" htmlFor={personSelectId}>
+            Select person
+          </label>
           <select
+            id={personSelectId}
             className="field"
             style={{ width: 'auto' }}
             value={tlPerson}
@@ -57,6 +62,7 @@ export function TimelineView() {
           <button
             type="button"
             className="btn btn--primary btn--sm"
+            aria-expanded={adding}
             onClick={() => setAdding((v) => !v)}
           >
             {adding ? '✕ close' : '+ log event'}
@@ -100,9 +106,9 @@ export function TimelineView() {
           No events recorded.
         </div>
       )}
-      <div>
+      <ul className="timeline-list">
         {shown.map((e) => (
-          <div className="timeline-item" key={e.id}>
+          <li className="timeline-item" key={e.id}>
             <span className="mono-dim" style={{ paddingTop: 2 }}>
               {e.year}
             </span>
@@ -133,9 +139,9 @@ export function TimelineView() {
             >
               ✕
             </button>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }
@@ -159,6 +165,11 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
   const [title, setTitle] = useState('');
   const [detail, setDetail] = useState('');
 
+  const yearId = useId();
+  const typeId = useId();
+  const titleId = useId();
+  const detailId = useId();
+
   const submit = () => {
     if (!title.trim()) return;
     const parsedYear = Number.parseInt(year, 10);
@@ -176,8 +187,11 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
     <div className="card" style={{ marginBottom: 18, display: 'grid', gap: 12 }}>
       <div className="row" style={{ gap: 12 }}>
         <div style={{ width: 110 }}>
-          <label className="lbl">Year</label>
+          <label className="lbl" htmlFor={yearId}>
+            Year
+          </label>
           <input
+            id={yearId}
             className="field"
             type="number"
             value={year}
@@ -185,8 +199,11 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
           />
         </div>
         <div style={{ flex: 1 }}>
-          <label className="lbl">Type</label>
+          <label className="lbl" htmlFor={typeId}>
+            Type
+          </label>
           <select
+            id={typeId}
             className="field"
             value={type}
             onChange={(e) => setType(e.target.value as EventType)}
@@ -200,8 +217,11 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
         </div>
       </div>
       <div>
-        <label className="lbl">Title</label>
+        <label className="lbl" htmlFor={titleId}>
+          Title
+        </label>
         <input
+          id={titleId}
           className="field"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -209,8 +229,15 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
         />
       </div>
       <div>
-        <label className="lbl">Detail (optional)</label>
-        <input className="field" value={detail} onChange={(e) => setDetail(e.target.value)} />
+        <label className="lbl" htmlFor={detailId}>
+          Detail (optional)
+        </label>
+        <input
+          id={detailId}
+          className="field"
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+        />
       </div>
       <div className="row">
         <button type="button" className="btn btn--primary btn--sm" onClick={submit}>

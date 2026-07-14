@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { condEntry, condIds } from '@/domain/person';
@@ -37,6 +37,10 @@ export function ConditionPicker({ personId }: { personId: string }) {
     error: null,
   });
   const abortRef = useRef<AbortController | null>(null);
+  // Base id for this picker instance; per-row field ids below key off a condition id too,
+  // since one drawer can list several conditions each with their own onset/provenance field.
+  const baseId = useId();
+  const searchId = `${baseId}-search`;
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -70,14 +74,16 @@ export function ConditionPicker({ personId }: { personId: string }) {
 
   return (
     <div>
-      <div className="overline" style={{ marginBottom: 8 }}>
+      <h3 className="overline" style={{ marginBottom: 8 }}>
         Conditions
-      </div>
+      </h3>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {condIds(person).map((id) => {
           const meta = catalog.get(id);
           const entry = condEntry(person, id);
+          const onsetId = `${baseId}-onset-${id}`;
+          const provId = `${baseId}-prov-${id}`;
           return (
             <div key={id} className="card" style={{ padding: '10px 12px' }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -102,7 +108,11 @@ export function ConditionPicker({ personId }: { personId: string }) {
                 </button>
               </div>
               <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <label className="visually-hidden" htmlFor={onsetId}>
+                  Onset age for {meta.name}
+                </label>
                 <input
+                  id={onsetId}
                   className="field"
                   style={{ width: 90 }}
                   type="number"
@@ -110,7 +120,11 @@ export function ConditionPicker({ personId }: { personId: string }) {
                   value={entry?.onset ?? ''}
                   onChange={(e) => setConditionField(personId, id, 'onset', e.target.value)}
                 />
+                <label className="visually-hidden" htmlFor={provId}>
+                  Provenance for {meta.name}
+                </label>
                 <select
+                  id={provId}
                   className="field"
                   style={{ width: 'auto', flex: 1 }}
                   value={entry?.prov ?? 'self'}
@@ -129,7 +143,11 @@ export function ConditionPicker({ personId }: { personId: string }) {
         {condIds(person).length === 0 && <div className="mono-dim">No conditions recorded.</div>}
       </div>
 
+      <label className="visually-hidden" htmlFor={searchId}>
+        Search conditions
+      </label>
       <input
+        id={searchId}
         className="field"
         placeholder="Search conditions…"
         value={query}
@@ -163,26 +181,33 @@ export function ConditionPicker({ personId }: { personId: string }) {
           >
             {vocab.loading ? 'Searching ICD-10…' : `Search all ICD-10-CM for “${query}”`}
           </button>
-          {vocab.error && (
-            <div className="mono-dim" style={{ marginTop: 6 }}>
-              {vocab.error}
+          {/* Polite live region: announces the loading → error/results transition without
+              moving focus, since the trigger button's own label already changes visually. */}
+          <div role="status">
+            {vocab.loading && (
+              <span className="visually-hidden">Searching ICD-10-CM for {query}…</span>
+            )}
+            {vocab.error && (
+              <div className="mono-dim" style={{ marginTop: 6 }}>
+                {vocab.error}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+              {vocab.hits.map((hit) => (
+                <button
+                  key={hit.code}
+                  type="button"
+                  className="btn btn--sm"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                  onClick={() => addVocabHit(hit)}
+                >
+                  + {hit.name}{' '}
+                  <span className="mono-dim" style={{ marginLeft: 6 }}>
+                    {hit.code}
+                  </span>
+                </button>
+              ))}
             </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-            {vocab.hits.map((hit) => (
-              <button
-                key={hit.code}
-                type="button"
-                className="btn btn--sm"
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                onClick={() => addVocabHit(hit)}
-              >
-                + {hit.name}{' '}
-                <span className="mono-dim" style={{ marginLeft: 6 }}>
-                  {hit.code}
-                </span>
-              </button>
-            ))}
           </div>
         </div>
       )}

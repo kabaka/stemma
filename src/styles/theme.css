@@ -1,5 +1,7 @@
-/* Stemma theme — dark, clinical, IBM Plex. Palette lives in CSS variables so the
-   colorblind-safe mode is a single attribute flip on <html>. */
+/* Stemma theme — dark, clinical, IBM Plex. Colorblind-safe mode is NOT a CSS attribute
+   flip: `palette` is app state (Zustand), and `categoryColor(cat, palette)` in
+   src/data/categories.ts picks the swatch per render call site (pedigree fills, legends,
+   condition chips). These variables hold the rest of the fixed dark theme. */
 
 :root {
   --bg: #0b0e13;
@@ -7,10 +9,10 @@
   --bg-rail: #0e1218;
   --bg-hover: #151b23;
   --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.33);
   --text: #e6eaf0;
   --text-dim: #8b94a3;
-  --text-faint: #5c6472;
+  --text-faint: #7b8494;
   --accent: #34e2cf;
   --accent-hover: #6fe6d9;
 
@@ -40,6 +42,19 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Headings carry a11y semantics (WCAG 1.3.1/2.4.6) but must look exactly like the
+   plain <div>/<span> labels they replace — zero the UA defaults and let each
+   component's existing class (.page-title, .section-label, .overline, …) style them. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font: inherit;
 }
 
 a {

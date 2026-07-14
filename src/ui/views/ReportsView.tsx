@@ -140,9 +140,9 @@ export function ReportsView() {
       {preview && (
         <section>
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-            <div className="section-label" style={{ margin: 0 }}>
+            <h2 className="section-label" style={{ margin: 0 }}>
               Preview · {preview.format}
-            </div>
+            </h2>
             <div className="row">
               <button
                 type="button"

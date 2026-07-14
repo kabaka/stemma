@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useStore, type Relation } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, segments } from '@/domain/graph';
 import { condIds, defaultOrgans, genderOf, sabOf } from '@/domain/person';
-import { categoryColor } from '@/data/categories';
+import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import type { Catalog } from '@/domain/catalog';
-import type { Gender, Person, Sab } from '@/domain/types';
+import type { CategoryKey, Gender, Person, Sab } from '@/domain/types';
 import type { Palette } from '@/data/categories';
 
 const S = 15;
@@ -27,14 +27,33 @@ export function PedigreeView() {
     return { ...layout, segs: segments(record.unions, layout.pos) };
   }, [record.people, record.unions]);
 
+  const presentCategories = useMemo(
+    () => legendCategories(record.people, catalog),
+    [record.people, catalog],
+  );
+
   return (
-    <div className="main" style={{ position: 'relative' }}>
+    // Plain positioning wrapper — App already renders <main className="main"> around every
+    // view, so this must not carry the .main class too (that would stack two identical flex
+    // containers). It still needs the .main layout properties inlined so .scroll's flex:1
+    // scroll region and the drawer's height:100% overlay behave exactly as before.
+    <div
+      style={{
+        position: 'relative',
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       <div className="scroll">
         <div className="page-head">
           <h1 className="page-title">Family Pedigree</h1>
           <button
             type="button"
             className="btn btn--primary btn--sm"
+            aria-expanded={adding}
             onClick={() => setAdding((v) => !v)}
           >
             {adding ? '✕ close' : '+ add relative'}
@@ -53,7 +72,7 @@ export function PedigreeView() {
             viewBox={`0 0 ${cw} ${ch}`}
             width="100%"
             style={{ maxHeight: 620, minWidth: 640 }}
-            role="img"
+            role="group"
             aria-label="Family pedigree chart"
           >
             {segs.map((s, i) => (
@@ -63,7 +82,7 @@ export function PedigreeView() {
                 y1={s.y1}
                 x2={s.x2}
                 y2={s.y2}
-                stroke="#3a4150"
+                stroke="#6b7280"
                 strokeWidth={1.3}
               />
             ))}
@@ -76,11 +95,13 @@ export function PedigreeView() {
                 selected={p.id === selectedId}
                 proband={p.id === record.probandId}
                 fill={affectedFill(p, palette, catalog)}
+                label={nodeLabel(p, catalog)}
                 onSelect={() => selectPerson(p.id)}
               />
             ))}
           </svg>
         </div>
+        <CategoryLegend categories={presentCategories} palette={palette} />
       </div>
 
       {/* key remounts the drawer per person so its local edit/search state never bleeds across selections. */}
@@ -95,6 +116,45 @@ function affectedFill(p: Person, palette: Palette, catalog: Catalog): string {
   return categoryColor(catalog.get(ids[0]).cat, palette);
 }
 
+/** Accessible name for a pedigree node: identity plus affected state, since the node's
+ * only other affected-category signal is fill hue (WCAG 1.4.1 — colour is never the sole
+ * channel). */
+function nodeLabel(person: Person, catalog: Catalog): string {
+  const ids = condIds(person);
+  if (ids.length === 0) return `${person.name}, unaffected`;
+  const meta = catalog.get(ids[0]);
+  const catLabel = CATEGORIES[meta.cat].label.toLowerCase();
+  return `${person.name}, affected: ${meta.name} (${catLabel})`;
+}
+
+/** Condition categories actually present in the record, in the catalog's canonical order. */
+function legendCategories(people: Person[], catalog: Catalog): CategoryKey[] {
+  const present = new Set<CategoryKey>();
+  for (const p of people) {
+    for (const id of condIds(p)) present.add(catalog.get(id).cat);
+  }
+  return (Object.keys(CATEGORIES) as CategoryKey[]).filter((k) => present.has(k));
+}
+
+/** Visible category-colour key so fill hue is never the only signal (WCAG 1.4.1). */
+function CategoryLegend({ categories, palette }: { categories: CategoryKey[]; palette: Palette }) {
+  if (categories.length === 0) return null;
+  return (
+    <ul className="pedigree-legend" role="list" aria-label="Condition category legend">
+      {categories.map((cat) => (
+        <li className="pedigree-legend__item" role="listitem" key={cat}>
+          <span
+            className="pedigree-legend__swatch"
+            aria-hidden="true"
+            style={{ background: categoryColor(cat, palette) }}
+          />
+          {CATEGORIES[cat].label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 interface NodeProps {
   person: Person;
   x: number;
@@ -102,12 +162,13 @@ interface NodeProps {
   selected: boolean;
   proband: boolean;
   fill: string;
+  label: string;
   onSelect: () => void;
 }
 
-function PedigreeNode({ person, x, y, selected, proband, fill, onSelect }: NodeProps) {
+function PedigreeNode({ person, x, y, selected, proband, fill, label, onSelect }: NodeProps) {
   const g: Gender = genderOf(person);
-  const stroke = selected ? '#34e2cf' : proband ? '#e6eaf0' : '#1a1f28';
+  const stroke = selected ? '#34e2cf' : proband ? '#e6eaf0' : '#6b7280';
   const sw = selected || proband ? 2.6 : 1.5;
   const sab: Sab = sabOf(person);
   const sabDiffers = (g === 'man' && sab !== 'm') || (g === 'woman' && sab !== 'f') || g === 'nb';
@@ -146,7 +207,20 @@ function PedigreeNode({ person, x, y, selected, proband, fill, onSelect }: NodeP
     );
 
   return (
-    <g className="pedigree-node" onClick={onSelect} style={{ cursor: 'pointer' }}>
+    <g
+      className="pedigree-node"
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      style={{ cursor: 'pointer' }}
+    >
       {shape}
       {condIds(person).length > 1 && (
         <>
@@ -220,6 +294,13 @@ function AddRelative({ onDone }: { onDone: () => void }) {
   // Kept as a string so the field can be blanked while typing without snapping to 0.
   const [birth, setBirth] = useState('2000');
 
+  const anchorId = useId();
+  const relationId = useId();
+  const nameId = useId();
+  const birthId = useId();
+  const sabId = useId();
+  const genderId = useId();
+
   const submit = () => {
     if (!name.trim()) return;
     const birthYear = Number.parseInt(birth, 10);
@@ -241,8 +322,11 @@ function AddRelative({ onDone }: { onDone: () => void }) {
     <div className="card" style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
       <div className="row wrap" style={{ gap: 12 }}>
         <div>
-          <label className="lbl">Relative of</label>
+          <label className="lbl" htmlFor={anchorId}>
+            Relative of
+          </label>
           <select
+            id={anchorId}
             className="field"
             style={{ width: 'auto' }}
             value={anchor}
@@ -256,8 +340,11 @@ function AddRelative({ onDone }: { onDone: () => void }) {
           </select>
         </div>
         <div>
-          <label className="lbl">Relation</label>
+          <label className="lbl" htmlFor={relationId}>
+            Relation
+          </label>
           <select
+            id={relationId}
             className="field"
             style={{ width: 'auto' }}
             value={relation}
@@ -273,12 +360,22 @@ function AddRelative({ onDone }: { onDone: () => void }) {
       </div>
       <div className="row wrap" style={{ gap: 12 }}>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <label className="lbl">Name</label>
-          <input className="field" value={name} onChange={(e) => setName(e.target.value)} />
+          <label className="lbl" htmlFor={nameId}>
+            Name
+          </label>
+          <input
+            id={nameId}
+            className="field"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </div>
         <div>
-          <label className="lbl">Birth year</label>
+          <label className="lbl" htmlFor={birthId}>
+            Birth year
+          </label>
           <input
+            id={birthId}
             className="field"
             style={{ width: 110 }}
             type="number"
@@ -289,8 +386,11 @@ function AddRelative({ onDone }: { onDone: () => void }) {
       </div>
       <div className="row wrap" style={{ gap: 12 }}>
         <div>
-          <label className="lbl">Sex assigned at birth</label>
+          <label className="lbl" htmlFor={sabId}>
+            Sex assigned at birth
+          </label>
           <select
+            id={sabId}
             className="field"
             style={{ width: 'auto' }}
             value={sab}
@@ -302,8 +402,11 @@ function AddRelative({ onDone }: { onDone: () => void }) {
           </select>
         </div>
         <div>
-          <label className="lbl">Gender</label>
+          <label className="lbl" htmlFor={genderId}>
+            Gender
+          </label>
           <select
+            id={genderId}
             className="field"
             style={{ width: 'auto' }}
             value={gender}
