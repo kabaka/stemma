@@ -29,12 +29,12 @@ monolith into typed, tested modules."
 | --- | --- | --- |
 | Framework | ✅ | React 18 + TypeScript (strict) + Vite 5; off the `dc-runtime` entirely. |
 | Architecture | ✅ | Layered: pure `domain/` engine, `data/`, `integrations/`, `export/`, `store/`, `ui/`. See ARCHITECTURE.md. |
-| Domain port | ✅ | Kinship math, the pattern engine, screening, catalog — ported to typed modules with **35+ unit tests**. |
+| Domain port | ✅ | Kinship math, the pattern engine, screening, catalog — ported to typed modules, part of a **148-test** suite. |
 | Condition catalog | ✅ | 115 curated conditions generated from the prototype + **verified ICD-10-CM** (23 high-signal) & SNOMED codes. |
 | Long-tail vocabulary | ✅ | `VocabularyProvider` port + NLM Clinical Tables provider (CORS, no key) — the app is **not** capped at 115 conditions. |
 | Standards export | ✅ | FHIR R4, Phenopacket v2, GEDCOM 5.5.1, pedigree SVG — all generated client-side. |
 | Linting / formatting | ✅ | ESLint 9 (flat) + Prettier; `npm run check` is the gate. |
-| Tests | ✅ | Vitest + Testing Library; domain + export covered. |
+| Tests | ✅ | Vitest + Testing Library; 148 tests across domain, store, exports, integrations, and UI. |
 | CI/CD | ✅ | GitHub Actions: `check` + build on PRs; Pages deploy on `main`. |
 | GitHub Pages | ✅ | Static build with the correct `base`; deploy workflow in place. |
 | LICENSE | ✅ | MIT. |

@@ -65,7 +65,7 @@ graph TD
 | **UI** | `src/ui/` | React views over the store | everything below |
 
 > **Current state.** All layers are implemented; the domain, store, export, and view layers are
-> covered by the test suite (65 tests). The `@/` path alias maps to `src/` (see `vite.config.ts` /
+> covered by the test suite (148 tests). The `@/` path alias maps to `src/` (see `vite.config.ts` /
 > `tsconfig.app.json`).
 
 The pure core is genuinely pure: `src/domain` imports no React, performs no I/O (`fetch`,
