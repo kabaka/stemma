@@ -258,6 +258,13 @@
   padding: 5px 10px;
   font-size: 11px;
 }
+/* Solid, opaque border/text (not the washed-out rgba this replaced) so the
+   destructive-action affordance clears WCAG 1.4.11 non-text contrast (>=3:1) as well
+   as text contrast, against both --bg-panel and --bg-hover. */
+.btn--danger {
+  color: var(--sev-referral);
+  border-color: var(--sev-referral);
+}
 
 .row {
   display: flex;
@@ -368,13 +375,13 @@ label.lbl {
 
 .pedigree-node-wrap {
   position: absolute;
-  width: 44px;
-  height: 44px;
+  width: var(--node-size);
+  height: var(--node-size);
 }
 .pedigree-node {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: var(--node-size);
+  height: var(--node-size);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -389,6 +396,15 @@ label.lbl {
 .pedigree-node:hover {
   filter: brightness(1.18);
 }
+/* The coloured glyph fill, separated from .pedigree-node's own border so a highlight
+   filter can mute the fill (see PedigreeNode's `dimmed`) without ever touching border
+   contrast — WCAG 1.4.3 non-text contrast must hold regardless of highlight state. */
+.pedigree-node__fill {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
 .pedigree-node__init {
   position: relative;
   font-family: var(--font-mono);
@@ -396,6 +412,7 @@ label.lbl {
   font-size: 13px;
   letter-spacing: -0.3px;
   pointer-events: none;
+  transition: opacity 0.15s;
 }
 .pedigree-node__slash {
   position: absolute;
@@ -423,6 +440,16 @@ label.lbl {
   border-radius: 1.5px;
   border: 1px solid rgba(0, 0, 0, 0.4);
   display: block;
+}
+/* Overflow count when a person has more conditions than the 4 dots shown — the full
+   list still reaches assistive tech via the node's accessible name (nodeLabel). */
+.pedigree-node__dot-more {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-faint);
+  margin-left: 1px;
 }
 .pedigree-node__you {
   position: absolute;
@@ -494,7 +521,9 @@ label.lbl {
 .pedigree-hl-count {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--text-faint);
+  /* Inherit from the chip button (text-dim normally, accent when aria-pressed) instead
+     of a hardcoded tone, which fell to ~3.77:1 against the pressed chip's background. */
+  color: currentColor;
 }
 .pedigree-hl-search-popover {
   position: absolute;

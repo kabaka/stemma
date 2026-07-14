@@ -56,6 +56,14 @@ function categoryChipsFor(people: Person[], catalog: Catalog, palette: Palette):
     }));
 }
 
+/** Accessible name for a highlight chip. The swatch is decorative and the count is a
+ * separate trailing `<span>`, so without an explicit name the browser concatenates the
+ * visible text with no separator ("Coronary heart disease4"). Spelling out the unit
+ * also makes the number mean something to screen-reader users, not just announce "4". */
+function chipLabel(name: string, count: number): string {
+  return `${name}, ${count} ${count === 1 ? 'person' : 'people'}`;
+}
+
 /**
  * The "Highlight" control row above the pedigree canvas: a Condition/Category mode
  * toggle, chips for what's present in the family (sorted by prevalence), a full-catalog
@@ -95,6 +103,8 @@ export function HighlightBar({
   );
   const [searchOpen, setSearchOpen] = useState(false);
   const searchToggleRef = useRef<HTMLButtonElement>(null);
+  const condModeRef = useRef<HTMLButtonElement>(null);
+  const catModeRef = useRef<HTMLButtonElement>(null);
 
   // Category mode has no search popover — close it if the mode changes out from under it.
   useEffect(() => {
@@ -106,6 +116,15 @@ export function HighlightBar({
     searchToggleRef.current?.focus();
   };
 
+  // The clear button removes itself the moment it's clicked (it only renders while
+  // `activeId != null`), which would otherwise drop focus to <body>. Move focus to the
+  // still-present mode toggle first — the same "focus the fallback, then change state"
+  // order `closeSearch` above already uses.
+  const handleClear = (): void => {
+    onClear();
+    (mode === 'cond' ? condModeRef : catModeRef).current?.focus();
+  };
+
   return (
     <div
       className="row wrap"
@@ -113,10 +132,11 @@ export function HighlightBar({
       aria-label="Highlight a condition or category"
       style={{ gap: 8, marginTop: 16, position: 'relative' }}
     >
-      <span className="overline">Highlight</span>
+      <h2 className="overline">Highlight</h2>
 
       <div role="group" aria-label="Highlight mode" className="row" style={{ gap: 4 }}>
         <button
+          ref={condModeRef}
           type="button"
           className="chip"
           aria-pressed={mode === 'cond'}
@@ -125,6 +145,7 @@ export function HighlightBar({
           Condition
         </button>
         <button
+          ref={catModeRef}
           type="button"
           className="chip"
           aria-pressed={mode === 'cat'}
@@ -140,11 +161,14 @@ export function HighlightBar({
           type="button"
           className="chip pedigree-hl-chip"
           aria-pressed={activeId === c.id}
+          aria-label={chipLabel(c.name, c.count)}
           onClick={() => onToggleChip(c.id)}
         >
           <span className="pedigree-hl-swatch" aria-hidden="true" style={{ background: c.color }} />
-          <span>{c.name}</span>
-          <span className="pedigree-hl-count">{c.count}</span>
+          <span aria-hidden="true">{c.name}</span>
+          <span aria-hidden="true" className="pedigree-hl-count">
+            {c.count}
+          </span>
         </button>
       ))}
 
@@ -158,7 +182,7 @@ export function HighlightBar({
             aria-expanded={searchOpen}
             onClick={() => setSearchOpen((v) => !v)}
           >
-            ⌕ search all conditions
+            <span aria-hidden="true">⌕</span> search all conditions
           </button>
           {searchOpen && (
             <ConditionSearchPopover
@@ -175,7 +199,7 @@ export function HighlightBar({
       )}
 
       {activeId != null && (
-        <button type="button" className="btn btn--sm" onClick={onClear}>
+        <button type="button" className="btn btn--sm" onClick={handleClear}>
           ✕ clear
         </button>
       )}
@@ -207,6 +231,13 @@ function ConditionSearchPopover({
   }, []);
 
   const results = catalog.search(query, undefined, 40);
+  const trimmed = query.trim();
+  const statusMessage =
+    trimmed === ''
+      ? ''
+      : results.length === 0
+        ? 'No matching condition.'
+        : `${results.length} result${results.length === 1 ? '' : 's'}`;
 
   return (
     <div
@@ -230,8 +261,14 @@ function ConditionSearchPopover({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      {/* A short summary announces via a live region on every keystroke. The results
+          list itself must NOT be inside a live region — role="status" on the ~40-button
+          list would re-read every visible name on each keystroke instead of just the
+          count. */}
+      <div role="status" className="visually-hidden">
+        {statusMessage}
+      </div>
       <div
-        role="status"
         style={{
           maxHeight: 280,
           overflow: 'auto',
@@ -246,11 +283,11 @@ function ConditionSearchPopover({
             type="button"
             className="btn btn--sm"
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            aria-label={`${r.name}, ${r.categoryLabel}`}
             onClick={() => onSelect(r.id)}
           >
-            <span className="row" style={{ gap: 8 }}>
+            <span className="row" aria-hidden="true" style={{ gap: 8 }}>
               <span
-                aria-hidden="true"
                 style={{
                   width: 8,
                   height: 8,
@@ -261,10 +298,12 @@ function ConditionSearchPopover({
               />
               {r.name}
             </span>
-            <span className="mono-dim">{r.categoryLabel}</span>
+            <span aria-hidden="true" className="mono-dim">
+              {r.categoryLabel}
+            </span>
           </button>
         ))}
-        {query.trim() !== '' && results.length === 0 && (
+        {trimmed !== '' && results.length === 0 && (
           <div className="mono-dim" style={{ padding: '8px 4px', fontStyle: 'italic' }}>
             No matching condition.
           </div>
