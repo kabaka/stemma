@@ -440,6 +440,28 @@ describe('sibship contiguity and remarriage (regression for merged lineage lines
     expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
   });
 
+  it('handles a person married to two siblings of the same sibship without blowing up', () => {
+    // Divorce-then-marry-the-sibling (or a sororate/levirate remarriage): `x` is the spouse
+    // of both `s1` and `s2`, who are siblings. Each person must appear exactly once and the
+    // canvas must stay bounded — a duplicated node here compounds across ordering rounds.
+    const rec = layoutFromGraph({
+      people: ['dad', 'mom', 's1', 's2', 'x', 'k1', 'k2'].map(mk),
+      unions: [
+        { parents: ['dad', 'mom'], children: ['s1', 's2'] },
+        { parents: ['s1', 'x'], children: ['k1'] },
+        { parents: ['s2', 'x'], children: ['k2'] },
+      ],
+      timeline: [],
+      probandId: 'k1',
+    });
+    const layout = computeLayout(rec.people, rec.unions);
+    // Every person positioned exactly once, no phantom coordinates.
+    expect(Object.keys(layout.pos).sort()).toEqual(rec.people.map((p) => p.id).sort());
+    // Canvas stays sane (a duplication bug ballooned this to millions of px).
+    expect(layout.cw).toBeLessThan(2000);
+    for (const p of rec.people) expect(Number.isFinite(layout.pos[p.id].x)).toBe(true);
+  });
+
   it('keeps the seed and imported trees free of unrelated bus intruders', () => {
     for (const rec of [seedRecord()]) {
       const { pos } = computeLayout(rec.people, rec.unions);

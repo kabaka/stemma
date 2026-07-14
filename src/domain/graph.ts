@@ -315,7 +315,8 @@ function placeRow(desired: number[], gap: number): number[] {
  *   them; within a block, siblings order by the barycentre of *their* children.
  *
  * `idx` is every person's current index within its own row (all generations), the coordinate
- * the barycentres are taken over. Pure and deterministic — ties broken by prior position.
+ * the barycentres are taken over. Pure and deterministic — sibling ties break by prior
+ * position, equal-anchor blocks by their (stable) group id.
  */
 function orderRow(
   row: string[],
@@ -338,16 +339,28 @@ function orderRow(
     const bu = adj.birthUnion.get(id);
     if (bu != null) groupId.set(id, `s${bu}`);
   }
+  // Attach each married-in person to a sibship spouse's group. Iterate to a fixpoint so an
+  // attachment can chain (a spouse of a spouse of a sibling), independent of row order —
+  // monotonic (only ever adds a group), so it settles in at most `row.length` passes.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const id of row) {
+      if (groupId.has(id)) continue;
+      const host = (adj.spouses.get(id) ?? []).find(
+        (s) => inRow.has(s) && groupId.get(s)?.startsWith('s'),
+      );
+      if (host) {
+        groupId.set(id, groupId.get(host)!);
+        changed = true;
+      }
+    }
+  }
+  // Anyone still unattached: share a group with a free spouse (keeps a founder couple
+  // together) or stand alone.
   for (const id of row) {
     if (groupId.has(id)) continue;
-    const host = (adj.spouses.get(id) ?? []).find(
-      (s) => inRow.has(s) && groupId.get(s)?.startsWith('s'),
-    );
-    if (host) groupId.set(id, groupId.get(host)!);
-    else {
-      const mu = adj.matingUnion.get(id);
-      groupId.set(id, mu != null ? `m${mu}` : `o${id}`);
-    }
+    const mu = adj.matingUnion.get(id);
+    groupId.set(id, mu != null ? `m${mu}` : `o${id}`);
   }
 
   const tie = (a: string, b: string): number => idx.get(a)! - idx.get(b)!;
@@ -390,7 +403,10 @@ function orderRow(
     const frees = mem.filter((m) => adj.birthUnion.get(m) == null);
     const used = new Set<string>();
     sibs.forEach((s, i) => {
-      const mine = frees.filter((f) => (adj.spouses.get(f) ?? []).includes(s));
+      // Only frees not already placed: a person married to two siblings of the SAME sibship
+      // (divorced one, married another) attaches to the first and must not be emitted twice —
+      // duplication here would compound across rounds into a runaway layout.
+      const mine = frees.filter((f) => !used.has(f) && (adj.spouses.get(f) ?? []).includes(s));
       // A lone spouse goes to the block's outer edge; a remarried sibling sits between two
       // spouses (spouse-person-spouse), so each marriage bar stays short.
       const outerLeft = i < sibs.length / 2;
@@ -411,10 +427,12 @@ function orderRow(
 
 /**
  * Generation-banded pedigree layout. Bands people by their (authoritative) `gen`, orders
- * each row so every sibship stays contiguous and partners sit adjacent (see {@link orderRow}),
- * then assigns x-coordinates so children sit centred under their parents and partners sit
- * side by side. Keeping sibships contiguous is what stops a union's sibling bus from being
- * drawn across unrelated people or merging with a neighbour's.
+ * each row so every sibship stays contiguous, with a married-in partner beside their mate
+ * (see {@link orderRow}), then assigns x-coordinates so children sit centred under their
+ * parents. Keeping sibships contiguous is what stops a union's sibling bus from being drawn
+ * across unrelated people or merging with a neighbour's. A marriage between two people who
+ * each have their own sibship in view keeps both in their block, so its partner bar spans the
+ * short gap between the two blocks rather than interleaving them.
  *
  * The heavy lifting lives here, at render time, rather than in the stored `Person.x`: that
  * field is only ever a partial hint (hand-authored in the seed, a barycentre pass in
