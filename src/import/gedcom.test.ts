@@ -177,6 +177,30 @@ describe('buildRecordFromGedcom', () => {
     expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // biological: keeps both
   });
 
+  it('keeps both parents when a couple is encoded as two HUSB (same-sex convention)', () => {
+    // Some tools encode a same-sex couple as two HUSB (or two WIFE) rather than HUSB+WIFE.
+    // The second parent must not be dropped — the child is genetic to both.
+    const text = `0 @I1@ INDI
+1 NAME Dad /A/
+1 SEX M
+0 @I2@ INDI
+1 NAME Dad /B/
+1 SEX M
+0 @I3@ INDI
+1 NAME Their /Kid/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 HUSB @I2@
+1 CHIL @I3@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    const record = buildRecordFromGedcom(parsed, 'I3')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I3').sort()).toEqual(['I1', 'I2']); // both dads kept
+  });
+
   it('keeps a parentless FAM as a sibling group (children linked, no genetic parents)', () => {
     // A FAM whose parents are unknown (no HUSB/WIFE) still groups its children as siblings so
     // they share a generation and lay out together — but with no genetic parent edge.

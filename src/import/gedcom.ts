@@ -232,12 +232,24 @@ export function parseGedcom(text: string): ParsedGedcom {
   };
   for (const n of roots.filter((n) => n.tag === 'FAM')) {
     const famId = xrefToId(n.xref);
-    let husb: string | null = null;
-    let wife: string | null = null;
+    const husbands: string[] = [];
+    const wives: string[] = [];
     for (const c of n.children) {
-      if (c.tag === 'HUSB' && husb == null) husb = resolveOne(c.value);
-      else if (c.tag === 'WIFE' && wife == null) wife = resolveOne(c.value);
+      if (c.tag === 'HUSB') {
+        const id = resolveOne(c.value);
+        if (id != null) husbands.push(id);
+      } else if (c.tag === 'WIFE') {
+        const id = resolveOne(c.value);
+        if (id != null) wives.push(id);
+      }
     }
+    let husb: string | null = husbands[0] ?? null;
+    let wife: string | null = wives[0] ?? null;
+    // A couple encoded as two HUSB or two WIFE (some tools' same-sex-couple convention): use the
+    // second as the other parent slot so it is not silently dropped. The `_FREL`/`_MREL` step
+    // tags are an Ancestry convention that assumes one HUSB + one WIFE and won't co-occur here.
+    if (wife == null && husbands.length > 1) wife = husbands[1];
+    else if (husb == null && wives.length > 1) husb = wives[1];
 
     // Stemma's graph is *genetic* parentage only. Resolve each child's relationship to each
     // parent separately: a child linked step / adopted / foster to one parent (Ancestry's
