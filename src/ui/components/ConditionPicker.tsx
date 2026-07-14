@@ -3,18 +3,13 @@ import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { condEntry, condIds } from '@/domain/person';
 import { categoryColor } from '@/data/categories';
+import { PROV_LABEL } from '@/data/provenance';
 import type { Provenance } from '@/domain/types';
 import {
   defaultVocabularyProvider,
   hitToCondition,
   type VocabularyHit,
 } from '@/integrations/vocabulary';
-
-const PROV_LABEL: Record<Provenance, string> = {
-  self: 'self-reported',
-  record: 'records-confirmed',
-  death: 'death certificate',
-};
 
 /** Add, remove, and annotate a person's conditions. Curated catalog first; the ICD-10
  * long tail is reachable via the live vocabulary provider. */

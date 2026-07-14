@@ -10,7 +10,7 @@
  * NOTE: These heuristics are decision-support signals, not a diagnosis. See
  * `docs/ARCHITECTURE.md` for the clinical-boundary rationale.
  */
-import type { CategoryKey, Condition, Person } from './types';
+import type { CategoryKey, Condition, Person, Provenance } from './types';
 import { condEntry, condIds, hasCond, sabOf } from './person';
 import { indexPeople, personById, relationInfo, type Degree, type RelationInfo } from './graph';
 import type { Catalog } from './catalog';
@@ -25,6 +25,8 @@ export interface AffectedRelative {
   side: string;
   rel: string;
   onset: number | null;
+  /** Provenance of this relative's condition record — clinicians weight by source. */
+  prov: Provenance;
 }
 
 export interface PatternFlag {
@@ -71,12 +73,14 @@ export function detectPatterns(
       .filter((p) => hasCond(p, code))
       .map((p) => {
         const ri = info.get(p.id)!;
+        const e = condEntry(p, code);
         return {
           person: p,
           degree: ri.degree,
           side: ri.side,
           rel: ri.rel,
-          onset: condEntry(p, code)?.onset ?? null,
+          onset: e?.onset ?? null,
+          prov: e?.prov ?? 'self',
         };
       });
 
@@ -91,32 +95,85 @@ export function detectPatterns(
     const breast = withCond('brca');
     const ovarian = withCond('ovarian');
     handled.add('brca').add('ovarian');
-    const reasons: string[] = [];
-    if (breast.length >= 2) reasons.push(`${breast.length} relatives with breast cancer`);
-    if (ovarian.length >= 1) reasons.push('ovarian cancer in a blood relative');
+    // NCCN Genetic/Familial High-Risk Assessment (Breast/Ovarian/Pancreatic) criteria are
+    // assessed PER LINEAGE: a BRCA1/2 variant descends through one side of the family, so
+    // two breast cancers on *opposite* sides are two independent lineages, not one signal.
+    // Ovarian (any age) and breast cancer < 50 stay side-independent referral triggers.
+    const kM = breast.filter((b) => b.side === 'Maternal').length;
+    const kP = breast.filter((b) => b.side === 'Paternal').length;
+    // Full siblings and the proband's own children share BOTH parental lineages, so
+    // relationInfo gives them side '—'. A shared first-degree relative can support either
+    // lineage, but is ONE person — credit them to a single cluster, never double-booked
+    // into both sides (that would overstate the family history the report cites).
+    const fd = breast.filter((b) => b.side === '—' && b.degree === 1).length;
+
+    const referralReasons: string[] = [];
+    const discussReasons: string[] = [];
+    const clusters: string[] = [];
+    if (kM >= 2 && kP >= 2) {
+      // Two genuinely independent clusters, each anchored by grandparent-lineage cases on
+      // its own (no shared relative needed) — cite both.
+      clusters.push(`${kM} breast cancers on the maternal lineage`);
+      clusters.push(`${kP} breast cancers on the paternal lineage`);
+    } else {
+      // Otherwise report at most ONE lineage cluster, crediting the shared first-degree
+      // relatives to the stronger anchored side (they can't seed two clusters at once).
+      const maternalTally = kM + fd;
+      const paternalTally = kP + fd;
+      if (maternalTally >= 2 || paternalTally >= 2) {
+        if (kM === 0 && kP === 0)
+          // Pure first-degree cluster (e.g. two affected siblings): one lineage, no
+          // maternal/paternal distinction to draw between them — still a referral.
+          clusters.push(`${fd} first-degree relatives with breast cancer`);
+        else {
+          const side = maternalTally >= paternalTally ? 'maternal' : 'paternal';
+          clusters.push(
+            `${Math.max(maternalTally, paternalTally)} breast cancers on the ${side} lineage`,
+          );
+        }
+      }
+    }
+    if (clusters.length) referralReasons.push(clusters.join('; '));
+    else if (breast.length >= 2)
+      // Two+ breast cancers that fall on different sides (or an undetermined side): keep the
+      // signal (don't silently drop it) but downgrade to "discuss" — it doesn't point at one
+      // hereditary lineage.
+      discussReasons.push(
+        'two or more breast cancers, but not clustered on one lineage (different sides of the family, or a side not determined)',
+      );
+    if (ovarian.length >= 1) referralReasons.push('ovarian cancer in a blood relative');
     const young = breast.filter((b) => b.onset != null && b.onset < 50);
     if (young.length)
-      reasons.push(
+      referralReasons.push(
         `breast cancer before age 50 (${young.map((y) => `${y.rel} at ${y.onset}`).join(', ')})`,
       );
+
+    const reasons = [...referralReasons, ...discussReasons];
     if (reasons.length)
       flags.push({
-        severity: 'referral',
+        severity: referralReasons.length ? 'referral' : 'discuss',
         cat: 'canc',
         title: 'Hereditary breast & ovarian cancer (HBOC) pattern',
         criterion: reasons.join('; '),
-        rec: 'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Consider a genetics referral; enhanced breast screening (annual mammography ± MRI) may be indicated.',
+        rec: 'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage (one side of the family). Consider a genetics referral; enhanced breast screening (annual mammography ± MRI) may be indicated.',
         relatives: [...breast, ...ovarian],
       });
   }
 
-  // --- Lynch syndrome (hereditary colorectal) ---
+  // --- Lynch syndrome (hereditary colorectal & spectrum) ---
   {
     const colo = withCond('colon');
     const endo = withCond('endometrial');
     const gast = withCond('gastric');
-    handled.add('colon').add('endometrial').add('gastric');
-    const spectrum = [...colo, ...endo, ...gast];
+    const ovar = withCond('ovarian');
+    const utuc = withCond('utuc');
+    handled.add('colon').add('endometrial').add('gastric').add('ovarian').add('utuc');
+    // Lynch/HNPCC spectrum per revised Bethesda (Umar 2004, PMID 14970275): colorectal,
+    // endometrial, gastric, ovarian, and upper urinary tract (ureter / renal pelvis
+    // urothelial) — NOT renal-cell (kidneyca) or bladder, which are not classically Lynch.
+    // Ovarian is shared with the HBOC spectrum: one ovarian case legitimately seeds both
+    // referrals (BRCA vs mismatch-repair are different genes), which genetics disambiguates.
+    const spectrum = [...colo, ...endo, ...gast, ...ovar, ...utuc];
     const reasons: string[] = [];
     const young = colo.filter((c) => c.onset != null && c.onset < 50);
     if (young.length)
@@ -125,17 +182,23 @@ export function detectPatterns(
       );
     if (spectrum.length >= 2)
       reasons.push(
-        `${spectrum.length} relatives with Lynch-spectrum cancers (colorectal / endometrial / gastric)`,
+        `${spectrum.length} relatives with Lynch-spectrum cancers (colorectal / endometrial / gastric / ovarian / upper urinary tract)`,
       );
-    if (reasons.length)
+    if (reasons.length) {
+      const dualPathway = ovar.length
+        ? ' Ovarian cancer belongs to both the Lynch (mismatch-repair) and BRCA/HBOC spectra; a genetics evaluation can determine which testing pathway fits.'
+        : '';
       flags.push({
         severity: 'referral',
         cat: 'canc',
-        title: 'Lynch syndrome pattern (hereditary colorectal)',
+        title: 'Lynch syndrome pattern (hereditary colorectal & spectrum)',
         criterion: reasons.join('; '),
-        rec: 'Suggestive of a hereditary (Lynch) pattern — a revised-Bethesda-type threshold, more sensitive than the stricter Amsterdam II criteria. Consider a genetics referral and earlier, more frequent colonoscopy (often from age 20–25, or 10 years before the earliest family diagnosis).',
+        rec:
+          'Suggestive of a hereditary (Lynch) pattern — a revised-Bethesda-type threshold, more sensitive than the stricter Amsterdam II criteria. Consider a genetics referral and earlier, more frequent colonoscopy (often from age 20–25, or 10 years before the earliest family diagnosis).' +
+          dualPathway,
         relatives: spectrum,
       });
+    }
   }
 
   // --- Premature cardiovascular disease ---
@@ -241,6 +304,9 @@ export type FindingBand = 'Diagnosed' | 'Clustered' | 'Close family' | 'In famil
 export interface FindingAffected {
   rel: string;
   deg: string;
+  onset: number | null;
+  /** Provenance of this relative's condition record. */
+  prov: Provenance;
 }
 
 export interface FamilyFinding {
@@ -305,7 +371,15 @@ export function familyFindings(
     const affected = aff
       .slice()
       .sort((a, b) => (info.get(a.id)?.degree ?? 0) - (info.get(b.id)?.degree ?? 0))
-      .map((p) => ({ rel: info.get(p.id)!.rel, deg: degShort(info.get(p.id)!.degree) }));
+      .map((p) => {
+        const e = condEntry(p, id);
+        return {
+          rel: info.get(p.id)!.rel,
+          deg: degShort(info.get(p.id)!.degree),
+          onset: e?.onset ?? null,
+          prov: e?.prov ?? 'self',
+        };
+      });
 
     return {
       id,

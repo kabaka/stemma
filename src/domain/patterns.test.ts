@@ -31,6 +31,12 @@ describe('detectPatterns (from the proband)', () => {
     expect(hboc!.criterion).toMatch(/breast cancer before age 50/i);
   });
 
+  it('cites the specific lineage for a same-side breast-cancer cluster (NCCN per-lineage)', () => {
+    // Helen, Linda and Mia are all on Maya's maternal side — one lineage, not three.
+    const hboc = byTitle('hereditary breast');
+    expect(hboc!.criterion).toMatch(/3 breast cancers on the maternal lineage/i);
+  });
+
   it('flags cardiovascular clustering', () => {
     const cvd = byTitle('cardiovascular');
     expect(cvd).toBeDefined();
@@ -104,6 +110,121 @@ describe('familyFindings', () => {
 // pass the rest of the suite, since the seed pedigree happens not to cross any
 // of these thresholds. See CONTRIBUTING.md "Add a pattern rule".
 // ---------------------------------------------------------------------------
+
+describe('detectPatterns (HBOC same-lineage refinement)', () => {
+  it('downgrades to "discuss" when two breast cancers span opposite lineages', () => {
+    const record = seedRecord();
+    // Strip the seed's maternal cluster, then place one breast cancer on each lineage
+    // (Susan = mother/maternal, Marie = paternal grandmother/paternal), both ≥50, no
+    // ovarian: no side reaches two, so it can't be attributed to one hereditary lineage.
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'susan', 'brca', 55);
+    addCondition(record, 'marie', 'brca', 66);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc).toBeDefined();
+    expect(hboc!.severity).toBe('discuss');
+    expect(hboc!.criterion).toMatch(/not clustered on one lineage/i);
+  });
+
+  it('keeps a referral when a single early-onset breast cancer (<50) is present, side aside', () => {
+    const record = seedRecord();
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    // One breast cancer, maternal, before 50 — side-independent NCCN referral trigger.
+    addCondition(record, 'susan', 'brca', 44);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc).toBeDefined();
+    expect(hboc!.severity).toBe('referral');
+    expect(hboc!.criterion).toMatch(/before age 50/i);
+  });
+
+  it('refers on two affected first-degree relatives (siblings share both lineages)', () => {
+    const record = seedRecord();
+    // Emma and Jack are Maya's siblings (degree 1). relationInfo gives siblings side '—'
+    // (they share both parents), but two affected first-degree relatives is a strong
+    // single-lineage signal — it must NOT be softened to "discuss".
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'emma', 'brca', 52);
+    addCondition(record, 'jack', 'brca', 55);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc).toBeDefined();
+    expect(hboc!.severity).toBe('referral');
+    expect(hboc!.criterion).toMatch(/2 first-degree relatives with breast cancer/i);
+  });
+
+  it('anchors a first-degree sibling to a parent lineage (mother + sister → maternal)', () => {
+    const record = seedRecord();
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'susan', 'brca', 58); // mother — maternal lineage
+    addCondition(record, 'emma', 'brca', 55); // sister — shares both, anchored maternal here
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc!.severity).toBe('referral');
+    expect(hboc!.criterion).toMatch(/2 breast cancers on the maternal lineage/i);
+  });
+
+  it('cites BOTH lineages only when each independently clusters (four distinct cases)', () => {
+    const record = seedRecord();
+    // Maternal cluster: Helen + Linda. Paternal cluster: Marie + Edith. Both reach ≥2 on
+    // their own, no shared relative — both are genuine and both are cited.
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'helen', 'brca', 66);
+    addCondition(record, 'linda', 'brca', 62);
+    addCondition(record, 'marie', 'brca', 68);
+    addCondition(record, 'edith', 'brca', 70);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc!.severity).toBe('referral');
+    expect(hboc!.criterion).toMatch(/maternal lineage/i);
+    expect(hboc!.criterion).toMatch(/paternal lineage/i);
+  });
+
+  it('never double-books a shared first-degree relative into two lineage clusters', () => {
+    const record = seedRecord();
+    // 1 maternal (mother) + 1 paternal (paternal grandmother) + 1 shared sibling. The
+    // sibling could tip either side to two, but is one person: report ONE cluster, not
+    // an inflated "2 maternal AND 2 paternal".
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'susan', 'brca', 60);
+    addCondition(record, 'marie', 'brca', 66);
+    addCondition(record, 'emma', 'brca', 58);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc!.severity).toBe('referral');
+    // Exactly one lineage cluster is cited (the sibling is credited once, not to both).
+    expect((hboc!.criterion.match(/lineage/gi) ?? []).length).toBe(1);
+  });
+});
+
+describe('detectPatterns (Lynch spectrum — ovarian & upper urinary tract)', () => {
+  it('counts ovarian and upper-urinary-tract cancers in the Lynch spectrum', () => {
+    const record = seedRecord();
+    // Edith already carries colon (seed). Add ovarian to Helen and UTUC to George →
+    // colorectal + ovarian + upper-tract = 3 Lynch-spectrum cancers.
+    addCondition(record, 'helen', 'ovarian', 68);
+    addCondition(record, 'george', 'utuc', 70);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    const lynch = flags.find((f) => /lynch/i.test(f.title));
+    expect(lynch).toBeDefined();
+    expect(lynch!.criterion).toMatch(/upper urinary tract/i);
+    expect(lynch!.relatives.some((r) => r.person.id === 'george')).toBe(true);
+    // Ovarian belongs to both spectra — the dual-pathway caveat is surfaced.
+    expect(lynch!.rec).toMatch(/both the Lynch/i);
+  });
+
+  it('lets one ovarian cancer seed BOTH the Lynch and HBOC referrals', () => {
+    const record = seedRecord();
+    // Clear the seed's breast cluster so HBOC can only be driven by ovarian; Edith's
+    // seed colon keeps a second Lynch-spectrum cancer in play.
+    for (const p of record.people) p.conds = p.conds.filter((c) => c.id !== 'brca');
+    addCondition(record, 'susan', 'ovarian', 60);
+    const flags = detectPatterns(record, catalog, 'you', AS_OF);
+    expect(flags.find((f) => /hereditary breast/i.test(f.title))).toBeDefined();
+    expect(flags.find((f) => /lynch/i.test(f.title))).toBeDefined();
+  });
+});
 
 describe('detectPatterns (Lynch syndrome referral)', () => {
   it('flags early-onset colorectal cancer in a first-degree relative', () => {

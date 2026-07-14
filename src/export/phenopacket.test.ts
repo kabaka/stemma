@@ -15,12 +15,23 @@ describe('buildPhenopacket', () => {
     expect(pp.proband.subject.timeAtLastEncounter?.age.iso8601duration).toBe('P38Y');
   });
 
-  it('lists a phenotypic feature per proband condition, coded to SNOMED where known', () => {
+  it('lists a phenotypic feature per proband condition, preferring HPO then SNOMED', () => {
     const pp = buildPhenopacket(seedRecord(), catalog, OPTS);
     expect(pp.proband.phenotypicFeatures).toHaveLength(3);
-    const thy = pp.proband.phenotypicFeatures.find((f) => f.type.id === 'SNOMED:40930008');
+    // Hypothyroidism carries an HPO term, so the feature is coded to HPO (the native
+    // Phenopacket phenotype vocabulary) in preference to SNOMED.
+    const thy = pp.proband.phenotypicFeatures.find((f) => f.type.id === 'HP:0000821');
     expect(thy).toBeDefined();
     expect(thy!.onset?.age.iso8601duration).toBe('P28Y');
+    // High cholesterol has no HPO term, so it falls back to SNOMED CT.
+    const chol = pp.proband.phenotypicFeatures.find((f) => f.type.id === 'SNOMED:13644009');
+    expect(chol).toBeDefined();
+  });
+
+  it('declares an HPO metaData Resource when a feature uses an HP: CURIE', () => {
+    const pp = buildPhenopacket(seedRecord(), catalog, OPTS);
+    expect(pp.metaData.resources.some((r) => r.namespacePrefix === 'HP')).toBe(true);
+    expect(pp.metaData.resources.some((r) => r.namespacePrefix === 'SNOMED')).toBe(true);
   });
 
   it('includes every person in the pedigree with derived parentage', () => {

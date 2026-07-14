@@ -34,7 +34,7 @@ monolith into typed, tested modules."
 | Long-tail vocabulary | ✅ | `VocabularyProvider` port + NLM Clinical Tables provider (CORS, no key) — the app is **not** capped at 115 conditions. |
 | Standards export | ✅ | FHIR R4, Phenopacket v2, GEDCOM 5.5.1, pedigree SVG — all generated client-side. |
 | Linting / formatting | ✅ | ESLint 9 (flat) + Prettier; `npm run check` is the gate. |
-| Tests | ✅ | Vitest + Testing Library; 202 tests across domain, store, exports, imports, integrations, and UI. |
+| Tests | ✅ | Vitest + Testing Library; 229 tests across domain, store, exports, imports, integrations, and UI. |
 | CI/CD | ✅ | GitHub Actions: `check` + build on PRs; Pages deploy on `main`. |
 | GitHub Pages | ✅ | Static build with the correct `base`; deploy workflow in place. |
 | LICENSE | ✅ | MIT. |
@@ -54,15 +54,24 @@ Sequenced so each phase is cheap after the one before it and expensive before it
 ### Phase 0 — Production foundation ✅ (this cycle)
 Real app, tested engine, exports, CI/CD, deploy, docs.
 
-### Phase 1 — Trustworthy core
-- **Bind prevalence & heritability to sourced epidemiology** (ideation §3). Replace the
-  hand-set `base` values with IHME GBD / CDC figures and cite them. Add a data provenance
-  field to `Condition`.
-- **Broaden coded coverage.** Extend ICD-10-CM/SNOMED baked-in codes beyond the 23
-  high-signal conditions; add HPO terms (open, redistributable) for the genetics audience.
-- **Onset/provenance everywhere in the UI** (ideation §6) — surfaced consistently, with
-  provenance weighting visible in reports.
-- **Test the export layer against validators** (FHIR validator, Phenopacket schema).
+### Phase 1 — Trustworthy core ✅
+- ✅ **Prevalence & heritability bound to sourced epidemiology** (ideation §3). The
+  high-signal set's `base` values are now bound to published surveillance (CDC / SEER /
+  NHANES / AHA / IHME) carrying a `prevSource` citation, and heritability (`herit`) is
+  carried as a **cited population statistic, never a personal-risk number**. A
+  data-provenance field (`prevSource` / `heritSource`) was added to `Condition`; the long
+  tail stays illustrative and is labeled as such. Sourced via the `medical-domain-expert`.
+- ✅ **Broadened coded coverage.** ICD-10-CM and SNOMED CT are now baked in for **72**
+  conditions (was 23), plus **32 HPO** terms (open, redistributable) wired into the
+  Phenopacket export for the genetics audience. All codes verified against live authorities
+  (ICD-10-CM FY2026, SNOMED CT via `tx.fhir.org`, HPO via EBI OLS4) by the `medical-coder`.
+- ✅ **Onset/provenance surfaced in the UI** (ideation §6). Each affected relative's record
+  provenance (self-reported / records-confirmed / death-certificate) now shows in the
+  pattern flags and per-condition findings — qualitative weighting, never a number —
+  alongside onset, with a per-flag "Sourcing" summary.
+- ✅ **Export layer tested against validators.** Self-contained FHIR R4 and Phenopacket v2
+  conformance validators assert every export against the standards' structural rules (bound
+  value sets, datatype formats, CURIE/reference integrity), each with negative controls.
 
 ### Phase 2 — Pedigree & records depth
 - **Full 2022 NSGC pedigree** (ideation §5): union nodes, multiple partners, half-siblings,
@@ -107,8 +116,8 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 | --- | --- | --- | --- |
 | NLM Clinical Tables (ICD-10-CM) | Long-tail condition search | ✅ CORS, no key | **Live** |
 | ICD-10-CM / SNOMED CT | Coded catalog | Baked in at authoring time | **Live (subset)** |
-| HPO / Orphanet / OMIM | Genetics vocabulary | Baked in | Phase 1 |
-| IHME GBD / CDC | Prevalence & heritability | Baked in | Phase 1 |
+| HPO / Orphanet / OMIM | Genetics vocabulary | Baked in | **Live (HPO)** — Orphanet/OMIM deferred |
+| IHME GBD / CDC | Prevalence & heritability | Baked in | **Live (high-signal subset)** |
 | FHIR (portals, Apple Health) | Import & export | Export ✅; import needs SMART auth | Export live / import Phase 3 |
 | GA4GH Phenopacket / Pedigree | Genetics export | ✅ client-side | **Live** |
 | GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import ✅ (GEDCOM 5.5.1, client-side) | **Live** |
@@ -136,7 +145,8 @@ These constrain every phase and are enforced in code and review:
 
 ## 6. Known cleanups / tech debt
 
-- Prevalence `base` values are illustrative until Phase 1 binds them to sourced data.
+- Prevalence `base` values are sourced for the high-signal set (Phase 1: a `prevSource`
+  citation marks each bound value); the long tail remains illustrative until later passes.
 - The seed record is fictional demo data; a first-run "start empty" path should be added.
 - `prototype/` is retained for reference (screenshots, ideation doc); the catalog generator no
   longer depends on it (`scripts/conditions.source.json` is the source), so it can be pruned.
@@ -149,11 +159,16 @@ accessibility, testing) — captured here so nothing is lost:
 - **Long-tail codes don't yet drive detection** (Phase 3 enabler). A condition attached via ICD-10
   vocabulary search resolves to `cat:'other'` and does not count toward, e.g., the HBOC breast
   tally. Add a code→curated-concept alias so imported/coded data participates in the pattern engine.
-- **HBOC should count same-lineage** (Phase 1). NCCN family-history criteria are per-side; the
-  current `breast ≥ 2` is lineage-agnostic (low-harm over-trigger for a *referral*). Refine to
-  same-side and cite NCCN.
-- **Lynch spectrum** (Phase 1). Add ovarian and upper-urinary-tract cancers to the Lynch-spectrum
-  set (a sensitivity gap), coordinating with HBOC so ovarian isn't double-counted.
+- ✅ **HBOC now counts same-lineage** (Phase 1). NCCN family-history criteria are per-side, so
+  the breast-cancer clustering trigger now counts relatives on the same lineage (maternal /
+  paternal); 2+ breast cancers that don't concentrate on one recorded side downgrade to "discuss"
+  with a prompt to record the side. Ovarian (any age) and breast < 50 stay side-independent
+  referral triggers.
+- ✅ **Lynch spectrum broadened** (Phase 1). Ovarian and upper-urinary-tract (renal pelvis /
+  ureter urothelial) cancers now count toward the Lynch-spectrum tally. Ovarian intentionally
+  seeds both HBOC and Lynch (different genes/pathways — a genetics evaluation disambiguates), with
+  a dual-pathway caveat in the flag; upper-tract is a distinct catalog entry (`utuc`, C65/C66),
+  kept separate from renal-cell (`kidneyca`) and bladder cancer.
 - **Async storage seam before Phase 5.** Every store mutation is synchronous; a zero-knowledge
   remote vault is async. Design the repository/adapter interface (async hydrate/commit) before the
   backend, not after — the sync→async shift is the real work, not the storage bytes.

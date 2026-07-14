@@ -70,7 +70,7 @@ graph TD
 | **UI** | `src/ui/` | React views over the store | everything below |
 
 > **Current state.** All layers are implemented; the domain, store, export, import, and view layers
-> are covered by the test suite (202 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
+> are covered by the test suite (229 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
 > / `tsconfig.app.json`).
 
 The pure core is genuinely pure: `src/domain` imports no React, performs no I/O (`fetch`,
@@ -174,8 +174,8 @@ relatives. Flags sort most-actionable first (`referral` → `discuss` → `note`
 
 | Pattern | Trigger (summary) | Severity |
 | --- | --- | --- |
-| Hereditary breast & ovarian cancer (HBOC) | ≥2 relatives with breast ca, and/or ovarian ca, and/or breast ca < 50 | referral |
-| Lynch syndrome (colorectal) | colorectal < 50, or ≥2 Lynch-spectrum cancers (colorectal/endometrial/gastric) | referral |
+| Hereditary breast & ovarian cancer (HBOC) | ≥2 breast ca on the **same lineage** (NCCN per-side), and/or ovarian ca, and/or breast ca < 50 | referral (discuss if the sides aren't recorded) |
+| Lynch syndrome (colorectal & spectrum) | colorectal < 50, or ≥2 Lynch-spectrum cancers (colorectal / endometrial / gastric / ovarian / upper-urinary-tract) | referral |
 | Premature cardiovascular disease | coronary disease in a 1st-degree relative (M<55/F<65), or cholesterol clustering with CAD | referral / discuss |
 | Autosomal-dominant vertical transmission | a dominant-pattern condition across ≥2 generations or in a 1st-degree relative | referral / discuss |
 | Age-of-onset proximity | vantage age approaches the earliest family onset of a condition they don't yet have | discuss |
@@ -201,13 +201,16 @@ A condition is either **curated** (the engine understands it) or **long-tail** (
 and the app is never limited to the curated set.
 
 ### Curated layer
-[`src/data/conditions.ts`](../src/data/conditions.ts) holds **115 curated conditions**, each with the
+[`src/data/conditions.ts`](../src/data/conditions.ts) holds **116 curated conditions**, each with the
 value-add metadata the engine reasons on (`cat`, `pattern`, `base` prevalence, `syn` synonyms) plus
-baked-in ICD-10-CM and SNOMED CT codes for the high-signal subset (**23** coded). It is **generated**
-by [`scripts/gen-conditions.mjs`](../scripts/gen-conditions.mjs) from the prototype catalog and
-verified code maps, and carries a `DO NOT EDIT BY HAND` banner — regenerate with
-`npm run gen:conditions`. Prevalences are illustrative today; binding them to sourced epidemiology is
-tracked in the roadmap (ideation **§3**).
+baked-in ICD-10-CM and SNOMED CT codes (**72** coded) and **32 HPO** terms for the genetics audience.
+It is **generated** by [`scripts/gen-conditions.mjs`](../scripts/gen-conditions.mjs) from the base
+catalog (`scripts/conditions.source.json`) and its verified code + epidemiology maps, and carries a
+`DO NOT EDIT BY HAND` banner — regenerate with `npm run gen:conditions`. The high-signal set's
+prevalence is bound to sourced epidemiology (CDC / SEER / NHANES / AHA / IHME) with a `prevSource`
+citation and a cited heritability (`herit`); the long tail stays illustrative until later passes
+(ideation **§3**). `base` and `herit` are catalog metadata only — never rendered as a person's risk
+(the "no manufactured number" boundary applies to heritability just as to risk).
 
 ### Long-tail layer — the vocabulary port
 The ~74,000-code ICD-10-CM long tail is reached at runtime through a **port**,
@@ -375,8 +378,8 @@ a code-review invariant — see [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ### ADR-005 — Two-layer condition catalog with a vocabulary port
 **Context:** a curated catalog rich enough for the engine to reason on, without capping the app at a
-fixed list. **Decision:** a generated curated layer (115 conditions with category / inheritance /
-prevalence / codes) plus a runtime `VocabularyProvider` port (default: NLM Clinical Tables) for the
+fixed list. **Decision:** a generated curated layer (116 conditions with category / inheritance /
+sourced prevalence / codes) plus a runtime `VocabularyProvider` port (default: NLM Clinical Tables) for the
 ~74,000-code ICD-10 long tail. **Consequence:** high-signal reasoning where it matters, full ICD-10
 coverage everywhere else, and no backend or API key required for the static build. The curated file is
 generated (`npm run gen:conditions`), never hand-edited. (ideation §3.)
