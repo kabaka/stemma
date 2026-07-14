@@ -1,0 +1,363 @@
+{
+  "manifestVersion": 1,
+  "kitVersion": "0.1.0",
+  "updatedAt": "2026-07-14T02:59:30.839Z",
+  "files": {
+    ".ai-dlc/hooks/arbiter-gate.sh": {
+      "hash": "8eca8e20b642d5e100596a351bd1c4bc584555f4d675804aef21aa3e38b7b10b",
+      "tier": "executable"
+    },
+    ".ai-dlc/hooks/hooks.json": {
+      "hash": "b8b4499fc089285ea4c80c23340532b83798f90c51261fee3a53103f2d0cfad9",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/README.md": {
+      "hash": "bb95e0cc1c25023377c4eeebe9a592527d610e5a34c5001f99f4c84dbe7ab40c",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/lib/app-exec-harness.mjs": {
+      "hash": "fb9302db7d1c09b57e8eb1af3ad2c0656e7b8e6fce279238b90a89c390ebbc0a",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/lib/binding.mjs": {
+      "hash": "9053729a91f5ef166679c2af6d65a920bf64fde8fed4b386993485129685dfaa",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/lib/contract.mjs": {
+      "hash": "4e1ea94c95375cef704b26d50b2bf4d2a5f357186062b18d3eb9be6ae80cadd1",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/off-token-lint.mjs": {
+      "hash": "cbd5e1bf074fc0c5b0ded211fbd1dafa9ed3bebe6e8082e595b6ba02223fd213",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/axe-audit.mjs": {
+      "hash": "3c19b692d02fc8599867f94ef02d25a755990eab4f6472e65f5df2fd7a972fda",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/browser-lib.mjs": {
+      "hash": "d43c528134b4e4d25d7c195de3a38cd93d977fa7a838d9c7ab3345238c300bac",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/browser-runner.mjs": {
+      "hash": "b0a5c707c802fab93dcdd645a169acf08945233d6db710689f0a8886b0c48ad6",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/changelog-check.mjs": {
+      "hash": "8ef46c7a6c72c958b818534cf5bdb9ea4f98677117bc311b721333058d4b2f52",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/contrast-check.mjs": {
+      "hash": "c91957c9ac36c799b94e32e615fa22a5d14f031fd9914dacf4d0188173429d07",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/patch-coverage.mjs": {
+      "hash": "147f896c07008e31ae2b846159841f898eb245eb830aa1f0cc6d695e702dcbe6",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/pixel-diff.mjs": {
+      "hash": "e1827c242f5101b726b63883e52be8ac303880ffeb76749be667e570a3ac0b72",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/reachability-runner.mjs": {
+      "hash": "9df1270aca97eac997ef61d7dea2f019050c0c5d689bcafc8f95464099fd5ad0",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/responsive-check.mjs": {
+      "hash": "8006fcfe2dfba68e435ae3013d7952eff03468d4ffe0bfad69586b1ff2a888e8",
+      "tier": "kit"
+    },
+    ".ai-dlc/scripts/visual-qa/static-server.mjs": {
+      "hash": "82a4baa7ca09b51af98468e07f995977aa81213a87b1e2fe53a11c525ecafc9d",
+      "tier": "kit"
+    },
+    ".ai-dlc/templates/artifacts/citation-ledger.md": {
+      "hash": "22ab2d7f94ae567b606ff5d29ee66648bf82bdb41bffdefcf3976ef7fe09a976",
+      "tier": "kit"
+    },
+    ".ai-dlc/templates/artifacts/decision-record.md": {
+      "hash": "8f249cf04055a01567a9149554b79c5ceaa1a5d7c136107365e85abfa152b9e3",
+      "tier": "kit"
+    },
+    ".ai-dlc/templates/artifacts/phase-handoff.md": {
+      "hash": "da9b1ee67219b5c3b83ae9b76a30cc8d54793e229f17dc4286b0d15e8cde2937",
+      "tier": "kit"
+    },
+    ".ai-dlc/templates/artifacts/unit-of-work.md": {
+      "hash": "bccdf9fd18200d82263b3b5dc9427f6d2ae8164022a1e5b7733895899322d2d3",
+      "tier": "kit"
+    },
+    ".claude/agents/architect.md": {
+      "hash": "16cec3e5f62bb31ce2bbdce783320df227704b10d6d11d94bddf033f1b27bcf2",
+      "tier": "kit"
+    },
+    ".claude/agents/code-reviewer.md": {
+      "hash": "a3a7b8f598f606cede4a4210505f8281717c1a530566a79707d624d70950f325",
+      "tier": "kit"
+    },
+    ".claude/agents/debugger.md": {
+      "hash": "dc36c9eb14a0ccc34f63097da87081eab8f99edc7cec54c2d12f5c9ce2a56c6f",
+      "tier": "kit"
+    },
+    ".claude/agents/devops.md": {
+      "hash": "4492f3bef787c19ebc4ddff30336d2222fcbb6228207560828f89ecf7cd0e435",
+      "tier": "kit"
+    },
+    ".claude/agents/documentation.md": {
+      "hash": "7c62651f246b436994bb763e97b2b28878236a3958b55c51c0ccbab958ce7dfe",
+      "tier": "kit"
+    },
+    ".claude/agents/implementer.md": {
+      "hash": "06a9e1689010e3531fb2cf314733109a701e45e7817e84c85ac59eee31819d72",
+      "tier": "kit"
+    },
+    ".claude/agents/kit-extender.md": {
+      "hash": "eb6027adba5cad637ea4cf3701678f05a8e53ec9e8f50f235dc33a0478a98e60",
+      "tier": "kit"
+    },
+    ".claude/agents/observability.md": {
+      "hash": "c1ec4c45930120993f5a0d0fa489e1d5b786823b128846fa0c216532ec3912ce",
+      "tier": "kit"
+    },
+    ".claude/agents/planner.md": {
+      "hash": "5a4aa434f7021732051df311ba18f0abf6a1ddde453a81abec18b9961c28bf58",
+      "tier": "kit"
+    },
+    ".claude/agents/requirements-analyst.md": {
+      "hash": "a133b76e4631eef5a090c60b1c2e7bfc652724f98af74545c35998307847d064",
+      "tier": "kit"
+    },
+    ".claude/agents/research-synthesizer.md": {
+      "hash": "53b133a871bed7979d58fdd7d467dcd0f314be9d462d1448cd24d4fd0595ac1c",
+      "tier": "kit"
+    },
+    ".claude/agents/researcher.md": {
+      "hash": "1dcd003f451d1ab7ffb43e60b2f8b94580036d29ddeadc77eb5c12e4cca23a5d",
+      "tier": "kit"
+    },
+    ".claude/agents/security.md": {
+      "hash": "417febf3663f69a1a602f412606c5d52ca0c2c396391f0a8c8fa53ea948267ef",
+      "tier": "kit"
+    },
+    ".claude/agents/test-engineer.md": {
+      "hash": "5044a66be42d62634b47cf3891dc68b232b0c0a13143d1b9b188441487277129",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-methodology/SKILL.md": {
+      "hash": "d783a09e54c581a78102461828c5620ce4405668b678b4b52e62dce9748c37fe",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-methodology/reference/bolts-and-units.md": {
+      "hash": "c0bb6de6973b7848b8aade1b9e04856cf068025b2a2e53621cbc9a113b1e102b",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-methodology/reference/ceremonies-and-arbiter.md": {
+      "hash": "493805142c675bd8143d2072708a2c189f9ac797b525ab4707fcc129d08da44c",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-methodology/reference/phases.md": {
+      "hash": "67f18d15ab9ce13b5a2f9ab2542dfa5b7f7c7a88e87d7937e86c9428a35b8ac3",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-methodology/reference/values.md": {
+      "hash": "a3108f9da41f29960c3c8be27073d92b02037fe747ac8bcf7207160c9be9dce5",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/SKILL.md": {
+      "hash": "9bd2da0329097089a84d33a726fb30d91da669882b5878c7e7b11fc2156f99f5",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/reference/arbiter-gate.md": {
+      "hash": "10131fdbb98f8686e34eaad0009a954f22bd9be364f0b922a9b4449f5afb5637",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/reference/artifacts.md": {
+      "hash": "9bffa648fa84b2c0d547d9ddb80a57556621219e7cb594bce7c86d8aa366b388",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/reference/phase-playbook.md": {
+      "hash": "8da222fcc356f82e1486dfe714275984d1fa43922005232abe76268d36e12c75",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/reference/scaling.md": {
+      "hash": "fa5b927d13591be808348033cd9deb3efd5209f3667477acc649db69e0aa9beb",
+      "tier": "kit"
+    },
+    ".claude/skills/aidlc-workflow/reference/triage.md": {
+      "hash": "e92a903a343fd6cc03b38d75a8ff75fb88ce1c91b0850953f4efe56e58b5bf86",
+      "tier": "kit"
+    },
+    ".claude/skills/architecture-design/SKILL.md": {
+      "hash": "976abf5fb32f0ee7336ecc21c3e6e44f00952684132182c7f0dcaac076d74f8f",
+      "tier": "kit"
+    },
+    ".claude/skills/architecture-design/reference/options-and-tradeoffs.md": {
+      "hash": "42803edb291a50795efabbb15830fff9139b02a0fce189fa980ac718bc99d1e3",
+      "tier": "kit"
+    },
+    ".claude/skills/citation-verification/SKILL.md": {
+      "hash": "5c8b315c6145ec93c3121013e3a881df908e9da891d0b84d36e2aa92206b1055",
+      "tier": "kit"
+    },
+    ".claude/skills/code-review/SKILL.md": {
+      "hash": "0fbe533f180aacd8e09c68d78da44ed43780d5964c3acad944e9b896fa04c583",
+      "tier": "kit"
+    },
+    ".claude/skills/code-review/reference/review-rubric.md": {
+      "hash": "ddd2d7fa0a858d4ff2f24f5a103e166dcd2cdea3a6bb8208c0657bad6de13d38",
+      "tier": "kit"
+    },
+    ".claude/skills/conventional-commits/SKILL.md": {
+      "hash": "be3785b7a4c230127d53d7859bb23efc920d1d26a04931c520c3d7929b4dbf05",
+      "tier": "kit"
+    },
+    ".claude/skills/delivery-operations/SKILL.md": {
+      "hash": "7cdaef0fd59c305157c83ce54eabfb4f979552fb758a6a9becde7d55ffdc491b",
+      "tier": "kit"
+    },
+    ".claude/skills/dependency-compliance/SKILL.md": {
+      "hash": "94e6be4ce2a8e360cc069bc783545c1976dddd671e5768b779515be82fa9f9da",
+      "tier": "kit"
+    },
+    ".claude/skills/design-system/SKILL.md": {
+      "hash": "bc4522eb925101f5e80bb28e50cdfc559757ae3d25aa1c83dbb9ca508af28633",
+      "tier": "kit"
+    },
+    ".claude/skills/design-system/reference/aesthetic-brief.md": {
+      "hash": "2b06c176e00227c43ef5144ae33bd647a9d1418d5f49c75f542322c033b8f3b7",
+      "tier": "kit"
+    },
+    ".claude/skills/design-system/reference/binding-schema.md": {
+      "hash": "4bfc90e85145ae4700c639395e523a54b73df275011891919d5148e53f073447",
+      "tier": "kit"
+    },
+    ".claude/skills/design-system/reference/inventory-and-states.md": {
+      "hash": "dbaf5d495a3732db00657568868d170f942bb73e3ca370fcdf319de61d714683",
+      "tier": "kit"
+    },
+    ".claude/skills/design-system/reference/tokens-dtcg.md": {
+      "hash": "8f8dffed7123cf8386655a3b0c37bfa8a8fd1c138b907adf11399af2d20af813",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/SKILL.md": {
+      "hash": "feed864fdb1982353dcef4599329ac7875a2de38a7302641e45ec4dc47ecb6c7",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/reference/authoring-agents.md": {
+      "hash": "8a204924eb482b6187572d302339f5649e19da48837779fb66debf5c42b445bd",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/reference/authoring-skills.md": {
+      "hash": "52dad1511c5b1a861f0dbfe5541841824a139ecad0524bbcc2a688cef926be2e",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/reference/descriptions.md": {
+      "hash": "77769de9c5c9eb91f8457bea1b2a16501d38803002f09243ef64040bc79b9851",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/reference/evals.md": {
+      "hash": "d4e6bbf611531b19107fdea4058191d5c70e302dffc46dd46dd501f3aec468ca",
+      "tier": "kit"
+    },
+    ".claude/skills/extending-the-kit/scripts/validate-kit-artifact.mjs": {
+      "hash": "9cbf341558d8b89dded2f03399ce0def4451dea0aa8eb87f0080403a3a574e62",
+      "tier": "kit"
+    },
+    ".claude/skills/implementation-planning/SKILL.md": {
+      "hash": "d91a7e505f38399f6d9c68d6801beac4397223a1e38dcd41e6830abb9783cc4f",
+      "tier": "kit"
+    },
+    ".claude/skills/observability-practice/SKILL.md": {
+      "hash": "bc828f64ccb4f6e03fe4387b85aeb7966e1bb95e5ab5f875d3b3a3d936a394c8",
+      "tier": "kit"
+    },
+    ".claude/skills/rca-investigation/SKILL.md": {
+      "hash": "a1ab2589f0f3f660039e3af03da889de7fcf052b3dd74214dd5f02054b1637cd",
+      "tier": "kit"
+    },
+    ".claude/skills/rca-investigation/reference/rca-report.md": {
+      "hash": "7c5777494076ada27376ec7ed028f551117638c00fa046f6d43765bc4513de1e",
+      "tier": "kit"
+    },
+    ".claude/skills/requirements-elaboration/SKILL.md": {
+      "hash": "f0f5658a2d6ce887756ba050e071e759ce12c13fa41e01c37b063a2ac4654d06",
+      "tier": "kit"
+    },
+    ".claude/skills/requirements-elaboration/reference/criteria-and-stories.md": {
+      "hash": "fc0a68002260bb59a1efb2b84b7433624c64d8a6fcb43923dd75af30cc3d42ea",
+      "tier": "kit"
+    },
+    ".claude/skills/research-method/SKILL.md": {
+      "hash": "b9db46fb7a442f9065e70f88291763c425fe07ab368b909f019a9a73ab1b5d71",
+      "tier": "kit"
+    },
+    ".claude/skills/security-review/SKILL.md": {
+      "hash": "b9fb488e127ca853b572a605151159a44f1e07297277b7cd1d7ef5e770fbfa55",
+      "tier": "kit"
+    },
+    ".claude/skills/spec-conformance/SKILL.md": {
+      "hash": "7115dd014ee704fc9ef00a41524514b8cd7f8b719378554760e0a7ade103f966",
+      "tier": "kit"
+    },
+    ".claude/skills/spec-conformance/reference/checklist.md": {
+      "hash": "1317eb046b4562da2ab0341f39b87c3fcaa742330ad3ac8f6949b8a4a676545d",
+      "tier": "kit"
+    },
+    ".claude/skills/spec-conformance/reference/converge.md": {
+      "hash": "5fcf22b5061c8e64b73cbd1923307b144e2a254193b26ee25a65098f150d7be0",
+      "tier": "kit"
+    },
+    ".claude/skills/stack-binding/SKILL.md": {
+      "hash": "2193d55f824ca40bbaf90804b661f050f35682183b7f9bd7c9834f2e2866cb21",
+      "tier": "kit"
+    },
+    ".claude/skills/stack-binding/reference/detection-heuristics.md": {
+      "hash": "d6ce2c0a4fce02fa6bdfeb1fc7bbb0a4431d9317ba8adab8f7e98eccb0c58385",
+      "tier": "kit"
+    },
+    ".claude/skills/stack-binding/reference/gate2-producer-flow.md": {
+      "hash": "57fc57c105dc76c2f4afa695414ae702f0fe3d2a04f47d4fe3d2f147d26de761",
+      "tier": "kit"
+    },
+    ".claude/skills/stack-binding/reference/schema.md": {
+      "hash": "45877f7675cb18d88e865f582bdee92d5ef45205b1950dfbedf182bf16e2aa01",
+      "tier": "kit"
+    },
+    ".claude/skills/testing-strategy/SKILL.md": {
+      "hash": "16af551a6056307c2c5ee389885a6475e8478e7440913886ef216c4080bd643d",
+      "tier": "kit"
+    },
+    ".claude/skills/testing-strategy/reference/methodologies.md": {
+      "hash": "68da8eff2e1585a0bf1719685a08501b256246ae39979b5f8e2beba767505b82",
+      "tier": "kit"
+    },
+    ".claude/skills/ux-design/SKILL.md": {
+      "hash": "d715964d3f4c20eaf91a7802cf6e62d2b27f67a7356b3e92676bac5881810c34",
+      "tier": "kit"
+    },
+    ".claude/skills/writing-docs/SKILL.md": {
+      "hash": "8b30f1224b2ca8e349d15979b0536e1f12c09f9a3235c6cefd24d8d70237a754",
+      "tier": "kit"
+    },
+    ".cursor/rules/ai-dlc-orchestrator.mdc": {
+      "hash": "a269a40a10e17d674d29fe7d7c43a5b530ecb8b640e58b349d03c5331cafcc17",
+      "tier": "kit"
+    },
+    ".github/copilot-instructions.md": {
+      "hash": "701af2b14faa7ece41429a0446b8ecd2d9c4927365c93bbaa8dfe2ab91952b86",
+      "tier": "kit"
+    },
+    ".kiro/steering/ai-dlc-orchestrator.md": {
+      "hash": "b33f92834411e5f3c9dd8217e23175ca272fc9178df354a8aaff20062e655a79",
+      "tier": "kit"
+    },
+    "AGENTS.md": {
+      "hash": "7a1427751fbaea36cdc34246730023c147b544b2408d7f308728f2618f8bcbce",
+      "tier": "co-owned"
+    },
+    "CLAUDE.md": {
+      "hash": "3872de92903a303eb713bae68c251e19a69f821e5c997d6254a12e40f3694c63",
+      "tier": "co-owned"
+    }
+  }
+}

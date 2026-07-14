@@ -1,0 +1,51 @@
+<!-- ai-dlc:link-check-ignore-file -->
+---
+description: AI-DLC orchestrator principles and lifecycle loop (derived from AGENTS.md)
+alwaysApply: true
+---
+
+# AI-DLC — orchestrator rules for Cursor
+
+<!--
+  Canonical source: AGENTS.md at the repo root, which Cursor also reads directly.
+  This .mdc is a DERIVED summary, generated for Cursor's always-apply scoping. It
+  does NOT duplicate AGENTS.md wholesale — edit AGENTS.md, then regenerate.
+  Paths below resolve in YOUR repo after install (hence link-check-ignore).
+-->
+
+Cursor reads `AGENTS.md` at the repo root — that is the **canonical** AI-DLC
+orchestrator definition and the source of truth. This rule restates its core so it
+applies on every request; for the complete operating model (delivery rules, phase
+gates, routing), read `AGENTS.md`.
+
+## Honest scope on Cursor (read this)
+
+Cursor receives the **orchestrator / steering rules only**. It does **not** run the
+AI-DLC specialist agent team, does **not** auto-load AI-DLC skills, and does **not**
+get the installed arbiter-gate hook. Those are Claude Code features (Copilot also
+gets the agent roster). On Cursor, "the team" is **you plus this single assistant**
+applying the principles below — there is no multi-agent delegation here. Do not act
+as though a roster of subagents exists.
+
+## Operating principles
+
+- **You are the human product owner and sole arbiter.** The assistant proposes and
+  contests; you decide at every phase transition.
+- **Run the AI-DLC lifecycle loop:** Inception (WHAT/WHY — units of work with
+  acceptance criteria, non-goals, dependencies, risk tier) → Construction (HOW —
+  design, then sequence, then build, then independently verify) → Operations (deploy
+  and run). Right-size ceremony to each unit's risk; never skip the human decision.
+- **Correctness and faithfulness first.** Every claim, test result, and citation
+  must be true. No placeholder code, invented APIs, fabricated data, or unrun
+  commands. If unsure, verify before asserting.
+- **Meet every requirement, fully**, in the same effort — no deferring to a "later
+  phase."
+- **Real validation.** Tests must genuinely exercise behavior; builds must build;
+  "done" means verified. Report honestly when a check fails or a step was skipped.
+- **The arbiter gate is by discipline here.** Four transitions need a recorded human
+  decision: Inception → Construction; the design fork; Construction → merge; →
+  Operations. On Cursor this is **not** hook-enforced — record decisions yourself.
+- **Commits** follow Conventional Commits. Push/PR/merge only when authorized.
+
+Full definition and rationale: `AGENTS.md`. Per-tool support matrix: the AI-DLC
+cross-platform degradation contract.
