@@ -181,3 +181,32 @@ accessibility, testing) — captured here so nothing is lost:
   view content isn't marked `inert`/`aria-hidden`, so a screen-reader user in browse mode can still
   reach controls behind the backdrop. The clean fix is a portal + `inert` on siblings; it's a
   cross-component change (App + views) deferred from the person-edit work.
+
+### Conversion-gap follow-ups
+
+From the prototype → app faithful-conversion audit ([`GAP-ANALYSIS.md`](./GAP-ANALYSIS.md)) — the
+prototype features dropped or left half-wired during the port, ranked. The engine, catalog, and
+kinship model came over faithfully; these are the real omissions, concentrated in what the app
+_emits_ and _edits_.
+
+- **[High] Printable clinical reports + a print stylesheet** (Phase 2, "bring to your appointment").
+  Restore the three one-pagers the prototype printed — a 3-generation NSGC pedigree, a
+  family-history red-flag summary, and an IPS-style personal-health summary — behind a real
+  `@media print` stylesheet. Today's lone `window.print()` prints the dark app chrome. Each sheet
+  must restate the clinical boundary (guardrail #3).
+- **[High] Native lossless backup + restore** (Phase 3 / no-lock-in). Export the complete record
+  (conditions, onset/provenance, timeline, organs, identity) to a versioned JSON and re-import it.
+  `replaceRecord` already validates and swaps a whole record, so restore is half-built; GEDCOM
+  (structural-only) and FHIR/Phenopacket (lossy) don't cover it. Guardrail #5.
+- **[High] Wire Timeline event editing into the UI.** `updateEvent` exists in the store but no view
+  uses it; add an edit affordance, plus a person picker in the event form so an event can be logged
+  to (or reassigned to) any relative rather than only the currently-viewed person.
+- **[Med] Restore dropped read surfaces.** Overview "Recent activity" (3 newest proband events);
+  the pedigree category-breakdown string ("N relatives · 2× X, 1× Y"); the drawer condition card's
+  inheritance-pattern line.
+- **[Med, guardrail] Re-assert the eroded guardrail copy.** Return the Patterns clinical boundary to
+  a first-class callout (not lede body text) (#3), and restore the drawer's "Screening keys off
+  organs present, not gender." line (#4).
+- **[Low] Cosmetic parity** (batch as capacity allows): proband-relative generation labels
+  (`YOU / ▲ / ▼`), the drawer avatar glyph, click-condition-to-highlight, the timeline spine + type
+  dots, the same-year sort tiebreaker, and the other minor items in GAP-ANALYSIS.md.
