@@ -258,6 +258,13 @@
   padding: 5px 10px;
   font-size: 11px;
 }
+/* aria-disabled keeps a control in the tab order (so keyboard/SR users discover it) while
+   still reading as unavailable. Used where a click is a guarded no-op until a precondition
+   is met, e.g. "Import family" before a GEDCOM file has parsed. */
+.btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 /* Solid, opaque border/text (not the washed-out rgba this replaced) so the
    destructive-action affordance clears WCAG 1.4.11 non-text contrast (>=3:1) as well
    as text contrast, against both --bg-panel and --bg-hover. */

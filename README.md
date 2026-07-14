@@ -25,8 +25,9 @@ browser.
 > [!NOTE]
 > **Project status.** Productionalized from the original **Lineage** prototype: the app is a
 > real, tested, deployable React + TypeScript + Vite build. The domain engine, catalog,
-> vocabulary adapter, store, all five views, and the FHIR/Phenopacket/GEDCOM/SVG exports are
-> implemented and covered by the test suite. What's next lives in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> vocabulary adapter, store, all five views, the FHIR/Phenopacket/GEDCOM/SVG exports, and GEDCOM
+> import are implemented and covered by the test suite. What's next lives in
+> [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Features
 
@@ -45,7 +46,10 @@ browser.
   history, with pointers to validated external calculators (CanRisk, PREMM5, ASCVD).
 - **Standards & interoperability** — export the same graph to FHIR R4, GA4GH Phenopackets v2,
   GEDCOM 5.5.1, and a 2022-nomenclature pedigree SVG, all generated client-side, so your record
-  outlives the app.
+  outlives the app. **GEDCOM import** seeds a pedigree from a family tree you already have (e.g.
+  an Ancestry or FamilySearch export) — structural data only (people and the family graph; a
+  genealogy file carries no health data, so conditions are still added in Stemma), parsed entirely
+  in your browser.
 - **Local-first & private** — the entire record lives in your browser's `localStorage`. Nothing
   is uploaded. The only runtime network call is the optional ICD-10 vocabulary lookup (below).
 
@@ -108,6 +112,8 @@ src/
 │   ├── phenopacket.ts     # GA4GH Phenopacket v2
 │   ├── gedcom.ts          # GEDCOM 5.5.1
 │   └── pedigree-svg.ts    # 2022-nomenclature pedigree SVG
+├── import/            # Standards parsers — the inverse of export/ (client-side, with tests)
+│   └── gedcom.ts          # GEDCOM 5.5.1 → structural people + family graph (no conditions)
 ├── store/             # Application state
 │   └── useStore.ts        # Zustand store + localStorage persistence + catalog builder
 ├── ui/                # React views + components
@@ -158,11 +164,15 @@ browser — to:
 - **HL7 FHIR R4** — `Patient`, `Condition`, and `FamilyMemberHistory`, dual-coded with SNOMED CT
   and ICD-10-CM, for patient portals and EHRs.
 - **GA4GH Phenopackets v2** — the standard a genetic counselor or researcher can ingest directly.
-- **GEDCOM 5.5.1** — genealogy interchange (import from an existing family tree is on the roadmap).
+- **GEDCOM 5.5.1** — genealogy interchange, and round-trippable: **import** reads the same format
+  back in to seed a pedigree from a family tree exported by Ancestry, FamilySearch, Gramps, or
+  Stemma itself. Import is **structural only** — people and the parent/child graph; a genealogy
+  file carries no health data, so it never imports conditions — and runs entirely in your browser
+  (`FileReader`, no upload).
 - **Pedigree SVG** in correct 2022 NSGC nomenclature — the three-generation chart a counselor
   draws at intake.
 
-Import pipelines (GEDCOM-in, FHIR pull, record OCR) are on the [roadmap](docs/ROADMAP.md) (§3).
+Further import pipelines (FHIR pull, record OCR) are on the [roadmap](docs/ROADMAP.md) (§3).
 
 ## Roadmap & architecture
 

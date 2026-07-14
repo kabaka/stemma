@@ -242,6 +242,19 @@ describe('replaceRecord', () => {
     expect(state.selectedId).toBeNull();
     expect(state.extensions).toEqual([]);
   });
+
+  it('ignores an invalid record rather than overwriting good state', () => {
+    const before = useStore.getState().record; // the loaded example family
+    // probandId references nobody → fails isValidRecord; must be a no-op.
+    const invalid = {
+      people: [],
+      unions: [],
+      timeline: [],
+      probandId: 'ghost',
+    } as unknown as FamilyRecord;
+    useStore.getState().replaceRecord(invalid);
+    expect(useStore.getState().record).toBe(before);
+  });
 });
 
 describe('record-swap actions leave navigation state alone', () => {

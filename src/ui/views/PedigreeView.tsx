@@ -143,9 +143,12 @@ export function PedigreeView() {
   // lost there) — matching the focus discipline PersonDrawer uses for the drawer.
   useEffect(() => {
     const emptyChanged = prevIsEmpty.current !== isEmpty;
-    const addFormClosed = prevAdding.current && !adding;
-    const importFormClosed = prevImporting.current && !importing;
-    if (emptyChanged || addFormClosed || importFormClosed) titleRef.current?.focus();
+    // "A panel was open and now none is" — evaluated across BOTH panels together. Switching
+    // from Add to Import (or back) closes one as the other opens, which must NOT count as a
+    // close: doing so would yank focus to the heading away from the toggle just pressed.
+    const wasOpen = prevAdding.current || prevImporting.current;
+    const isOpen = adding || importing;
+    if (emptyChanged || (wasOpen && !isOpen)) titleRef.current?.focus();
     prevIsEmpty.current = isEmpty;
     prevAdding.current = adding;
     prevImporting.current = importing;
@@ -219,7 +222,7 @@ export function PedigreeView() {
   };
   const openImporting = (): void => {
     setAdding(false);
-    setImporting(true);
+    setImporting((v) => !v);
   };
 
   const handleLoadSample = (): void => {
@@ -277,7 +280,7 @@ export function PedigreeView() {
                 aria-expanded={importing}
                 onClick={openImporting}
               >
-                Import GEDCOM
+                {importing ? '✕ close import' : 'Import GEDCOM'}
               </button>
               <button type="button" className="btn btn--sm" onClick={handleLoadSample}>
                 Load example family

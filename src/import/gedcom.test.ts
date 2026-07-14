@@ -113,6 +113,25 @@ describe('buildRecordFromGedcom', () => {
   it('returns null when there is nothing to import', () => {
     expect(buildRecordFromGedcom(parseGedcom('0 HEAD\n0 TRLR\n'))).toBeNull();
   });
+
+  it('drops self-parentage (a person listed as their own parent) rather than modelling it', () => {
+    const text = `0 @I1@ INDI
+1 NAME Self /Parent/
+1 SEX F
+0 @I2@ INDI
+1 NAME Kid /Parent/
+1 SEX M
+0 @F1@ FAM
+1 WIFE @I1@
+1 CHIL @I1@
+1 CHIL @I2@
+0 TRLR
+`;
+    const record = buildRecordFromGedcom(parseGedcom(text))!;
+    const union = record.unions.find((u) => u.parents.includes('I1'))!;
+    expect(union.children).toEqual(['I2']); // @I1@ removed from its own children
+    expect(union.children).not.toContain('I1');
+  });
 });
 
 describe('parseGedcom (leniency — never throws on real-world quirks)', () => {
@@ -164,6 +183,38 @@ describe('parseGedcom (leniency — never throws on real-world quirks)', () => {
     expect(() => parseGedcom('')).not.toThrow();
     expect(() => parseGedcom('not gedcom at all\n\n???')).not.toThrow();
     expect(parseGedcom('').individuals).toEqual([]);
+  });
+
+  it('does not throw on an absurd level number (array-length overflow guard)', () => {
+    // `stack.length = level + 1` would throw RangeError for a level beyond max array
+    // length; the line is treated as invalid and skipped instead.
+    const text = '0 @I1@ INDI\n1 NAME A /B/\n99999999999999999999 X Y\n0 TRLR\n';
+    expect(() => parseGedcom(text)).not.toThrow();
+    expect(parseGedcom(text).individuals).toHaveLength(1);
+  });
+
+  it('folds CONC/CONT continuations into a long name', () => {
+    const text = '0 @I1@ INDI\n1 NAME John /Smith\n2 CONC -Jones/\n1 SEX M\n0 TRLR\n';
+    expect(parseGedcom(text).individuals[0].name).toBe('John Smith-Jones');
+  });
+
+  it('keeps the first of two individuals sharing an id and warns about the rest', () => {
+    const text = `0 @I1@ INDI
+1 NAME Alice /A/
+0 @I2@ INDI
+1 NAME Bob /B/
+0 @I1@ INDI
+1 NAME Someone /Else/
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    expect(parsed.individuals.map((i) => i.name)).toEqual(['Alice A', 'Bob B']);
+    expect(parsed.warnings.some((w) => /shared an id/.test(w))).toBe(true);
+  });
+
+  it('neutralises a reserved-word id so it cannot become a dangerous object key', () => {
+    const text = '0 @__proto__@ INDI\n1 NAME P /Q/\n1 SEX F\n0 TRLR\n';
+    expect(parseGedcom(text).individuals[0].id).toBe('id-__proto__');
   });
 });
 

@@ -31,9 +31,10 @@ Dependencies point **inward**; the core is pure. Put new code in the **lowest** 
 
 | Layer | Path | May import | Must never import |
 | --- | --- | --- | --- |
-| Pure core | `src/domain/`, `src/data/` | each other | `store`, `ui`, `integrations`, `export`, React, the network |
+| Pure core | `src/domain/`, `src/data/` | each other | `store`, `ui`, `integrations`, `export`, `import`, React, the network |
 | Ports | `src/integrations/` | `domain` (types) | `store`, `ui` |
 | Export | `src/export/` | `domain`, `data` | `store`, `ui` |
+| Import | `src/import/` | `domain`, `data` | `store`, `ui` |
 | Store | `src/store/` | `domain`, `data`, `integrations` | `ui` |
 | UI | `src/ui/` | everything below | — |
 

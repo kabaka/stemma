@@ -37,21 +37,25 @@ graph TD
     subgraph ports["Ports & adapters"]
       INT["src/integrations<br/>VocabularyProvider → NLM"]
       EXP["src/export<br/>FHIR · Phenopacket · GEDCOM · SVG"]
+      IMP["src/import<br/>GEDCOM parse + build"]
     end
     subgraph core["Pure core (no React, no I/O)"]
-      DOMAIN["src/domain<br/>types · person · graph · patterns · screening · catalog"]
+      DOMAIN["src/domain<br/>types · person · graph · record · patterns · screening · catalog"]
       DATA["src/data<br/>conditions · categories · recommendations · seed"]
     end
 
     UI --> STORE
     UI -.reads.-> DOMAIN
     UI -.reads.-> INT
+    UI -.reads.-> IMP
     STORE --> DOMAIN
     STORE --> DATA
     STORE --> INT
     INT --> DOMAIN
     EXP --> DOMAIN
     EXP --> DATA
+    IMP --> DOMAIN
+    IMP --> DATA
     DOMAIN <--> DATA
 ```
 
@@ -61,12 +65,13 @@ graph TD
 | **Data** | `src/data/` | Curated, pure constants (catalog, categories, recommendations, seed family) | `domain` (types only) |
 | **Integrations** | `src/integrations/` | Ports to external services (the vocabulary adapter) | `domain` (types) |
 | **Export** | `src/export/` | Serialize the graph to open standards | `domain`, `data` |
+| **Import** | `src/import/` | Parse an external file into the graph (the inverse of Export) | `domain`, `data` |
 | **Store** | `src/store/` | Zustand state, mutations, `localStorage` persistence, catalog assembly | `domain`, `data`, `integrations` |
 | **UI** | `src/ui/` | React views over the store | everything below |
 
-> **Current state.** All layers are implemented; the domain, store, export, and view layers are
-> covered by the test suite (148 tests). The `@/` path alias maps to `src/` (see `vite.config.ts` /
-> `tsconfig.app.json`).
+> **Current state.** All layers are implemented; the domain, store, export, import, and view layers
+> are covered by the test suite (202 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
+> / `tsconfig.app.json`).
 
 The pure core is genuinely pure: `src/domain` imports no React, performs no I/O (`fetch`,
 `localStorage`, timers), and imports nothing from `store`/`ui`/`integrations`. The only cross-layer
@@ -263,13 +268,64 @@ the same graph exports to open standards so it outlives the app. The `src/export
 - **HL7 FHIR R4** bundles (`Patient`, `Condition`, `FamilyMemberHistory`), dual-coded with SNOMED CT
   and ICD-10-CM, for portals/EHRs;
 - **GA4GH Phenopackets v2** for genetic counselors and research;
-- **GEDCOM 5.5.1** for genealogy interchange (import is on the roadmap);
+- **GEDCOM 5.5.1** for genealogy interchange — round-trippable, since `src/import/` (below) reads
+  it back;
 - a **three-generation pedigree SVG** in 2022 NSGC nomenclature.
 
-Like every layer below the store, export modules must be pure and deterministic (see [§9](#9-determinism))
-and depend only on `domain`/`data`.
+Like every layer below the store, export modules must be pure and deterministic (see
+[§10](#10-determinism)) and depend only on `domain`/`data`.
 
-## 9. Determinism
+## 9. The import layer
+
+Phase 3 of the roadmap ("kill the retyping") added `src/import/`, the inverse of `src/export/` and
+built to the same contract: it depends only on `domain`/`data`, never `store`/`ui`, and is pure and
+deterministic — no clock, no random ids, no network — so a file dropped in by a user is parsed
+entirely client-side.
+
+[`src/import/gedcom.ts`](../src/import/gedcom.ts) exposes two functions (re-exported from
+`src/import/index.ts`):
+
+- **`parseGedcom(text)`** — a tolerant, hand-written GEDCOM 5.5.1 parser (no new runtime dependency).
+  It builds the level-nested record tree, then reads `INDI` records into structural individuals
+  (`NAME` with the `/surname/` slashes cleaned, `SEX`→`sab`, `BIRT`/`DEAT` year extracted from
+  whichever GEDCOM date form is present) and `FAM` records into parent/child families. It never
+  throws — a BOM, CRLF/CR line endings, dangling family links, duplicate cross-references, and an
+  empty file all degrade to `warnings` surfaced to the user rather than a failure.
+- **`buildRecordFromGedcom(parsed, probandId?)`** — maps the parsed structure to a `FamilyRecord`,
+  or `null` when there is nothing to import. GEDCOM has no concept of "the record owner," so the
+  caller supplies `probandId`; the UI ([`GedcomImport.tsx`](../src/ui/components/GedcomImport.tsx))
+  asks "which of these is you?" and defaults to the first individual in the file.
+
+**Scope is deliberately structural, not clinical.** Only people (name, `sab`, birth/death years) and
+the union graph import — every person is built with `conds: []`. A genealogy export carries no
+structured health data, and inferring conditions from free-text `NOTE`s would misattribute clinical
+facts to a person who never entered them, so conditions are always added in Stemma after import.
+`SEX` maps to `sab` (genetics/geometry); the display `gender` is *defaulted* from `sab` via
+`genderFromSab` and stays freely editable per person afterwards — the same 2022 NSGC
+genetics/identity split the rest of the model holds to (see [§3](#3-data-model--person-is-the-atom)).
+
+GEDCOM also carries no layout, so two new domain functions in
+[`src/domain/record.ts`](../src/domain/record.ts) derive one from the graph alone:
+
+- **`deriveGenerations(people, unions)`** — assigns a generation index to every person with a
+  cycle-safe, signed-delta breadth-first search (a child is one generation below each parent,
+  partners and siblings share a generation), normalized so the oldest generation present is `0`.
+  First assignment wins, so a contradictory cycle in malformed data degrades gracefully instead of
+  looping.
+- **`layoutFromGraph(record)`** — assigns `gen` (via `deriveGenerations`) and an `x` coordinate per
+  person, ordering each generation by the barycentre of its already-placed parents so children sit
+  under them and edge crossings are reduced. This is distinct from — and a predecessor to —
+  `computeLayout` in [`src/domain/graph.ts`](../src/domain/graph.ts): `layoutFromGraph` derives the
+  stored `gen`/`x` from a bare union graph; `computeLayout` later turns whatever `gen`/`x` a record
+  already carries into de-overlapped pixel positions for rendering.
+
+Because an imported record is the first thing fed to the store from outside its own trusted
+mutation path, `store.replaceRecord` now validates it against `isValidRecord` (moved to
+`src/domain/record.ts`) before swapping it in, rejecting a malformed record rather than hydrating
+garbage into state — the same guard `localStorage` hydration already applied. See
+[ADR-008](#adr-008--gedcom-import-is-structural-only-via-a-new-import-layer).
+
+## 10. Determinism
 
 The engine is deterministic so it can be unit-tested against known pedigrees. The one source of
 non-determinism — the current date — is **injected, never read** inside the domain:
@@ -285,7 +341,7 @@ non-determinism — the current date — is **injected, never read** inside the 
 Tests are Vitest + Testing Library (jsdom), co-located as `*.test.ts`, and generally use the seed
 family in [`src/data/seed.ts`](../src/data/seed.ts) as their fixture (`npm run test` / `test:run`).
 
-## 10. Decisions (ADR log)
+## 11. Decisions (ADR log)
 
 Lightweight architecture decision records. Each: context → decision → consequence.
 
@@ -340,6 +396,24 @@ it was made first. (ideation §1, §5.)
 *stemma* is a family tree / lineage diagram — fitting for a pedigree-first tool; the `Lineage`
 prototype artifacts remain under `prototype/` as source material and are referenced (as `LINEAGE_*`)
 by the catalog generator.
+
+### ADR-008 — GEDCOM import is structural-only, via a new import layer
+**Context:** Phase 3 ("kill the retyping") called for reusing an existing family tree instead of
+retyping every relative. A GEDCOM file describes people and genealogical relationships; it has no
+field for a health condition, and its free-text `NOTE`s are not structured clinical data — parsing
+them into `Condition`s would mean guessing at a diagnosis from prose the engine cannot verify.
+**Decision:** add `src/import/` as a new layer, the inverse of `src/export/` and bound to the same
+contract (depends on `domain`/`data` only, pure, deterministic, no network). `parseGedcom` +
+`buildRecordFromGedcom` import people and the parent/child graph only — every imported person gets
+`conds: []`, and conditions are entered in Stemma afterward. GEDCOM's `SEX` sets `sab`; the display
+`gender` defaults from it and stays editable, and GEDCOM's missing proband concept is resolved by
+asking the user "which of these is you?" in the UI. Generations and layout, absent from GEDCOM
+entirely, are derived from the union graph (`deriveGenerations`, `layoutFromGraph`). **Consequence:**
+import can never fabricate a clinical fact — the guardrail in [§1](#1-what-stemma-is--and-the-boundary-it-holds)
+holds for data entering the record, not just data the engine derives from it — at the cost of still
+requiring manual condition entry after a GEDCOM import. `store.replaceRecord`, the first action fed an
+externally-built record, now validates against `isValidRecord` rather than trusting the shape, closing
+the same hydration hole a corrupt `localStorage` blob already guarded against. (roadmap Phase 3.)
 
 ---
 

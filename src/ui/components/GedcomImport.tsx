@@ -46,15 +46,17 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
     setParsed(null);
     setFileName(file.name);
 
-    let text: string;
+    let result: ParsedGedcom;
     try {
-      text = await readFileText(file);
+      const text = await readFileText(file);
+      // parseGedcom is written not to throw, but a hostile file shouldn't be able to break
+      // the panel even if that contract ever slipped — fold any failure into an error.
+      result = parseGedcom(text);
     } catch {
       setError('That file could not be read. Try exporting the GEDCOM again.');
       return;
     }
 
-    const result = parseGedcom(text);
     if (!result.individuals.length) {
       setError(result.warnings[0] ?? 'No individuals were found in this file.');
       return;
@@ -65,8 +67,14 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
 
   const handleImport = (): void => {
     if (!parsed) return;
-    const built = buildRecordFromGedcom(parsed, probandId);
+    let built;
+    try {
+      built = buildRecordFromGedcom(parsed, probandId);
+    } catch {
+      built = null;
+    }
     if (!built) {
+      setParsed(null); // clear the continuation UI so the error isn't shown alongside it
       setError('There was nothing to import from this file.');
       return;
     }
@@ -75,6 +83,7 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
 
   const peopleCount = parsed?.individuals.length ?? 0;
   const familyCount = parsed?.families.length ?? 0;
+  const warningCount = parsed?.warnings.length ?? 0;
 
   return (
     <div className="card" style={{ marginBottom: 16, display: 'grid', gap: 14 }}>
@@ -101,14 +110,23 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
         </div>
       )}
 
-      {parsed && (
-        <>
-          <p role="status" style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+      {/* A persistent polite live region: mounted from first render so the async parse
+          result is announced when this text CHANGES, rather than being inserted into the
+          DOM already populated (which some screen readers don't announce). */}
+      <p role="status" style={{ fontSize: 13, margin: 0, lineHeight: 1.5, minHeight: 18 }}>
+        {parsed && (
+          <>
             Found <b>{peopleCount}</b> {peopleCount === 1 ? 'person' : 'people'} and{' '}
             <b>{familyCount}</b> {familyCount === 1 ? 'family' : 'families'}
             {fileName ? ` in ${fileName}` : ''}.
-          </p>
+            {warningCount > 0 &&
+              ` ${warningCount} ${warningCount === 1 ? 'entry was' : 'entries were'} adjusted (see below).`}
+          </>
+        )}
+      </p>
 
+      {parsed && (
+        <>
           <div>
             <label className="lbl" htmlFor={probandFieldId}>
               Which of these is you? (the record owner)
@@ -129,8 +147,11 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
             </select>
           </div>
 
-          {parsed.warnings.length > 0 && (
-            <div className="disclaimer" role="status">
+          {/* Plain (non-live) box: the persistent status region above already announces
+              the adjustment count, so this detail list doesn't need its own live role
+              (two polite regions changing at once can drop one another). */}
+          {warningCount > 0 && (
+            <div className="disclaimer">
               <b>Some entries were adjusted:</b>
               <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                 {parsed.warnings.map((w, i) => (
@@ -149,11 +170,14 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
       )}
 
       <div className="row">
+        {/* aria-disabled (not the native `disabled` attribute) so keyboard / screen-reader
+            users can still reach the control and learn it exists before a file has parsed;
+            handleImport no-ops while `parsed` is null. */}
         <button
           type="button"
           className="btn btn--primary btn--sm"
           onClick={handleImport}
-          disabled={!parsed}
+          aria-disabled={!parsed}
         >
           Import family
         </button>

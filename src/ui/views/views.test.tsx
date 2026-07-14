@@ -7,6 +7,7 @@ import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
 import { ReportsView } from './ReportsView';
+import { GedcomImport } from '../components/GedcomImport';
 
 // These views are asserted against the example family; the app's real default is empty.
 beforeEach(() => useStore.getState().loadSample());
@@ -395,6 +396,43 @@ describe('PedigreeView — GEDCOM import', () => {
     expect(confirmSpy).toHaveBeenCalled();
     // Cancelled — the original seed family survives untouched.
     expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+  });
+
+  it('the header Import GEDCOM button is a real toggle — a second press closes the panel', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />); // sample family loaded, header cluster visible
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
+    // Label swaps to a close affordance while open (aria-expanded is also true).
+    await user.click(screen.getByRole('button', { name: /close import/i }));
+    expect(screen.queryByLabelText(/gedcom file/i)).not.toBeInTheDocument();
+  });
+
+  it('does not steal focus to the heading when switching from Add relative to Import', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /\+ add relative/i }));
+    const importBtn = screen.getByRole('button', { name: /import gedcom/i });
+    await user.click(importBtn);
+    // Focus stays on the toggle the user just pressed, not yanked to the page heading.
+    expect(importBtn).toHaveFocus();
+    expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
+  });
+});
+
+describe('GedcomImport (accessibility)', () => {
+  it('keeps a persistent status region so the async parse summary can be announced', () => {
+    render(<GedcomImport onImport={vi.fn()} onCancel={vi.fn()} />);
+    // Present from first render (empty), so updating its text on parse is announced —
+    // rather than the region being inserted already populated (which SRs may miss).
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('keeps Import family keyboard-discoverable before a file parses (aria-disabled, not disabled)', () => {
+    render(<GedcomImport onImport={vi.fn()} onCancel={vi.fn()} />);
+    const btn = screen.getByRole('button', { name: /import family/i });
+    expect(btn).toBeEnabled(); // still in the tab order
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
   });
 });
 

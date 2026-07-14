@@ -52,6 +52,14 @@ interface GedcomNode {
   children: GedcomNode[];
 }
 
+/**
+ * GEDCOM nesting never exceeds a handful of levels; the spec caps it well below this. The
+ * bound also guards `buildTree`'s `stack.length = level + 1` against a crafted line whose
+ * level overflows the max array length (which would throw `RangeError` and break the
+ * "never throws" contract) — such a line is simply treated as invalid and skipped.
+ */
+const MAX_LEVEL = 100;
+
 /** Split one raw line into its GEDCOM parts, or `null` if it isn't a valid line. */
 function parseLine(raw: string): Omit<GedcomNode, 'children'> | null {
   const line = raw.trim();
@@ -59,6 +67,7 @@ function parseLine(raw: string): Omit<GedcomNode, 'children'> | null {
   const head = /^(\d+)\s+(.*)$/.exec(line);
   if (!head) return null;
   const level = Number.parseInt(head[1], 10);
+  if (!Number.isSafeInteger(level) || level > MAX_LEVEL) return null;
   let rest = head[2];
   let xref: string | null = null;
   // A leading @…@ token is the record's own cross-reference id; a pointer that appears as
@@ -97,9 +106,29 @@ const child = (node: GedcomNode, tag: string): GedcomNode | undefined =>
 
 const childValue = (node: GedcomNode, tag: string): string => child(node, tag)?.value ?? '';
 
+/**
+ * A node's value, folding in the GEDCOM `CONC` (concatenate, no separator) and `CONT`
+ * (continue on a new line) subtags that source tools use to wrap a value that exceeds
+ * their line-length limit. The model holds single-line display strings, so `CONT` breaks
+ * flatten to a space.
+ */
+function fullValue(node: GedcomNode): string {
+  let out = node.value;
+  for (const c of node.children) {
+    if (c.tag === 'CONC') out += c.value;
+    else if (c.tag === 'CONT') out += ` ${c.value}`;
+  }
+  return out;
+}
+
+/** Property names that are unsafe as plain-object keys downstream (e.g. `computeLayout`'s
+ * layout map), so a crafted `@__proto__@` cross-reference can't reach one. */
+const RESERVED_IDS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Strip the `@…@` delimiters from a cross-reference pointer, e.g. `@I1@` → `I1`. */
 function xrefToId(xref: string | null): string {
-  return (xref ?? '').replace(/@/g, '').trim();
+  const id = (xref ?? '').replace(/@/g, '').trim();
+  return RESERVED_IDS.has(id) ? `id-${id}` : id;
 }
 
 /**
@@ -139,15 +168,19 @@ export function parseGedcom(text: string): ParsedGedcom {
 
   const individuals: GedcomIndividual[] = [];
   const knownIds = new Set<string>();
+  let duplicateIds = 0;
   roots
     .filter((n) => n.tag === 'INDI')
     .forEach((n, i) => {
       const id = xrefToId(n.xref) || `indi-${i}`;
-      if (knownIds.has(id)) return; // duplicate cross-reference — keep the first
+      if (knownIds.has(id)) {
+        duplicateIds++; // duplicate cross-reference — keep the first, count the rest
+        return;
+      }
       knownIds.add(id);
 
       const nameNode = child(n, 'NAME');
-      let name = cleanName(nameNode?.value ?? '');
+      let name = cleanName(nameNode ? fullValue(nameNode) : '');
       if (!name && nameNode) {
         // Structured name: assemble from GIVN + SURN subtags.
         name = cleanName(`${childValue(nameNode, 'GIVN')} ${childValue(nameNode, 'SURN')}`);
@@ -192,6 +225,11 @@ export function parseGedcom(text: string): ParsedGedcom {
       `${dangling} family ${dangling === 1 ? 'link referenced an unknown person and was' : 'links referenced unknown people and were'} skipped.`,
     );
   }
+  if (duplicateIds) {
+    warnings.push(
+      `${duplicateIds} ${duplicateIds === 1 ? 'individual shared an id with an earlier record and was' : 'individuals shared ids with earlier records and were'} skipped.`,
+    );
+  }
 
   return { individuals, families, warnings };
 }
@@ -226,7 +264,13 @@ export function buildRecordFromGedcom(
   }));
 
   const unions: Union[] = parsed.families
-    .map((f) => ({ parents: [...f.parents], children: [...f.children] }))
+    .map((f) => {
+      const parents = [...f.parents];
+      const parentSet = new Set(parents);
+      // Drop a child also listed as a parent of the same union (self-parentage from a
+      // malformed file) — a person cannot be their own parent.
+      return { parents, children: f.children.filter((c) => !parentSet.has(c)) };
+    })
     // Drop a degenerate family that is neither a couple nor a parent-with-child.
     .filter((u) => u.children.length > 0 || u.parents.length >= 2);
 
