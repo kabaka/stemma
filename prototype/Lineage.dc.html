@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="./conditions.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:#0b0e13;color:#e6eaf0;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:#34e2cf;text-decoration:none}
+  a:hover{color:#6fe6d9}
+  input,select,textarea{font-family:inherit}
+  select option{background:#12161d;color:#e6eaf0}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  .lin-print{display:none}
+  @media print{
+    @page{size:letter portrait;margin:14mm}
+    html,body{height:auto!important;overflow:visible!important;background:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .lin-root{display:block!important;height:auto!important;overflow:visible!important;position:static!important}
+    .lin-root>*:not(.lin-print){display:none!important}
+    .lin-print{display:block!important;color:#111}
+    .rp-break{page-break-before:always}
+    .rp-avoid{break-inside:avoid}
+  }
+</style>
+</helmet>
+<div class="lin-root" style="display:flex;height:100vh;width:100%;overflow:hidden;background:#0b0e13;position:relative">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside style="width:216px;flex:none;background:#0e1218;border-right:1px solid rgba(255,255,255,0.07);display:flex;flex-direction:column">
+    <div style="padding:20px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.06)">
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="width:22px;height:22px;border:1.5px solid #34e2cf;border-radius:5px;display:flex;align-items:center;justify-content:center">
+          <div style="width:6px;height:6px;background:#34e2cf;border-radius:50%"></div>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px;letter-spacing:2px;color:#e6eaf0">LINEAGE</div>
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:1.5px;color:#5c6472;margin-top:7px;text-transform:uppercase">Family health intelligence</div>
+    </div>
+
+    <nav style="padding:14px 12px;display:flex;flex-direction:column;gap:3px">
+      <div onClick="{{ go.overview }}" style="{{ navOverview }}" style-hover="background:rgba(255,255,255,0.04)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span>Overview</span>
+      </div>
+      <div onClick="{{ go.tree }}" style="{{ navTree }}" style-hover="background:rgba(255,255,255,0.04)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="2.5" r="1.8" stroke="currentColor" stroke-width="1.3"/><circle cx="3" cy="12" r="1.8" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="1.8" stroke="currentColor" stroke-width="1.3"/><path d="M7.5 4.3V7.5M7.5 7.5H3V10M7.5 7.5H12V10" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span>Family Pedigree</span>
+      </div>
+      <div onClick="{{ go.risk }}" style="{{ navRisk }}" style-hover="background:rgba(255,255,255,0.04)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 13.5V9M6 13.5V4M10.5 13.5V6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13.5 2L13.5 13.5" stroke="currentColor" stroke-width="1.3" opacity="0.5"/></svg>
+        <span>Family Patterns</span>
+      </div>
+      <div onClick="{{ go.timeline }}" style="{{ navTimeline }}" style-hover="background:rgba(255,255,255,0.04)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3H13M2 7.5H13M2 12H13" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="3" r="1.6" fill="currentColor"/><circle cx="9" cy="7.5" r="1.6" fill="currentColor"/><circle cx="6" cy="12" r="1.6" fill="currentColor"/></svg>
+        <span>My Timeline</span>
+      </div>
+      <div onClick="{{ go.export }}" style="{{ navExport }}" style-hover="background:rgba(255,255,255,0.04)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5V9.5M7.5 9.5L4.5 6.7M7.5 9.5L10.5 6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 10.5V12.5A1 1 0 0 0 3 13.5H12A1 1 0 0 0 13 12.5V10.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <span>Reports &amp; Export</span>
+      </div>
+    </nav>
+
+    <div style="margin-top:auto;padding:16px;border-top:1px solid rgba(255,255,255,0.06)">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#5c6472;text-transform:uppercase;margin-bottom:9px">Proband</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#34e2cf,#6fa8ff);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;color:#08121a">M</div>
+        <div>
+          <div style="font-size:12.5px;font-weight:600;color:#e6eaf0;line-height:1.2">Maya <span style="color:#5c6472;font-weight:400">(you)</span></div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#8b94a3">♀ · 38 yrs · b.1988</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+
+    <!-- OVERVIEW -->
+    <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;overflow:auto;padding:28px 34px 60px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px">
+        <h1 style="font-size:23px;font-weight:600;margin:0;letter-spacing:-0.3px">Health Overview</h1>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5c6472">updated 13 Jul 2026</span>
+      </div>
+      <p style="color:#8b94a3;font-size:13px;margin:0 0 24px;max-width:660px">Inheritance signals aggregated across <b style="color:#e6eaf0">{{ relCount }} relatives</b> and <b style="color:#e6eaf0">{{ genCount }} generations</b>. Model is illustrative — for clinical decisions consult a genetic counselor.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:26px">
+        <sc-for list="{{ stats }}" as="st" hint-placeholder-count="5">
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:15px 16px">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:{{ st.color }};line-height:1">{{ st.value }}</div>
+            <div style="font-size:11px;color:#8b94a3;margin-top:7px;letter-spacing:0.2px">{{ st.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:22px">
+        <section>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Family history flags</div>
+          <div style="display:flex;flex-direction:column;gap:11px">
+            <sc-if value="{{ noFlags }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:16px 17px;font-size:13px;color:#8b94a3;line-height:1.5">No red-flag family patterns detected. Keep the pedigree up to date — a limited history is not the same as low risk.</div>
+            </sc-if>
+            <sc-for list="{{ topFlags }}" as="f" hint-placeholder-count="3">
+              <div onClick="{{ f.open }}" style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-left:3px solid {{ f.color }};border-radius:10px;padding:14px 17px;cursor:pointer" style-hover="background:#151b23">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                  <div style="display:flex;align-items:center;gap:10px"><div style="width:9px;height:9px;border-radius:2px;background:{{ f.color }};flex:none"></div><span style="font-weight:600;font-size:13.5px">{{ f.title }}</span></div>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.4px;padding:3px 9px;border-radius:20px;background:{{ f.bg }};color:{{ f.badgeColor }};white-space:nowrap;flex:none">{{ f.badge }}</span>
+                </div>
+                <div style="font-size:11.5px;color:#8b94a3;margin-top:8px;line-height:1.45">{{ f.criterion }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <section>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Screenings</div>
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;margin-bottom:22px">
+            <sc-for list="{{ screenings }}" as="s" hint-placeholder-count="5">
+              <div style="padding:12px 15px;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-size:12.5px;font-weight:500">{{ s.name }}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:0.5px;padding:2px 8px;border-radius:4px;background:{{ s.bg }};color:{{ s.color }}">{{ s.status }}</span>
+                </div>
+                <div style="font-size:11px;color:#8b94a3;margin-top:4px">{{ s.why }}</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5c6472;margin-top:3px">{{ s.freq }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Recent activity</div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <sc-for list="{{ recent }}" as="e" hint-placeholder-count="3">
+              <div style="display:flex;gap:11px;align-items:flex-start">
+                <div style="width:8px;height:8px;border-radius:50%;background:{{ e.color }};margin-top:5px;flex:none"></div>
+                <div>
+                  <div style="font-size:12.5px;color:#e6eaf0">{{ e.title }}</div>
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5c6472">{{ e.year }} · {{ e.typeLabel }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- FAMILY PEDIGREE -->
+    <sc-if value="{{ isTree }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:22px 34px 16px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div>
+            <h1 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.3px">Family Pedigree</h1>
+            <p style="color:#8b94a3;font-size:12.5px;margin:5px 0 0">2022 gender-inclusive notation — <span style="font-family:'IBM Plex Mono',monospace">□ man</span> · <span style="font-family:'IBM Plex Mono',monospace">○ woman</span> · <span style="font-family:'IBM Plex Mono',monospace">◇ nonbinary</span> · sex assigned at birth noted (AFAB/AMAB) · shaded = affected · diagonal = deceased. Click any relative.</p>
+          </div>
+          <div onClick="{{ addRelative }}" style="flex:none;display:flex;align-items:center;gap:7px;background:#34e2cf;color:#08121a;font-weight:600;font-size:12.5px;padding:8px 14px;border-radius:8px;cursor:pointer" style-hover="filter:brightness(1.1)">
+            <span style="font-size:15px;line-height:1">+</span><span>Add relative</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap;position:relative">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;color:#5c6472;text-transform:uppercase;margin-right:2px">Highlight</span>
+          <div style="display:flex;background:#0b0e13;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:2px;margin-right:4px">
+            <div onClick="{{ setModeCond }}" style="{{ modeCondStyle }}">Condition</div>
+            <div onClick="{{ setModeCat }}" style="{{ modeCatStyle }}">Category</div>
+          </div>
+          <sc-for list="{{ highlightChips }}" as="c" hint-placeholder-count="6">
+            <div onClick="{{ c.onClick }}" style="{{ c.style }}" style-hover="border-color:rgba(255,255,255,0.3)">
+              <div style="width:8px;height:8px;border-radius:2px;background:{{ c.color }}"></div>
+              <span>{{ c.name }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ c.count }}</span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ isCondMode }}" hint-placeholder-val="{{ true }}">
+            <div onClick="{{ toggleHl }}" style="{{ hlToggleStyle }}" style-hover="border-color:rgba(255,255,255,0.3)">⌕ search all conditions</div>
+          </sc-if>
+          <sc-if value="{{ cond }}" hint-placeholder-val="{{ true }}">
+            <div onClick="{{ clearCond }}" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8b94a3;cursor:pointer;padding:5px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.12)" style-hover="color:#e6eaf0">✕ clear</div>
+          </sc-if>
+          <sc-if value="{{ catBreakdown }}" hint-placeholder-val="{{ false }}">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8b94a3">{{ catBreakdown }}</span>
+          </sc-if>
+          <sc-if value="{{ hlOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:36px;left:0;z-index:30;width:340px;background:#12161d;border:1px solid rgba(255,255,255,0.14);border-radius:10px;box-shadow:0 18px 44px rgba(0,0,0,0.5);padding:10px">
+              <input value="{{ hlQuery }}" onInput="{{ hlQueryInput }}" placeholder="Search 120+ conditions…" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:9px 11px;outline:none;margin-bottom:8px" style-focus="border-color:#34e2cf"/>
+              <div style="max-height:280px;overflow:auto">
+                <sc-for list="{{ hlResults }}" as="r" hint-placeholder-count="8">
+                  <div onClick="{{ r.onClick }}" style="display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-radius:7px;cursor:pointer" style-hover="background:rgba(255,255,255,0.05)">
+                    <div style="display:flex;align-items:center;gap:9px"><div style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></div><span style="font-size:12.5px;color:#e6eaf0">{{ r.name }}</span></div>
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ r.catLabel }}</span>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ hlNoResults }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 9px;font-size:12px;color:#5c6472;font-style:italic">No matching condition.</div></sc-if>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="flex:1;display:flex;overflow:hidden">
+        <div style="flex:1;overflow:auto;padding:34px 40px 34px 70px">
+          <div style="position:relative;width:{{ cw }}px;height:{{ ch }}px">
+            <svg width="{{ cw }}" height="{{ ch }}" style="position:absolute;left:0;top:0;overflow:visible;pointer-events:none">
+              <sc-for list="{{ segs }}" as="s" hint-placeholder-count="12">
+                <line x1="{{ s.x1 }}" y1="{{ s.y1 }}" x2="{{ s.x2 }}" y2="{{ s.y2 }}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"></line>
+              </sc-for>
+            </svg>
+            <sc-for list="{{ genLabels }}" as="g" hint-placeholder-count="5">
+              <div style="{{ g.style }}">{{ g.label }}</div>
+            </sc-for>
+            <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="14">
+              <div style="{{ n.pos }}">
+                <div onClick="{{ n.onClick }}" style="{{ n.box }}" style-hover="filter:brightness(1.22)">
+                  <sc-if value="{{ n.dead }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;left:-7px;right:-7px;top:50%;height:1.5px;background:rgba(255,255,255,0.55);transform:rotate(-40deg);pointer-events:none"></div></sc-if>
+                  <span style="{{ n.initStyle }}">{{ n.init }}</span>
+                  <sc-if value="{{ n.showDots }}" hint-placeholder-val="{{ true }}">
+                    <div style="position:absolute;bottom:4px;left:0;right:0;display:flex;gap:2px;justify-content:center">
+                      <sc-for list="{{ n.dots }}" as="d" hint-placeholder-count="2"><div style="{{ d }}"></div></sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ n.isYou }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;letter-spacing:0.5px;color:#08121a;background:#34e2cf;padding:1px 5px;border-radius:3px">YOU</div></sc-if>
+                <sc-if value="{{ n.hasSab }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:38px;right:-6px;font-family:'IBM Plex Mono',monospace;font-size:7.5px;font-weight:600;letter-spacing:0.3px;color:#0b0e13;background:#8b94a3;padding:1px 4px;border-radius:3px">{{ n.sabBadge }}</div></sc-if>
+                <div style="position:absolute;top:52px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:11px;font-weight:500;color:#cdd4de;text-align:center">{{ n.label }}</div>
+                <div style="position:absolute;top:66px;left:50%;transform:translateX(-50%);white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ n.years }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- DETAIL DRAWER -->
+        <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+          <div style="width:308px;flex:none;background:#0e1218;border-left:1px solid rgba(255,255,255,0.08);overflow:auto;padding:22px 20px">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:12px">
+                <div style="{{ sel.avatar }}">{{ sel.init }}</div>
+                <div>
+                  <div style="font-size:16px;font-weight:600;line-height:1.15">{{ sel.name }}</div>
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8b94a3;margin-top:2px">{{ sel.relLine }}</div>
+                </div>
+              </div>
+              <div onClick="{{ closeSel }}" style="cursor:pointer;color:#5c6472;font-size:16px;line-height:1" style-hover="color:#e6eaf0">✕</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:18px 0">
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Status</div><div style="font-size:12.5px;font-weight:500;margin-top:3px;color:{{ sel.statusColor }}">{{ sel.status }}</div></div>
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Lifespan</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;margin-top:3px">{{ sel.years }}</div></div>
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Kinship</div><div style="font-size:12.5px;font-weight:500;margin-top:3px">{{ sel.degree }}</div></div>
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Lineage</div><div style="font-size:12.5px;font-weight:500;margin-top:3px">{{ sel.side }}</div></div>
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Gender</div><div style="font-size:12.5px;font-weight:500;margin-top:3px">{{ sel.genderText }}</div></div>
+              <div style="background:#12161d;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px"><div style="font-size:9.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px">Sex at birth</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;margin-top:3px">{{ sel.sabText }}</div></div>
+            </div>
+
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;color:#5c6472;text-transform:uppercase;margin-bottom:9px">Organ inventory</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+              <sc-for list="{{ sel.organs }}" as="o" hint-placeholder-count="4"><div onClick="{{ o.toggle }}" style="{{ o.style }}" style-hover="border-color:rgba(255,255,255,0.35)">{{ o.label }}</div></sc-for>
+            </div>
+            <div style="font-size:10.5px;color:#5c6472;line-height:1.4;margin-bottom:6px">Screening keys off organs present, not gender.</div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;color:#5c6472;text-transform:uppercase">Conditions ({{ sel.condCount }})</span>
+              <span onClick="{{ toggleCondPicker }}" style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#34e2cf;cursor:pointer" style-hover="color:#6fe6d9">{{ condPickerLabel }}</span>
+            </div>
+            <sc-if value="{{ sel.hasConds }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px">
+                <sc-for list="{{ sel.conds }}" as="c" hint-placeholder-count="2">
+                  <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-left:3px solid {{ c.color }};border-radius:8px;padding:9px 10px 10px 12px">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between">
+                      <div onClick="{{ c.onClick }}" style="cursor:pointer;flex:1" style-hover="opacity:0.8">
+                        <div style="font-size:12.5px;font-weight:600">{{ c.name }}</div>
+                        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#8b94a3;margin-top:2px">{{ c.pattern }}</div>
+                      </div>
+                      <div onClick="{{ c.remove }}" style="cursor:pointer;color:#5c6472;font-size:13px;padding-left:8px" style-hover="color:#ff5d5d">✕</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:0.5px;color:#5c6472;text-transform:uppercase">onset</span>
+                      <input value="{{ c.onset }}" onInput="{{ c.setOnset }}" type="number" placeholder="age" style="width:52px;background:#0b0e13;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e6eaf0;font-size:11px;padding:4px 6px;outline:none" style-focus="border-color:#34e2cf"/>
+                      <select value="{{ c.prov }}" onChange="{{ c.setProv }}" style="flex:1;background:#0b0e13;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#a9b2bf;font-size:10.5px;padding:4px 6px;outline:none" style-focus="border-color:#34e2cf">
+                        <option value="self">self-reported</option>
+                        <option value="record">records-confirmed</option>
+                        <option value="death">death certificate</option>
+                      </select>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ sel.noConds }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12px;color:#5c6472;font-style:italic;margin-bottom:10px">No conditions recorded.</div>
+            </sc-if>
+            <sc-if value="{{ condPickerOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#0b0e13;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:11px;margin-bottom:6px">
+                <input value="{{ drawerQuery }}" onInput="{{ drawerQueryInput }}" placeholder="Search conditions…" style="width:100%;background:#12161d;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:12.5px;padding:8px 10px;outline:none;margin-bottom:8px" style-focus="border-color:#34e2cf"/>
+                <div style="max-height:220px;overflow:auto">
+                  <sc-for list="{{ drawerResults }}" as="r" hint-placeholder-count="6">
+                    <div onClick="{{ r.onClick }}" style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;cursor:pointer" style-hover="background:rgba(255,255,255,0.05)">
+                      <div style="display:flex;align-items:center;gap:8px"><div style="width:7px;height:7px;border-radius:2px;background:{{ r.color }}"></div><span style="font-size:12px;color:#e6eaf0">{{ r.name }}</span></div>
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#5c6472">{{ r.catLabel }}</span>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ drawerNoResults }}" hint-placeholder-val="{{ false }}"><div style="padding:9px 8px;font-size:11.5px;color:#5c6472;font-style:italic">No matching condition.</div></sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;color:#5c6472;text-transform:uppercase;margin:18px 0 10px">Add connected relative</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+              <sc-if value="{{ sel.canAddParent }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ sel.addParent }}" style="text-align:center;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:12px;cursor:pointer" style-hover="border-color:#34e2cf;color:#34e2cf">↑ Parent</div>
+              </sc-if>
+              <div onClick="{{ sel.addPartner }}" style="text-align:center;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:12px;cursor:pointer" style-hover="border-color:#34e2cf;color:#34e2cf">↔ Partner</div>
+              <div onClick="{{ sel.addSibling }}" style="text-align:center;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:12px;cursor:pointer" style-hover="border-color:#34e2cf;color:#34e2cf">⇔ Sibling</div>
+              <div onClick="{{ sel.addChild }}" style="text-align:center;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:12px;cursor:pointer" style-hover="border-color:#34e2cf;color:#34e2cf">↓ Child</div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.07)">
+              <div onClick="{{ sel.edit }}" style="flex:1;text-align:center;background:rgba(255,255,255,0.06);border-radius:8px;padding:9px;font-size:12.5px;font-weight:500;cursor:pointer" style-hover="background:rgba(255,255,255,0.1)">Edit details</div>
+              <sc-if value="{{ sel.canDelete }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ sel.del }}" style="flex:none;text-align:center;color:#ff5d5d;border:1px solid rgba(255,93,93,0.35);border-radius:8px;padding:9px 14px;font-size:12.5px;cursor:pointer" style-hover="background:rgba(255,93,93,0.12)">Delete</div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- RISK PROJECTION -->
+    <sc-if value="{{ isRisk }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;overflow:auto;padding:28px 34px 60px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+        <div>
+          <h1 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.3px">Family Pattern Analysis</h1>
+          <p style="color:#8b94a3;font-size:13px;margin:6px 0 6px;max-width:620px">Family-history patterns from <b style="color:#e6eaf0">{{ riskRootName }}</b>’s vantage, checked against published referral criteria (NCCN, Amsterdam II, FH). Switch vantage to analyze any relative.</p>
+        </div>
+        <div style="flex:none;display:flex;flex-direction:column;gap:4px">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:1px;color:#5c6472;text-transform:uppercase">Vantage / proband</span>
+          <select value="{{ riskRoot }}" onChange="{{ setRiskRoot }}" style="background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:12.5px;padding:7px 9px;outline:none" style-focus="border-color:#34e2cf">
+            <sc-for list="{{ riskPeople }}" as="p" hint-placeholder-count="4"><option value="{{ p.id }}">{{ p.label }}</option></sc-for>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start;background:rgba(52,226,207,0.06);border:1px solid rgba(52,226,207,0.22);border-radius:10px;padding:12px 14px;margin-bottom:24px">
+        <div style="color:#34e2cf;font-size:14px;line-height:1.2;flex:none">ⓘ</div>
+        <div style="font-size:12px;color:#a9b2bf;line-height:1.5">Lineage <b style="color:#e6eaf0">organizes family history — it does not diagnose or compute your personal risk.</b> The flags below reflect published family-history patterns that may warrant a screening conversation or a genetics referral. Validated calculators appear under “Depth”.</div>
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Detected patterns</div>
+      <sc-if value="{{ flagsEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px 20px;font-size:13px;color:#8b94a3;margin-bottom:28px;line-height:1.5">No red-flag family-history patterns detected from this vantage. This is not a clearance — patterns depend on how complete the pedigree is.</div>
+      </sc-if>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:30px">
+        <sc-for list="{{ flags }}" as="f" hint-placeholder-count="2">
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-left:3px solid {{ f.color }};border-radius:12px;padding:16px 18px">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+              <div style="display:flex;align-items:center;gap:10px"><div style="width:11px;height:11px;border-radius:3px;background:{{ f.color }};flex:none"></div><span style="font-weight:600;font-size:15px">{{ f.title }}</span></div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:0.4px;padding:3px 10px;border-radius:20px;background:{{ f.bg }};color:{{ f.badgeColor }};white-space:nowrap;flex:none">{{ f.badge }}</span>
+            </div>
+            <div style="font-size:12.5px;color:#cdd4de;margin-top:11px;line-height:1.5"><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5c6472;text-transform:uppercase;letter-spacing:0.5px">Criterion&nbsp;&nbsp;</span>{{ f.criterion }}</div>
+            <sc-if value="{{ f.hasRel }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">
+                <sc-for list="{{ f.relatives }}" as="a" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:6px;background:#0e1218;border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:3px 10px"><span style="font-size:11px;color:#cdd4de">{{ a.label }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ a.deg }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="font-size:12px;line-height:1.55;color:#a9b2bf;background:#0e1218;border-radius:8px;padding:11px 13px;border:1px solid rgba(255,255,255,0.05);margin-top:13px"><span style="color:{{ f.color }};font-weight:600">▸ </span>{{ f.rec }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{ hasCalculators }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Depth · validated calculators</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:30px">
+          <sc-for list="{{ calculators }}" as="c" hint-placeholder-count="2">
+            <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:15px 16px;display:flex;flex-direction:column">
+              <span style="font-weight:600;font-size:13px">{{ c.name }}</span>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.5px;color:#6fa8ff;text-transform:uppercase;margin-top:3px">{{ c.domain }}</div>
+              <div style="font-size:11.5px;color:#8b94a3;margin-top:9px;line-height:1.45;flex:1">{{ c.desc }}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a9b2bf;margin-top:10px">{{ c.summary }}</div>
+              <div style="text-align:center;border:1px solid rgba(255,255,255,0.14);border-radius:7px;padding:7px;font-size:11.5px;color:#5c6472;margin-top:11px;cursor:not-allowed">Open calculator ↗</div>
+              <div style="font-size:9.5px;color:#5c6472;margin-top:7px;line-height:1.4;font-style:italic">{{ c.note }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Family findings by condition</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <sc-for list="{{ findings }}" as="r" hint-placeholder-count="4">
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:16px 18px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:10px"><div style="width:10px;height:10px;border-radius:3px;background:{{ r.color }}"></div><span style="font-weight:600;font-size:14px">{{ r.name }}</span></div>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:0.4px;padding:3px 10px;border-radius:20px;background:{{ r.bandBg }};color:{{ r.bandColor }}">{{ r.band }}</span>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#8b94a3;margin-top:11px"><span style="color:#5c6472">pattern</span>&nbsp;&nbsp;{{ r.pattern }}</div>
+            <sc-if value="{{ r.hasOnset }}" hint-placeholder-val="{{ false }}"><div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#5c6472;margin-top:4px">{{ r.onsetStr }}</div></sc-if>
+            <sc-if value="{{ r.hasAff }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">
+                <sc-for list="{{ r.affected }}" as="a" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:6px;background:#0e1218;border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:3px 10px 3px 8px"><span style="{{ a.dotStyle }}"></span><span style="font-size:11px;color:#cdd4de">{{ a.rel }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ a.deg }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="font-size:12px;line-height:1.5;color:#a9b2bf;background:#0e1218;border-radius:8px;padding:10px 12px;border:1px solid rgba(255,255,255,0.05);margin-top:13px"><span style="color:{{ r.bandColor }};font-weight:600">▸ </span>{{ r.rec }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- TIMELINE -->
+    <sc-if value="{{ isTimeline }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:24px 34px 16px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div>
+            <h1 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.3px">{{ tlHeading }}</h1>
+            <p style="color:#8b94a3;font-size:12.5px;margin:5px 0 0">{{ tlSubtitle }}</p>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:10px;flex:none">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:1px;color:#5c6472;text-transform:uppercase">Viewing</span>
+              <select value="{{ tlPerson }}" onChange="{{ tlSetPerson }}" style="background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:12.5px;padding:7px 9px;outline:none" style-focus="border-color:#34e2cf">
+                <sc-for list="{{ tlPeople }}" as="p" hint-placeholder-count="4"><option value="{{ p.id }}">{{ p.label }}</option></sc-for>
+              </select>
+            </div>
+            <div onClick="{{ addEvent }}" style="display:flex;align-items:center;gap:7px;background:#34e2cf;color:#08121a;font-weight:600;font-size:12.5px;padding:8px 14px;border-radius:8px;cursor:pointer" style-hover="filter:brightness(1.1)">
+              <span style="font-size:15px;line-height:1">+</span><span>Add event</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:16px;flex-wrap:wrap">
+          <sc-for list="{{ typeChips }}" as="t" hint-placeholder-count="6">
+            <div onClick="{{ t.onClick }}" style="{{ t.style }}" style-hover="border-color:rgba(255,255,255,0.3)">
+              <sc-if value="{{ t.showDot }}" hint-placeholder-val="{{ true }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ t.color }};display:inline-block"></span></sc-if>
+              <span>{{ t.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="flex:1;overflow:auto;padding:28px 34px 60px">
+        <div style="position:relative;padding-left:26px;max-width:780px">
+          <div style="position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:rgba(255,255,255,0.09)"></div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <sc-if value="{{ tlEmpty }}" hint-placeholder-val="{{ false }}"><div style="color:#5c6472;font-style:italic;font-size:13px;padding:6px 0">No events recorded for {{ tlPersonName }} yet. Use “Add event” to start their record.</div></sc-if>
+            <sc-for list="{{ tlEvents }}" as="e" hint-placeholder-count="8">
+              <div style="position:relative">
+                <div style="position:absolute;left:-26px;top:3px;width:12px;height:12px;border-radius:50%;background:{{ e.color }};border:2px solid #0b0e13;box-shadow:0 0 0 3px rgba(255,255,255,0.04)"></div>
+                <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:13px 16px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                    <span style="font-weight:600;font-size:13.5px">{{ e.title }}</span>
+                    <div style="display:flex;align-items:center;gap:10px;flex:none">
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:#8b94a3">{{ e.year }}</span>
+                      <span onClick="{{ e.onEdit }}" style="cursor:pointer;color:#5c6472;font-size:12px" style-hover="color:#34e2cf">✎</span>
+                      <span onClick="{{ e.onDelete }}" style="cursor:pointer;color:#5c6472;font-size:12px" style-hover="color:#ff5d5d">✕</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:9px;margin-top:6px">
+                    <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:{{ e.chipBg }};color:{{ e.color }}">{{ e.typeLabel }}</span>
+                    <sc-if value="{{ e.hasDetail }}" hint-placeholder-val="{{ true }}"><span style="font-size:12px;color:#a9b2bf">{{ e.detail }}</span></sc-if>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- REPORTS & EXPORT -->
+    <sc-if value="{{ isExport }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;overflow:auto;padding:28px 34px 60px">
+      <h1 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.3px">Reports &amp; Export</h1>
+      <p style="color:#8b94a3;font-size:13px;margin:6px 0 24px;max-width:640px">Turn the pedigree into artifacts a clinician accepts, and your data into portable standards. Everything below is generated live from your current family graph.</p>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Clinician-ready documents</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:32px">
+        <sc-for list="{{ reportCards }}" as="c" hint-placeholder-count="3">
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:17px 18px;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600;font-size:14px">{{ c.name }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.5px;color:#8b94a3;border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:2px 6px">{{ c.tag }}</span></div>
+            <div style="font-size:12px;color:#8b94a3;margin-top:9px;line-height:1.5;flex:1">{{ c.desc }}</div>
+            <div onClick="{{ c.action }}" style="text-align:center;background:#34e2cf;color:#08121a;font-weight:600;font-size:12.5px;border-radius:8px;padding:9px;margin-top:14px;cursor:pointer" style-hover="filter:brightness(1.1)">Preview &amp; print →</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Structured data export</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:32px">
+        <sc-for list="{{ exportCards }}" as="c" hint-placeholder-count="3">
+          <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-top:2px solid {{ c.color }};border-radius:12px;padding:17px 18px;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600;font-size:13.5px">{{ c.name }}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:{{ c.color }}">{{ c.tag }}</span></div>
+            <div style="font-size:11.5px;color:#8b94a3;margin-top:9px;line-height:1.5;flex:1">{{ c.desc }}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#a9b2bf;margin-top:11px">{{ c.summary }}</div>
+            <div style="display:flex;gap:8px;margin-top:13px">
+              <div onClick="{{ c.view }}" style="flex:1;text-align:center;border:1px solid rgba(255,255,255,0.16);border-radius:7px;padding:8px;font-size:11.5px;cursor:pointer;color:#e6eaf0" style-hover="border-color:rgba(255,255,255,0.4)">View JSON</div>
+              <div onClick="{{ c.download }}" style="flex:1;text-align:center;border:1px solid {{ c.color }};border-radius:7px;padding:8px;font-size:11.5px;cursor:pointer;color:{{ c.color }}" style-hover="background:rgba(255,255,255,0.04)">Download</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:2px;color:#5c6472;text-transform:uppercase;margin-bottom:13px">Connect a provider</div>
+      <div style="background:#12161d;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px 20px;display:flex;gap:16px;align-items:flex-start">
+        <div style="width:40px;height:40px;flex:none;border-radius:10px;border:1px solid rgba(111,168,255,0.4);display:flex;align-items:center;justify-content:center;color:#6fa8ff;font-size:18px">⇄</div>
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:14px">Import from your health records <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.5px;color:#ffb043;border:1px solid rgba(255,176,67,0.4);border-radius:5px;padding:2px 7px;margin-left:6px;vertical-align:middle">STUB</span></div>
+          <div style="font-size:12px;color:#8b94a3;margin-top:8px;line-height:1.55;max-width:680px">Reading your own records <b style="color:#cdd4de">into</b> Lineage is feasible through patient-mediated access (SMART on FHIR, Apple Health, aggregators like 1upHealth) — a provider connect flow would land your conditions, medications and labs here automatically. Writing data <b style="color:#cdd4de">back</b> to a provider is the hard part: EHRs almost never accept external records as authoritative, so the realistic path is exporting a document above for a clinician to review and reconcile. This connect flow is not wired up in the prototype.</div>
+          <div style="display:inline-block;margin-top:13px;border:1px solid rgba(255,255,255,0.14);border-radius:8px;padding:8px 16px;font-size:12.5px;color:#5c6472;cursor:not-allowed">Connect a provider ↗</div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </main>
+
+  <!-- ============ PERSON MODAL ============ -->
+  <sc-if value="{{ showForm }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ cancelForm }}" style="position:absolute;inset:0;background:rgba(5,7,10,0.7);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:50">
+      <div onClick="{{ stop }}" style="width:440px;max-height:88vh;overflow:auto;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.5);padding:24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <h2 style="font-size:17px;font-weight:600;margin:0">{{ form.title }}</h2>
+          <div onClick="{{ cancelForm }}" style="cursor:pointer;color:#5c6472;font-size:17px" style-hover="color:#e6eaf0">✕</div>
+        </div>
+
+        <sc-if value="{{ form.isAdd }}" hint-placeholder-val="{{ true }}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.07)">
+            <div>
+              <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Relative of</label>
+              <select value="{{ form.anchor }}" onChange="{{ setAnchor }}" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:9px 10px;outline:none" style-focus="border-color:#34e2cf">
+                <sc-for list="{{ anchors }}" as="a" hint-placeholder-count="4"><option value="{{ a.id }}">{{ a.label }}</option></sc-for>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Connect as</label>
+              <select value="{{ form.relation }}" onChange="{{ setRelation }}" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:9px 10px;outline:none" style-focus="border-color:#34e2cf">
+                <sc-for list="{{ relations }}" as="rl" hint-placeholder-count="4"><option value="{{ rl.v }}">{{ rl.label }}</option></sc-for>
+              </select>
+            </div>
+          </div>
+        </sc-if>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Name</label>
+        <input value="{{ form.name }}" onInput="{{ fName }}" placeholder="Full name" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none;margin-bottom:16px" style-focus="border-color:#34e2cf"/>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Sex assigned at birth</label>
+            <div style="display:flex;gap:6px">
+              <div onClick="{{ setSabF }}" style="{{ form.sabFStyle }}">Female</div>
+              <div onClick="{{ setSabM }}" style="{{ form.sabMStyle }}">Male</div>
+              <div onClick="{{ setSabU }}" style="{{ form.sabUStyle }}">?</div>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Status</label>
+            <div style="display:flex;gap:6px">
+              <div onClick="{{ setLiving }}" style="{{ form.livingStyle }}">Living</div>
+              <div onClick="{{ setDeceased }}" style="{{ form.deceasedStyle }}">Deceased</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Gender identity</label>
+            <div style="display:flex;gap:6px">
+              <div onClick="{{ setGenWoman }}" style="{{ form.genWomanStyle }}">Woman</div>
+              <div onClick="{{ setGenMan }}" style="{{ form.genManStyle }}">Man</div>
+              <div onClick="{{ setGenNb }}" style="{{ form.genNbStyle }}">NB</div>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Pronouns</label>
+            <input value="{{ form.pronouns }}" onInput="{{ fPronouns }}" placeholder="e.g. they/them" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:9px 10px;outline:none" style-focus="border-color:#34e2cf"/>
+          </div>
+        </div>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Organ inventory <span style="text-transform:none;letter-spacing:0;color:#3f4653">— drives screening</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
+          <sc-for list="{{ form.organs }}" as="o" hint-placeholder-count="4"><div onClick="{{ o.toggle }}" style="{{ o.style }}">{{ o.label }}</div></sc-for>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Birth year</label>
+            <input value="{{ form.birth }}" onInput="{{ fBirth }}" type="number" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none" style-focus="border-color:#34e2cf"/>
+          </div>
+          <sc-if value="{{ form.deceased }}" hint-placeholder-val="{{ false }}">
+            <div>
+              <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Death year</label>
+              <input value="{{ form.death }}" onInput="{{ fDeath }}" type="number" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none" style-focus="border-color:#34e2cf"/>
+            </div>
+          </sc-if>
+        </div>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:9px">Conditions</label>
+        <sc-if value="{{ form.hasConds }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px">
+            <sc-for list="{{ formSelected }}" as="c" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:6px;padding:4px 8px 4px 10px;border-radius:20px;border:1px solid {{ c.color }};background:{{ c.bg }};font-size:11.5px;color:#e6eaf0"><div style="width:7px;height:7px;border-radius:2px;background:{{ c.color }}"></div><span>{{ c.name }}</span><span onClick="{{ c.remove }}" style="cursor:pointer;color:#8b94a3;font-size:12px" style-hover="color:#ff5d5d">✕</span></div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="position:relative;margin-bottom:22px">
+          <input value="{{ formQuery }}" onInput="{{ formQueryInput }}" placeholder="Search conditions to add…" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none" style-focus="border-color:#34e2cf"/>
+          <div style="max-height:190px;overflow:auto;margin-top:6px">
+            <sc-for list="{{ formResults }}" as="r" hint-placeholder-count="6">
+              <div onClick="{{ r.onClick }}" style="display:flex;align-items:center;justify-content:space-between;padding:7px 9px;border-radius:7px;cursor:pointer" style-hover="background:rgba(255,255,255,0.05)">
+                <div style="display:flex;align-items:center;gap:9px"><div style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></div><span style="font-size:12.5px;color:#e6eaf0">{{ r.name }}</span></div>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#5c6472">{{ r.catLabel }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ formNoResults }}" hint-placeholder-val="{{ false }}"><div style="padding:9px;font-size:12px;color:#5c6472;font-style:italic">No matching condition.</div></sc-if>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:9px;align-items:center">
+          <sc-if value="{{ form.canDelete }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ deleteForm }}" style="color:#ff5d5d;border:1px solid rgba(255,93,93,0.35);border-radius:8px;padding:10px 14px;font-size:13px;cursor:pointer" style-hover="background:rgba(255,93,93,0.12)">Delete</div>
+          </sc-if>
+          <div style="flex:1"></div>
+          <div onClick="{{ cancelForm }}" style="color:#a9b2bf;padding:10px 16px;font-size:13px;cursor:pointer" style-hover="color:#e6eaf0">Cancel</div>
+          <div onClick="{{ saveForm }}" style="background:#34e2cf;color:#08121a;font-weight:600;border-radius:8px;padding:10px 20px;font-size:13px;cursor:pointer" style-hover="filter:brightness(1.1)">Save</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ TIMELINE EVENT MODAL ============ -->
+  <sc-if value="{{ showTlForm }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ cancelEvent }}" style="position:absolute;inset:0;background:rgba(5,7,10,0.7);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:50">
+      <div onClick="{{ stop }}" style="width:440px;max-height:88vh;overflow:auto;background:#12161d;border:1px solid rgba(255,255,255,0.1);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.5);padding:24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <h2 style="font-size:17px;font-weight:600;margin:0">{{ tlForm.title }}</h2>
+          <div onClick="{{ cancelEvent }}" style="cursor:pointer;color:#5c6472;font-size:17px" style-hover="color:#e6eaf0">✕</div>
+        </div>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Person</label>
+        <select value="{{ tlForm.person }}" onChange="{{ tfPerson }}" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 10px;outline:none;margin-bottom:16px" style-focus="border-color:#34e2cf">
+          <sc-for list="{{ evPeople }}" as="p" hint-placeholder-count="4"><option value="{{ p.id }}">{{ p.label }}</option></sc-for>
+        </select>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Year</label>
+            <input value="{{ tlForm.year }}" onInput="{{ tfYear }}" type="number" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none" style-focus="border-color:#34e2cf"/>
+          </div>
+          <div>
+            <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Type</label>
+            <select value="{{ tlForm.type }}" onChange="{{ tfType }}" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 10px;outline:none" style-focus="border-color:#34e2cf">
+              <sc-for list="{{ typeOptions }}" as="o" hint-placeholder-count="6"><option value="{{ o.v }}">{{ o.label }}</option></sc-for>
+            </select>
+          </div>
+        </div>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Title</label>
+        <input value="{{ tlForm.evTitle }}" onInput="{{ tfTitle }}" placeholder="e.g. Diagnosed with…" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none;margin-bottom:16px" style-focus="border-color:#34e2cf"/>
+
+        <label style="display:block;font-size:10.5px;color:#5c6472;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Detail <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+        <input value="{{ tlForm.detail }}" onInput="{{ tfDetail }}" placeholder="Dosage, result, notes…" style="width:100%;background:#0b0e13;border:1px solid rgba(255,255,255,0.14);border-radius:8px;color:#e6eaf0;font-size:13px;padding:10px 11px;outline:none;margin-bottom:22px" style-focus="border-color:#34e2cf"/>
+
+        <div style="display:flex;gap:9px;align-items:center">
+          <sc-if value="{{ tlForm.canDelete }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ deleteEvent }}" style="color:#ff5d5d;border:1px solid rgba(255,93,93,0.35);border-radius:8px;padding:10px 14px;font-size:13px;cursor:pointer" style-hover="background:rgba(255,93,93,0.12)">Delete</div>
+          </sc-if>
+          <div style="flex:1"></div>
+          <div onClick="{{ cancelEvent }}" style="color:#a9b2bf;padding:10px 16px;font-size:13px;cursor:pointer" style-hover="color:#e6eaf0">Cancel</div>
+          <div onClick="{{ saveEvent }}" style="background:#34e2cf;color:#08121a;font-weight:600;border-radius:8px;padding:10px 20px;font-size:13px;cursor:pointer" style-hover="filter:brightness(1.1)">Save</div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  <!-- ============ EXPORT JSON MODAL ============ -->
+  <sc-if value="{{ exportModalOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeExport }}" style="position:absolute;inset:0;background:rgba(5,7,10,0.72);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:60;padding:40px">
+      <div onClick="{{ stop }}" style="width:760px;max-width:100%;max-height:100%;display:flex;flex-direction:column;background:#12161d;border:1px solid rgba(255,255,255,0.14);border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,0.6);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <div style="font-weight:600;font-size:15px">{{ exportTitle }} <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5c6472;margin-left:6px">{{ exportFile }}</span></div>
+          <div style="display:flex;gap:8px">
+            <div onClick="{{ copyExport }}" style="border:1px solid rgba(255,255,255,0.16);border-radius:7px;padding:6px 13px;font-size:12px;cursor:pointer;color:#e6eaf0" style-hover="border-color:rgba(255,255,255,0.4)">Copy</div>
+            <div onClick="{{ downloadExport }}" style="border:1px solid #34e2cf;border-radius:7px;padding:6px 13px;font-size:12px;cursor:pointer;color:#34e2cf" style-hover="background:rgba(52,226,207,0.1)">Download</div>
+            <div onClick="{{ closeExport }}" style="color:#8b94a3;padding:6px 10px;font-size:15px;cursor:pointer" style-hover="color:#e6eaf0">✕</div>
+          </div>
+        </div>
+        <pre style="margin:0;overflow:auto;padding:18px 20px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.55;color:#a9b2bf;background:#0b0e13;white-space:pre-wrap;word-break:break-word">{{ exportText }}</pre>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ PRINT-ONLY REPORTS ============ -->
+  <div class="lin-print" style="background:#fff;color:#111;font-family:'IBM Plex Sans',sans-serif;font-size:12px">
+    <!-- pedigree report -->
+    <sc-if value="{{ printData.isPedigree }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:6px">
+        <div><div style="font-family:'IBM Plex Mono',monospace;font-weight:600;letter-spacing:2px;font-size:13px">LINEAGE</div><div style="font-size:16px;font-weight:600;margin-top:3px">Three-Generation Pedigree</div></div>
+        <div style="text-align:right;font-size:11px;color:#444"><div style="font-weight:600;color:#111;font-size:12px">{{ printData.patientName }}</div><div>{{ printData.patientMeta }}</div><div>Generated {{ printData.date }}</div></div>
+      </div>
+      <div style="font-size:10.5px;color:#555;margin-bottom:10px">Standard NSGC notation — □ man · ○ woman · ◇ nonbinary · shaded = affected · diagonal = deceased · arrow = proband. Sex assigned at birth noted where it differs from gender.</div>
+      <div class="rp-avoid" style="border:1px solid #ddd;border-radius:8px;padding:10px">{{ printData.pedigreeSvgEl }}</div>
+      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px 18px">
+        <sc-for list="{{ printData.pedigreeLegend }}" as="l" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:6px;font-size:10.5px"><span style="width:11px;height:11px;border-radius:2px;border:1px solid #999;background:{{ l.color }};display:inline-block"></span>{{ l.name }}</div>
+        </sc-for>
+      </div>
+      <div style="margin-top:16px;font-size:9.5px;color:#888;border-top:1px solid #eee;padding-top:8px">Family-reported history. Not a diagnosis. For clinical genetics evaluation.</div>
+    </sc-if>
+
+    <!-- red-flag summary report -->
+    <sc-if value="{{ printData.isFlags }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px">
+        <div><div style="font-family:'IBM Plex Mono',monospace;font-weight:600;letter-spacing:2px;font-size:13px">LINEAGE</div><div style="font-size:16px;font-weight:600;margin-top:3px">Family-History Red-Flag Summary</div></div>
+        <div style="text-align:right;font-size:11px;color:#444"><div style="font-weight:600;color:#111;font-size:12px">{{ printData.patientName }}</div><div>{{ printData.patientMeta }}</div><div>{{ printData.relCount }} relatives · {{ printData.genCount }} generations · {{ printData.date }}</div></div>
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Detected patterns</div>
+      <sc-if value="{{ printData.noFlags }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px;color:#555;margin-bottom:14px">No red-flag inheritance patterns detected from the recorded family history.</div></sc-if>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:20px">
+        <sc-for list="{{ printData.flags }}" as="f" hint-placeholder-count="2">
+          <div class="rp-avoid" style="border:1px solid #ddd;border-left:4px solid {{ f.badgeColor }};border-radius:6px;padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font-weight:600;font-size:12.5px">{{ f.title }}</span><span style="font-size:9.5px;font-weight:600;color:{{ f.badgeColor }};white-space:nowrap">{{ f.badge }}</span></div>
+            <div style="font-size:11px;color:#333;margin-top:5px"><b>Criterion:</b> {{ f.criterion }}</div>
+            <div style="font-size:11px;color:#333;margin-top:4px">{{ f.rec }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Conditions clustering in the family</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="border-bottom:1.5px solid #111;text-align:left"><th style="padding:5px 6px">Condition</th><th style="padding:5px 6px">Status</th><th style="padding:5px 6px">Inheritance</th><th style="padding:5px 6px">Affected relatives</th></tr></thead>
+        <tbody>
+          <sc-for list="{{ printData.findings }}" as="r" hint-placeholder-count="4">
+            <tr style="border-bottom:1px solid #eee"><td style="padding:5px 6px;font-weight:600">{{ r.name }}</td><td style="padding:5px 6px;color:{{ r.bandColor }}">{{ r.band }}</td><td style="padding:5px 6px;color:#555">{{ r.pattern }}</td><td style="padding:5px 6px;color:#333">{{ r.affText }}</td></tr>
+          </sc-for>
+        </tbody>
+      </table>
+      <div style="margin-top:16px;font-size:9.5px;color:#888;border-top:1px solid #eee;padding-top:8px">Organizes family-reported history against published referral criteria (NCCN, Amsterdam II, FH). Not a diagnosis or a personal risk figure.</div>
+    </sc-if>
+
+    <!-- personal health summary report -->
+    <sc-if value="{{ printData.isHealth }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px">
+        <div><div style="font-family:'IBM Plex Mono',monospace;font-weight:600;letter-spacing:2px;font-size:13px">LINEAGE</div><div style="font-size:16px;font-weight:600;margin-top:3px">Personal Health Summary</div></div>
+        <div style="text-align:right;font-size:11px;color:#444"><div style="font-weight:600;color:#111;font-size:12px">{{ printData.patientName }}</div><div>{{ printData.patientMeta }}</div><div>Generated {{ printData.date }}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px 28px">
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Problems / conditions</div>
+          <sc-for list="{{ printData.hProblems }}" as="p" hint-placeholder-count="3"><div style="font-size:11px;margin-bottom:5px"><b>{{ p.name }}</b><span style="color:#666"> {{ p.meta }}</span></div></sc-for>
+        </div>
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Medications</div>
+          <sc-for list="{{ printData.hMeds }}" as="e" hint-placeholder-count="2"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.detail }} ({{ e.year }})</span></div></sc-for>
+        </div>
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Procedures</div>
+          <sc-for list="{{ printData.hProcedures }}" as="e" hint-placeholder-count="2"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.year }}</span></div></sc-for>
+        </div>
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Labs &amp; screenings</div>
+          <sc-for list="{{ printData.hLabs }}" as="e" hint-placeholder-count="2"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.year }}</span></div></sc-for>
+          <sc-for list="{{ printData.hScreen }}" as="e" hint-placeholder-count="2"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.year }}</span></div></sc-for>
+        </div>
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Immunizations</div>
+          <sc-for list="{{ printData.hImmun }}" as="e" hint-placeholder-count="2"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.year }}</span></div></sc-for>
+        </div>
+        <div class="rp-avoid">
+          <div style="font-size:12px;font-weight:600;border-bottom:1px solid #111;padding-bottom:4px;margin-bottom:7px">Genetic</div>
+          <sc-for list="{{ printData.hGenetic }}" as="e" hint-placeholder-count="1"><div style="font-size:11px;margin-bottom:5px">{{ e.title }}<span style="color:#666"> · {{ e.year }}</span></div></sc-for>
+        </div>
+      </div>
+      <div style="margin-top:18px;font-size:9.5px;color:#888;border-top:1px solid #eee;padding-top:8px">Patient-maintained summary. Verify against clinical records before use in care.</div>
+    </sc-if>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:760},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;overview&quot;,&quot;tree&quot;,&quot;risk&quot;,&quot;timeline&quot;],&quot;default&quot;:&quot;overview&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;default&quot;,&quot;colorblind&quot;],&quot;default&quot;:&quot;default&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototype&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this._pc = 0;
+    // conds: objects carrying onset age + provenance (self | record | death-cert). Person is the atom.
+    const C = (id, onset, prov) => ({ id, onset: onset || null, prov: prov || 'self' });
+    const seedPeople = [
+      { id:'walter',  name:'Walter',  sex:'m', gen:0, x:300,  dead:1, birth:1915, death:1994, conds:[C('cad',70,'death'),C('htn',55)] },
+      { id:'edith',   name:'Edith',   sex:'f', gen:0, x:380,  dead:1, birth:1918, death:2001, conds:[C('colon',78,'death')] },
+      { id:'giorgio', name:'Giorgio', sex:'m', gen:0, x:1180, dead:1, birth:1916, death:1998, conds:[C('t2d',60)] },
+      { id:'rosa',    name:'Rosa',    sex:'f', gen:0, x:1260, dead:1, birth:1920, death:2009, conds:[] },
+      { id:'frank',   name:'Frank',   sex:'m', gen:1, x:340,  dead:1, birth:1940, death:2018, conds:[C('cad',58,'record'),C('htn',50)] },
+      { id:'marie',   name:'Marie',   sex:'f', gen:1, x:420,  dead:1, birth:1943, death:2020, conds:[C('alz',74,'record')] },
+      { id:'george',  name:'George',  sex:'m', gen:1, x:1000, dead:1, birth:1938, death:2015, conds:[C('t2d',55),C('stroke',74,'death')] },
+      { id:'helen',   name:'Helen',   sex:'f', gen:1, x:1180, dead:0, birth:1942, death:null, conds:[C('brca',66,'record')] },
+      { id:'robert',  name:'Robert',  sex:'m', gen:2, x:460,  dead:0, birth:1965, death:null, conds:[C('cad',60,'record'),C('htn',52,'record'),C('chol',48,'record')] },
+      { id:'susan',   name:'Susan',   sex:'f', gen:2, x:760,  dead:0, birth:1967, death:null, conds:[C('t2d',54,'record'),C('dep',40),C('thy',45)] },
+      { id:'tom',     name:'Tom',     sex:'m', gen:2, x:200,  dead:0, birth:1963, death:null, conds:[C('cad',59)] },
+      { id:'carol',   name:'Carol',   sex:'f', gen:2, x:110,  dead:0, birth:1966, death:null, conds:[] },
+      { id:'linda',   name:'Linda',   sex:'f', gen:2, x:1120, dead:0, birth:1971, death:null, conds:[C('t2d',49),C('brca',47,'record')] },
+      { id:'dave',    name:'Dave',    sex:'m', gen:2, x:1210, dead:0, birth:1969, death:null, conds:[] },
+      { id:'jack',    name:'Jack',    sex:'m', gen:3, x:470,  dead:0, birth:1990, death:null, conds:[C('htn',33)] },
+      { id:'you',     name:'Maya',    sex:'f', gen:3, x:590,  dead:0, birth:1988, death:null, conds:[C('thy',28,'record'),C('chol',33,'record'),C('dep',35,'record')], you:1 },
+      { id:'alex',    name:'Alex',    sex:'m', gen:3, x:680,  dead:0, birth:1986, death:null, conds:[] },
+      { id:'emma',    name:'Emma',    sex:'f', gen:3, x:770,  dead:0, birth:1986, death:null, conds:[C('dep',30),C('thy',32),C('celiac',24,'record')] },
+      { id:'ryan',    name:'Ray',     sex:'m', sab:'f', gender:'man', pronouns:'he/him', organs:['ovaries','uterus','cervix'], gen:3, x:110,  dead:0, birth:1994, death:null, conds:[] },
+      { id:'mia',     name:'Mia',     sex:'f', gen:3, x:1165, dead:0, birth:1996, death:null, conds:[C('brca',28,'record')] },
+      { id:'zoe',     name:'Zoe',     sex:'f', gen:4, x:600,  dead:0, birth:2015, death:null, conds:[C('celiac',6,'record')] },
+      { id:'leo',     name:'Leo',     sex:'m', gen:4, x:690,  dead:0, birth:2018, death:null, conds:[] },
+    ];
+    const seedUnions = [
+      { p:['walter','edith'],   c:['frank'] },
+      { p:['giorgio','rosa'],   c:['helen'] },
+      { p:['frank','marie'],    c:['robert','tom'] },
+      { p:['george','helen'],   c:['susan','linda'] },
+      { p:['tom','carol'],      c:['ryan'] },
+      { p:['robert','susan'],   c:['jack','you','emma'] },
+      { p:['linda','dave'],     c:['mia'] },
+      { p:['you','alex'],       c:['zoe','leo'] },
+    ];
+    // events: every person can carry their own timeline. person = owning Person id.
+    const seedTimeline = [
+      { person:'you', year:2010, type:'immunization', title:'HPV vaccination series', detail:'Gardasil-9, 3 doses' },
+      { person:'you', year:2014, type:'visit',       title:'Established primary care', detail:'Full family history intake' },
+      { person:'you', year:2016, type:'lab',         title:'Elevated TSH detected', detail:'TSH 6.8 mIU/L' },
+      { person:'you', year:2016, type:'diagnosis',   title:'Hypothyroidism (Hashimoto\u2019s)', detail:'Anti-TPO positive' },
+      { person:'you', year:2016, type:'medication',  title:'Started Levothyroxine', detail:'50 mcg daily' },
+      { person:'you', year:2019, type:'screening',   title:'Baseline mammogram', detail:'Early — maternal breast-ca history' },
+      { person:'you', year:2020, type:'lab',         title:'LDL 168 mg/dL — elevated', detail:'' },
+      { person:'you', year:2021, type:'diagnosis',   title:'Hypercholesterolemia', detail:'FH workup pending' },
+      { person:'you', year:2021, type:'medication',  title:'Started Atorvastatin', detail:'10 mg daily' },
+      { person:'you', year:2022, type:'procedure',   title:'Screening colonoscopy', detail:'Normal — no polyps' },
+      { person:'you', year:2023, type:'diagnosis',   title:'Major depressive episode (mild)', detail:'' },
+      { person:'you', year:2023, type:'medication',  title:'Started Sertraline + therapy', detail:'50 mg daily' },
+      { person:'you', year:2024, type:'screening',   title:'Annual mammogram', detail:'BI-RADS 2 — benign' },
+      { person:'you', year:2025, type:'genetic',     title:'Genetic counseling', detail:'BRCA1/2 panel referred' },
+      { person:'you', year:2026, type:'visit',       title:'Annual physical', detail:'BP 128/82 · well' },
+      // relatives carry their own records too
+      { person:'robert', year:2013, type:'diagnosis',  title:'High cholesterol', detail:'LDL 190 mg/dL' },
+      { person:'robert', year:2017, type:'diagnosis',  title:'Coronary heart disease', detail:'Angina on exertion' },
+      { person:'robert', year:2018, type:'procedure',  title:'Coronary stent (PCI)', detail:'LAD 90% stenosis' },
+      { person:'robert', year:2019, type:'medication', title:'Started high-intensity statin', detail:'Atorvastatin 40 mg' },
+      { person:'susan',  year:2021, type:'diagnosis',  title:'Type 2 diabetes', detail:'HbA1c 7.4%' },
+      { person:'susan',  year:2021, type:'medication', title:'Started Metformin', detail:'500 mg BID' },
+    ];
+
+    this.state = {
+      view: (props && props.defaultView) || 'overview',
+      selectedId: null, cond: null, tlType: 'all', condPicker: false,
+      form: null, tlForm: null,
+      riskRoot: 'you', tlPerson: 'you',
+      people: seedPeople, unions: seedUnions, timeline: seedTimeline,
+    };
+
+    // Category metadata — condition colors derive from category (default + colorblind-safe)
+    this.CAT = {
+      card:  { label:'Cardiovascular',        c:'#ff5d5d', cb:'#D55E00' },
+      canc:  { label:'Cancer',                c:'#ff79c6', cb:'#CC79A7' },
+      endo:  { label:'Metabolic & endocrine', c:'#ffb043', cb:'#E69F00' },
+      neuro: { label:'Neurological',          c:'#7aa2ff', cb:'#56B4E9' },
+      ment:  { label:'Mental health',         c:'#34e2cf', cb:'#009E73' },
+      auto:  { label:'Autoimmune',            c:'#9be15d', cb:'#94C973' },
+      resp:  { label:'Respiratory',           c:'#6fa8ff', cb:'#4EA3D9' },
+      gi:    { label:'Gastrointestinal',      c:'#b892ff', cb:'#9370DB' },
+      renal: { label:'Renal & urinary',       c:'#f0a35e', cb:'#E8843A' },
+      musc:  { label:'Musculoskeletal',       c:'#d4b483', cb:'#C9A26B' },
+      blood: { label:'Blood & genetic',       c:'#ff6f91', cb:'#C0407A' },
+      sens:  { label:'Sensory & skin',        c:'#6fe0a0', cb:'#33B0A6' },
+      repro: { label:'Reproductive',          c:'#ffd24a', cb:'#F0E442' },
+    };
+    // Inline seed subset — used only until conditions.js loads, so first paint has real metadata
+    this._seed = {
+      cad:{id:'cad',name:'Coronary heart disease',cat:'card',base:9,pattern:'Multifactorial / polygenic'},
+      htn:{id:'htn',name:'Hypertension',cat:'card',base:50,pattern:'Multifactorial'},
+      chol:{id:'chol',name:'High cholesterol',cat:'card',base:40,pattern:'Multifactorial / possible FH'},
+      stroke:{id:'stroke',name:'Stroke',cat:'card',base:6,pattern:'Multifactorial'},
+      brca:{id:'brca',name:'Breast cancer',cat:'canc',base:13,pattern:'Autosomal dominant (possible BRCA)'},
+      colon:{id:'colon',name:'Colorectal cancer',cat:'canc',base:4.5,pattern:'Multifactorial / possible Lynch'},
+      t2d:{id:'t2d',name:'Type 2 diabetes',cat:'endo',base:11,pattern:'Multifactorial'},
+      thy:{id:'thy',name:'Hypothyroidism',cat:'endo',base:12,pattern:'Autoimmune / polygenic'},
+      alz:{id:'alz',name:"Alzheimer's disease",cat:'neuro',base:11,pattern:'Late-onset multifactorial (APOE)'},
+      dep:{id:'dep',name:'Depression',cat:'ment',base:20,pattern:'Multifactorial'},
+      celiac:{id:'celiac',name:'Celiac disease',cat:'auto',base:1,pattern:'Autoimmune (HLA-DQ2/DQ8)'},
+    };
+    // Curated recommendations for high-signal conditions; others get a band-based generic
+    this.RECS = {
+      cad:'Lipid panel + ASCVD score now; discuss aggressive LDL targets given dense paternal history.',
+      t2d:'Annual HbA1c from age 35; maintain BMI and activity — a strong 1st-degree driver.',
+      brca:'\u22652 affected maternal relatives — pursue BRCA1/2 panel and begin annual mammography + MRI.',
+      colon:'Begin colonoscopy at 40 (10 yrs before earliest family case); repeat every 5 yrs.',
+      alz:'Modifiable-risk focus (BP, activity, sleep). APOE testing optional and counsel-gated.',
+      htn:'Home BP monitoring; sodium and weight management — highly prevalent across the pedigree.',
+      dep:'Continue current management; family history warrants low threshold for early intervention.',
+      thy:'Annual TSH; watch for fatigue and weight change. Clusters with autoimmune thyroid disease.',
+      chol:'Given the familial pattern, evaluate for familial hypercholesterolemia (FH).',
+      stroke:'Control BP and cholesterol; secondary to cardiovascular clustering.',
+      celiac:'Serologic screen if symptomatic; runs in 1st-degree relatives.',
+    };
+    this.COMMON = ['htn','t2d','chol','cad','dep','anx','asthma','thy','oa','brca','colon','alz'];
+    this.typeMeta = {
+      immunization:{ label:'Immunization', color:'#9be15d' },
+      visit:       { label:'Visit',        color:'#8b94a3' },
+      lab:         { label:'Lab',          color:'#6fa8ff' },
+      diagnosis:   { label:'Diagnosis',    color:'#ff5d5d' },
+      medication:  { label:'Medication',   color:'#34e2cf' },
+      screening:   { label:'Screening',    color:'#ff79c6' },
+      procedure:   { label:'Procedure',    color:'#b892ff' },
+      genetic:     { label:'Genetic',      color:'#ffd24a' },
+    };
+    this.ORGANS = ['breasts','ovaries','uterus','cervix','prostate'];
+    this.ORGAN_LABELS = { breasts:'Breasts', ovaries:'Ovaries', uterus:'Uterus', cervix:'Cervix', prostate:'Prostate' };
+    this.screenDefs = [
+      { id:'mammogram', name:'Mammogram', organ:'breasts', flags:['brca'], base:'Annual from 40', why:'Breast tissue present' },
+      { id:'cervical', name:'Cervical screening (Pap/HPV)', organ:'cervix', flags:[], base:'Every 3\u20135 yrs, 21\u201365', why:'Cervix present' },
+      { id:'prostate', name:'Prostate (PSA) discussion', organ:'prostate', flags:[], base:'Discuss from 50', why:'Prostate present' },
+      { id:'colonoscopy', name:'Colonoscopy', organ:null, flags:['colon'], base:'From 45, every 10 yrs', why:'Recommended for all adults' },
+      { id:'lipids', name:'Lipid panel', organ:null, flags:['cad','chol','stroke'], base:'Every 4\u20136 yrs', why:'Cardiometabolic baseline' },
+      { id:'hba1c', name:'HbA1c', organ:null, flags:['t2d'], base:'Per risk profile', why:'Diabetes screening' },
+      { id:'brcapanel', name:'BRCA1/2 genetic panel', organ:null, flags:['brca','ovarian'], base:'One-time if criteria met', why:'Hereditary-cancer testing', genetic:true },
+    ];
+  }
+
+  // ---------- catalog helpers ----------
+  componentDidMount() {
+    // conditions.js loads via a <helmet> script; re-render once it's available
+    let tries = 0;
+    const check = () => {
+      if (typeof window !== 'undefined' && window.LINEAGE_CONDITIONS) { this.forceUpdate(); }
+      else if (tries++ < 30) { setTimeout(check, 40); }
+    };
+    check();
+  }
+  getCatalog() {
+    const ext = (typeof window !== 'undefined' && window.LINEAGE_CONDITIONS) || null;
+    if (ext) { if (this._ck !== ext) { this._ck = ext; this._catalog = {}; ext.forEach(c => { this._catalog[c.id] = c; }); } return this._catalog; }
+    return this._seed;
+  }
+  cond(id) { return this.getCatalog()[id] || { id, name: id, cat: 'repro', base: 5, pattern: '\u2014' }; }
+  condColor(id) { const c = this.getCatalog()[id]; const cat = c && this.CAT[c.cat]; if (!cat) return '#8b94a3'; return this.props.palette === 'colorblind' ? cat.cb : cat.c; }
+  catLabel(id) { const c = this.getCatalog()[id]; const cat = c && this.CAT[c.cat]; return cat ? cat.label : 'Other'; }
+  // ranked search over the catalog; excludeSet hides already-selected ids
+  searchConditions(query, excludeSet, cap) {
+    const cat = this.getCatalog();
+    const q = (query || '').trim().toLowerCase();
+    const ex = excludeSet || new Set();
+    const mk = (c) => ({ id: c.id, name: c.name, catLabel: this.catLabel(c.id), color: this.condColor(c.id) });
+    if (!q) {
+      return this.COMMON.filter(id => cat[id] && !ex.has(id)).map(id => mk(cat[id])).slice(0, cap || 14);
+    }
+    const scored = [];
+    Object.values(cat).forEach(c => {
+      if (ex.has(c.id)) return;
+      const name = c.name.toLowerCase();
+      const syn = (c.syn || []).map(s => s.toLowerCase());
+      let s = -1;
+      if (name === q) s = 100;
+      else if (name.startsWith(q)) s = 80;
+      else if (name.split(/[^a-z0-9]+/).some(w => w.startsWith(q))) s = 62;
+      else if (syn.some(y => y.startsWith(q))) s = 58;
+      else if (name.includes(q)) s = 42;
+      else if (syn.some(y => y.includes(q))) s = 30;
+      if (s >= 0) scored.push({ c, s });
+    });
+    scored.sort((a, b) => b.s - a.s || a.c.name.localeCompare(b.c.name));
+    return scored.slice(0, cap || 40).map(o => mk(o.c));
+  }
+  P(id) { return this.state.people.find(p => p.id === id); }
+  parentsOf(id) { const r = []; this.state.unions.forEach(u => { if (u.c.includes(id)) u.p.forEach(x => r.push(x)); }); return r; }
+  childrenOf(id) { const r = []; this.state.unions.forEach(u => { if (u.p.includes(id)) u.c.forEach(x => r.push(x)); }); return r; }
+  ancestors(id) {
+    const dist = new Map();
+    const dfs = (x, d) => { if (dist.has(x) && dist.get(x) <= d) return; dist.set(x, d); this.parentsOf(x).forEach(p => dfs(p, d + 1)); };
+    dfs(id, 0); return dist;
+  }
+  // condition helpers — conds are objects {id, onset, prov}; tolerate legacy string ids
+  cids(p) { return (p.conds || []).map(c => typeof c === 'string' ? c : c.id); }
+  hasCid(p, id) { return this.cids(p).includes(id); }
+  condEntry(p, id) { const e = (p.conds || []).find(c => (typeof c === 'string' ? c : c.id) === id); return typeof e === 'string' ? { id: e, onset: null, prov: 'self' } : e; }
+  // gender-inclusive identity (2022 NSGC): sab drives genetics/geometry, gender drives display
+  sab(p) { return p.sab || p.sex || 'u'; }
+  gender(p) { return p.gender || (p.sex === 'm' ? 'man' : p.sex === 'f' ? 'woman' : 'nb'); }
+  defaultOrgans(sab) { return sab === 'f' ? ['breasts','ovaries','uterus','cervix'] : sab === 'm' ? ['prostate'] : []; }
+  organsOf(p) { return p.organs ? p.organs : this.defaultOrgans(this.sab(p)); }
+  sabLabel(sab) { return sab === 'f' ? 'AFAB' : sab === 'm' ? 'AMAB' : 'unknown'; }
+  genderLabel(g) { return g === 'man' ? 'Man' : g === 'woman' ? 'Woman' : 'Nonbinary'; }
+  genderSymbol(g) { return g === 'man' ? '\u2642' : g === 'woman' ? '\u2640' : '\u26a5'; }
+  // kinship computed from any root (defaults to the record owner) — enables re-rooting risk
+  relationInfo(id, rootId) {
+    const root = rootId || 'you';
+    if (id === root) return { rel: id === 'you' ? 'You' : 'Self', degree:0, side:'\u2014', r:1 };
+    const aRoot = this.ancestors(root), aX = this.ancestors(id);
+    const common = [...aX.keys()].filter(k => aRoot.has(k));
+    const isCA = (n) => aX.has(n) && aRoot.has(n);
+    const mrcas = common.filter(a => !this.childrenOf(a).some(c => isCA(c)));
+    let r = 0; mrcas.forEach(a => { r += Math.pow(0.5, aRoot.get(a) + aX.get(a)); });
+    let degree = null;
+    if (r >= 0.4) degree = 1; else if (r >= 0.2) degree = 2; else if (r >= 0.09) degree = 3;
+    // side: relative to the root's own father/mother
+    let side = '\u2014';
+    const rootParents = this.parentsOf(root);
+    const father = rootParents.map(pid => this.P(pid)).find(pp => pp && this.sab(pp) === 'm');
+    const mother = rootParents.map(pid => this.P(pid)).find(pp => pp && this.sab(pp) === 'f');
+    if (father && mother) {
+      const ancF = new Set([father.id, ...this.ancestors(father.id).keys()]);
+      const ancM = new Set([mother.id, ...this.ancestors(mother.id).keys()]);
+      const pat = mrcas.some(a => ancF.has(a)), mat = mrcas.some(a => ancM.has(a));
+      if (pat && !mat) side = 'Paternal'; else if (mat && !pat) side = 'Maternal';
+    }
+    const rel = this.relLabel(id, degree, aRoot, aX, side, root);
+    return { rel, degree, side, r };
+  }
+  relLabel(id, degree, aRoot, aX, side, rootId) {
+    const root = rootId || 'you';
+    const p = this.P(id), you = this.P(root);
+    const gd = p.gen - you.gen;
+    const g = this.gender(p);
+    const sx = g === 'man' ? 'm' : g === 'woman' ? 'f' : 'x';
+    const sp = side !== '\u2014' ? side + ' ' : '';
+    const pick = (m, f, x) => sx === 'm' ? m : sx === 'f' ? f : x;
+    if (degree === null) {
+      const spouseOfRoot = this.state.unions.some(u => u.p.includes(root) && u.p.includes(id));
+      return spouseOfRoot ? 'Spouse' : 'By marriage';
+    }
+    const isAnc = aRoot.has(id), isDesc = aX.has(root);
+    if (isAnc) {
+      if (gd === -1) return pick('Father', 'Mother', 'Parent');
+      if (gd === -2) return sp + pick('Grandfather', 'Grandmother', 'Grandparent');
+      if (gd === -3) return sp + pick('Great-grandfather', 'Great-grandmother', 'Great-grandparent');
+      return 'Distant ancestor';
+    }
+    if (isDesc) {
+      if (gd === 1) return pick('Son', 'Daughter', 'Child');
+      if (gd === 2) return pick('Grandson', 'Granddaughter', 'Grandchild');
+      return 'Descendant';
+    }
+    if (gd === 0) return degree === 1 ? pick('Brother', 'Sister', 'Sibling') : (sp + 'Cousin');
+    if (gd === -1) return sp + pick('Uncle', 'Aunt', 'Aunt/Uncle');
+    if (gd === 1) return pick('Nephew', 'Niece', 'Nibling');
+    if (gd === -2) return 'Great-' + pick('uncle', 'aunt', 'aunt/uncle');
+    return degree + '\u00b0 relative';
+  }
+  degText(d) { return d === 1 ? '1st' : d === 2 ? '2nd' : d === 3 ? '3rd' : '\u2014'; }
+  degLong(d) { return d === 0 ? 'Proband' : d === 1 ? '1st-degree' : d === 2 ? '2nd-degree' : d === 3 ? '3rd-degree' : 'Non-blood'; }
+
+  computeLayout() {
+    const MIN = 88;
+    const byGen = {};
+    this.state.people.forEach(p => { (byGen[p.gen] = byGen[p.gen] || []).push(p); });
+    const gens = Object.keys(byGen).map(Number).sort((a, b) => a - b);
+    const minG = gens[0], maxG = gens[gens.length - 1];
+    const pos = {}; let maxX = 0;
+    gens.forEach(g => {
+      const row = byGen[g].slice().sort((a, b) => a.x - b.x);
+      let cur = -1e9;
+      row.forEach(p => { const x = Math.max(p.x, cur + MIN); cur = x; const y = 40 + (g - minG) * 170; pos[p.id] = { x, y, cy: y + 24 }; if (x > maxX) maxX = x; });
+    });
+    return { pos, minG, maxG, gens, cw: maxX + 150, ch: 40 + (maxG - minG) * 170 + 120 };
+  }
+  segments(pos) {
+    const segs = [];
+    for (const u of this.state.unions) {
+      const parts = u.p.filter(id => pos[id]);
+      if (parts.length === 2) {
+        const A = pos[parts[0]], B = pos[parts[1]];
+        segs.push({ x1:A.x, y1:A.cy, x2:B.x, y2:B.cy });
+      }
+      if (u.c && u.c.length) {
+        const px = parts.map(id => pos[id].x);
+        const mx = px.length ? px.reduce((a, b) => a + b, 0) / px.length : pos[u.c[0]].x;
+        const py = parts.length ? pos[parts[0]].cy : null;
+        const cy0 = pos[u.c[0]];
+        const busY = cy0.y - 22;
+        if (py != null) segs.push({ x1:mx, y1:py, x2:mx, y2:busY });
+        const cxs = u.c.filter(id => pos[id]).map(id => pos[id].x);
+        const minX = Math.min(...cxs), maxX = Math.max(...cxs);
+        if (maxX !== minX) segs.push({ x1:minX, y1:busY, x2:maxX, y2:busY });
+        u.c.forEach(cid => { if (pos[cid]) segs.push({ x1:pos[cid].x, y1:busY, x2:pos[cid].x, y2:pos[cid].y }); });
+      }
+    }
+    return segs;
+  }
+
+  // ---------- exports & reports (item 4) ----------
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  nowISO() { return new Date().toISOString(); }
+  today() { return new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }); }
+  // Illustrative SNOMED CT mappings for the higher-signal conditions; others fall back to the app's local code system.
+  get SNOMED() { return { brca:'254837009', colon:'363406005', prostate:'399068003', ovarian:'363443007', lung:'93880001', endometrial:'315267003', gastric:'363349007', panc:'372003004', melanoma:'2092003', t2d:'44054006', t1d:'46635009', chol:'13644009', cad:'53741008', htn:'38341003', stroke:'230690007', afib:'49436004', thy:'40930008', dep:'35489007', anx:'48694002', alz:'26929004', asthma:'195967001', celiac:'396331005', oa:'396275006' }; }
+  fhirCode(id) {
+    const meta = this.cond(id), sct = this.SNOMED[id];
+    const coding = [];
+    if (sct) coding.push({ system:'http://snomed.info/sct', code:sct, display:meta.name });
+    coding.push({ system:'https://lineage.health/fhir/CodeSystem/conditions', code:id, display:meta.name });
+    return { coding, text:meta.name };
+  }
+  relRoleCode(rel) {
+    const r = rel.replace(/^(Paternal|Maternal)\s+/i, '').toLowerCase();
+    const m = { 'father':'FTH','mother':'MTH','parent':'PRN','brother':'BRO','sister':'SIS','sibling':'SIB','son':'SONC','daughter':'DAUC','child':'CHILD','grandfather':'GRFTH','grandmother':'GRMTH','grandparent':'GRPRN','grandson':'GRNDSON','granddaughter':'GRNDDAU','grandchild':'GRNDCHILD','uncle':'UNCLE','aunt':'AUNT','aunt/uncle':'PIBLING','nephew':'NEPHEW','niece':'NIECE','nibling':'NIENEPH','cousin':'COUSN','spouse':'SPS' };
+    if (m[r]) return m[r];
+    if (/great-grand(father|mother|parent)/.test(r)) return 'GGRPRN';
+    if (/great-(uncle|aunt)/.test(r)) return 'EXT';
+    return null;
+  }
+  fhirGender(g) { return g === 'man' ? 'male' : g === 'woman' ? 'female' : 'other'; }
+  buildFHIR() {
+    const info = {}; this.state.people.forEach(p => { info[p.id] = this.relationInfo(p.id); });
+    const you = this.P('you');
+    const ageOf = (p) => (p.dead && p.death) ? (p.death - p.birth) : (2026 - p.birth);
+    const entry = [];
+    const yg = this.gender(you);
+    entry.push({ resource: {
+      resourceType:'Patient', id:'proband',
+      extension:[{ url:'http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex', valueCode: this.sab(you) === 'f' ? 'F' : this.sab(you) === 'm' ? 'M' : 'UNK' }],
+      name:[{ text: you.name, given:[you.name] }],
+      gender: this.fhirGender(yg),
+      birthDate: String(you.birth),
+    }});
+    this.cids(you).forEach((cid, i) => {
+      const e = this.condEntry(you, cid);
+      const c = { resourceType:'Condition', id:'cond-you-' + i, clinicalStatus:{ coding:[{ system:'http://terminology.hl7.org/CodeSystem/condition-clinical', code:'active' }] }, code: this.fhirCode(cid), subject:{ reference:'Patient/proband' } };
+      if (e && e.onset != null) c.onsetAge = { value:e.onset, unit:'years', system:'http://unitsofmeasure.org', code:'a' };
+      entry.push({ resource: c });
+    });
+    this.state.people.filter(p => p.id !== 'you' && info[p.id].degree).forEach(p => {
+      const rc = this.relRoleCode(info[p.id].rel);
+      const fmh = {
+        resourceType:'FamilyMemberHistory', id:'fmh-' + p.id, status:'completed',
+        patient:{ reference:'Patient/proband' },
+        name: p.name,
+        relationship: { coding: rc ? [{ system:'http://terminology.hl7.org/CodeSystem/v3-RoleCode', code:rc, display:info[p.id].rel }] : [], text: info[p.id].rel },
+        sex: { coding:[{ system:'http://hl7.org/fhir/administrative-gender', code:this.sab(p) === 'f' ? 'female' : this.sab(p) === 'm' ? 'male' : 'unknown' }] },
+      };
+      if (p.dead) fmh.deceasedBoolean = true;
+      const conds = this.cids(p);
+      if (conds.length) fmh.condition = conds.map(cid => { const e = this.condEntry(p, cid); const cc = { code: this.fhirCode(cid) }; if (e && e.onset != null) cc.onsetAge = { value:e.onset, unit:'years', system:'http://unitsofmeasure.org', code:'a' }; return cc; });
+      entry.push({ resource: fmh });
+    });
+    return { resourceType:'Bundle', type:'collection', timestamp: this.nowISO(), entry };
+  }
+  buildPhenopacket() {
+    const you = this.P('you');
+    const pfSex = (p) => this.sab(p) === 'f' ? 'FEMALE' : this.sab(p) === 'm' ? 'MALE' : 'UNKNOWN_SEX';
+    const feats = (p) => this.cids(p).map(cid => { const meta = this.cond(cid), sct = this.SNOMED[cid]; const e = this.condEntry(p, cid); const f = { type:{ id: sct ? ('SNOMED:' + sct) : ('LINEAGE:' + cid), label: meta.name } }; if (e && e.onset != null) f.onset = { age:{ iso8601duration:'P' + e.onset + 'Y' } }; return f; });
+    const parentsOf = (id) => { const u = this.state.unions.find(x => x.c.includes(id)); if (!u) return { p:'0', m:'0' }; const pa = u.p.map(pid => this.P(pid)); const fa = pa.find(x => this.sab(x) === 'm'), mo = pa.find(x => this.sab(x) === 'f'); return { p: fa ? fa.id : '0', m: mo ? mo.id : '0' }; };
+    const persons = this.state.people.map(p => { const pr = parentsOf(p.id); return { familyId:'lineage-kindred', individualId:p.id, paternalId:pr.p, maternalId:pr.m, sex: pfSex(p), affectedStatus: this.cids(p).length ? 'AFFECTED' : 'UNAFFECTED' }; });
+    const relatives = this.state.people.filter(p => p.id !== 'you' && this.cids(p).length).map(p => ({ subject:{ id:p.id, sex: pfSex(p), vitalStatus:{ status: p.dead ? 'DECEASED' : 'ALIVE' } }, phenotypicFeatures: feats(p) }));
+    return {
+      id: 'lineage-family-' + Date.now(),
+      proband: { subject: { id:'you', sex: pfSex(you), timeAtLastEncounter:{ age:{ iso8601duration:'P' + (2026 - you.birth) + 'Y' } } }, phenotypicFeatures: feats(you) },
+      relatives,
+      pedigree: { persons },
+      metaData: { created: this.nowISO(), createdBy:'Lineage', phenopacketSchemaVersion:'2.0', resources:[ { id:'snomed', name:'SNOMED CT', url:'http://snomed.info/sct', namespacePrefix:'SNOMED', iriPrefix:'http://snomed.info/id/' } ] },
+    };
+  }
+  buildPedigreeSVG() {
+    const you = this.P('you'), g0 = you.gen;
+    const inc = (p) => p.gen >= g0 - 2 && p.gen <= g0 + 1;
+    const L = this.computeLayout(), pos = L.pos;
+    const ppl = this.state.people.filter(inc);
+    const ids = new Set(ppl.map(p => p.id));
+    const segs = [];
+    for (const u of this.state.unions) {
+      const parts = u.p.filter(id => ids.has(id) && pos[id]);
+      const kids = (u.c || []).filter(id => ids.has(id) && pos[id]);
+      if (parts.length === 2) { const A = pos[parts[0]], B = pos[parts[1]]; segs.push([A.x, A.cy, B.x, B.cy]); }
+      if (kids.length) {
+        const px = parts.map(id => pos[id].x);
+        const mx = px.length ? px.reduce((a, b) => a + b, 0) / px.length : pos[kids[0]].x;
+        const py = parts.length ? pos[parts[0]].cy : null;
+        const busY = pos[kids[0]].y - 22;
+        if (py != null) segs.push([mx, py, mx, busY]);
+        const cxs = kids.map(id => pos[id].x); const mn = Math.min(...cxs), mx2 = Math.max(...cxs);
+        if (mx2 !== mn) segs.push([mn, busY, mx2, busY]);
+        kids.forEach(cid => segs.push([pos[cid].x, busY, pos[cid].x, pos[cid].y]));
+      }
+    }
+    const xs = ppl.map(p => pos[p.id].x), ys = ppl.map(p => pos[p.id].cy);
+    const minX = Math.min(...xs) - 52, maxX = Math.max(...xs) + 52, minY = Math.min(...ys) - 34, maxY = Math.max(...ys) + 54;
+    const W = maxX - minX, H = maxY - minY, S = 15;
+    let b = '';
+    segs.forEach(s => { b += '<line x1="' + s[0] + '" y1="' + s[1] + '" x2="' + s[2] + '" y2="' + s[3] + '" stroke="#3a4150" stroke-width="1.3"/>'; });
+    ppl.forEach(p => {
+      const cx = pos[p.id].x, cy = pos[p.id].cy, g = this.gender(p);
+      const conds = this.cids(p), aff = conds.length > 0;
+      const fill = aff ? this.condColor(conds[0]) : '#ffffff';
+      const sw = p.id === 'you' ? 2.6 : 1.5;
+      if (g === 'woman') b += '<circle cx="' + cx + '" cy="' + cy + '" r="' + S + '" fill="' + fill + '" stroke="#1a1f28" stroke-width="' + sw + '"/>';
+      else if (g === 'nb') b += '<rect x="' + (cx - S) + '" y="' + (cy - S) + '" width="' + (2 * S) + '" height="' + (2 * S) + '" transform="rotate(45 ' + cx + ' ' + cy + ')" fill="' + fill + '" stroke="#1a1f28" stroke-width="' + sw + '"/>';
+      else b += '<rect x="' + (cx - S) + '" y="' + (cy - S) + '" width="' + (2 * S) + '" height="' + (2 * S) + '" fill="' + fill + '" stroke="#1a1f28" stroke-width="' + sw + '"/>';
+      if (conds.length > 1) b += '<circle cx="' + (cx + S - 2) + '" cy="' + (cy - S + 2) + '" r="6" fill="#111"/><text x="' + (cx + S - 2) + '" y="' + (cy - S + 2) + '" font-size="8" fill="#fff" text-anchor="middle" dominant-baseline="central" font-family="monospace">' + conds.length + '</text>';
+      if (p.dead) b += '<line x1="' + (cx - S - 5) + '" y1="' + (cy + S + 5) + '" x2="' + (cx + S + 5) + '" y2="' + (cy - S - 5) + '" stroke="#1a1f28" stroke-width="1.6"/>';
+      if (p.id === 'you') b += '<path d="M ' + (cx - S - 18) + ' ' + (cy + S + 14) + ' L ' + (cx - S - 3) + ' ' + (cy + S - 1) + '" stroke="#1a1f28" stroke-width="1.5" fill="none" marker-end="url(#ar)"/>';
+      const sab = this.sab(p), sabDiff = (g === 'man' && sab !== 'm') || (g === 'woman' && sab !== 'f') || g === 'nb';
+      const yrs = p.dead ? (p.birth + '\u2013' + (p.death || '')) : ('b.' + p.birth);
+      b += '<text x="' + cx + '" y="' + (cy + S + 15) + '" font-size="10.5" fill="#111" text-anchor="middle" font-family="sans-serif" font-weight="600">' + this.esc(p.name) + '</text>';
+      b += '<text x="' + cx + '" y="' + (cy + S + 27) + '" font-size="8" fill="#777" text-anchor="middle" font-family="monospace">' + yrs + (sabDiff ? ('  ' + this.sabLabel(sab)) : '') + '</text>';
+    });
+    const defs = '<defs><marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1a1f28"/></marker></defs>';
+    return '<svg viewBox="' + minX + ' ' + minY + ' ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="max-height:560px">' + defs + b + '</svg>';
+  }
+  dl(name, text, mime) {
+    try {
+      const blob = new Blob([text], { type: mime || 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (e) { /* sandbox may block; on-screen JSON + copy still works */ }
+  }
+  doPrint(kind) { this.setState({ printDoc: kind }); setTimeout(() => { try { window.print(); } catch (e) {} }, 80); }
+
+  familyFindings(info, rootId) {
+    const root = rootId || 'you';
+    const rootP = this.P(root);
+    const present = new Set();
+    this.state.people.forEach(p => this.cids(p).forEach(c => present.add(c)));
+    this.cids(rootP).forEach(c => present.add(c));
+    const rows = [...present].map(id => {
+      const meta = this.cond(id), color = this.condColor(id);
+      const aff = this.state.people.filter(p => p.id !== root && info[p.id].degree && info[p.id].degree >= 1 && this.hasCid(p, id));
+      const onsets = aff.map(p => (this.condEntry(p, id) || {}).onset).filter(x => x != null);
+      const earliest = onsets.length ? Math.min(...onsets) : null;
+      const firstDeg = aff.some(p => info[p.id].degree === 1);
+      const diagnosed = this.hasCid(rootP, id);
+      let band, bandColor, bandBg;
+      if (diagnosed) { band = 'Diagnosed'; bandColor = '#34e2cf'; bandBg = 'rgba(52,226,207,0.14)'; }
+      else if (aff.length >= 2) { band = 'Clustered'; bandColor = '#ff5d5d'; bandBg = 'rgba(255,93,93,0.14)'; }
+      else if (firstDeg) { band = 'Close family'; bandColor = '#ffb043'; bandBg = 'rgba(255,176,67,0.14)'; }
+      else if (aff.length >= 1) { band = 'In family'; bandColor = '#ffd24a'; bandBg = 'rgba(255,210,74,0.13)'; }
+      else { band = '\u2014'; bandColor = '#6fe0a0'; bandBg = 'rgba(111,224,160,0.12)'; }
+      const rec = this.RECS[id] || this.genericRec(band, aff.length);
+      const affected = aff.sort((a, b) => info[a.id].degree - info[b.id].degree).map(p => ({ rel: info[p.id].rel, deg: this.degText(info[p.id].degree), dotStyle: { width:'7px', height:'7px', borderRadius:'2px', background:color, display:'inline-block' } }));
+      return { id, name: meta.name, color, pattern: meta.pattern, rec, diagnosed, band, bandColor, bandBg, affCount: aff.length, affected, hasAff: aff.length > 0, earliest, onsetStr: earliest ? ('earliest onset age ' + earliest) : '', hasOnset: !!earliest };
+    });
+    const rank = (r) => r.diagnosed ? 4 : (r.band === 'Clustered' ? 0 : r.band === 'Close family' ? 1 : r.band === 'In family' ? 2 : 3);
+    rows.sort((a, b) => rank(a) - rank(b) || b.affCount - a.affCount);
+    return rows;
+  }
+  detectPatterns(info, rootId) {
+    const root = rootId || 'you';
+    const rootP = this.P(root);
+    const rootAge = rootP.dead ? null : (2026 - rootP.birth);
+    const blood = this.state.people.filter(p => p.id !== root && info[p.id] && info[p.id].degree);
+    const withCond = (code) => blood.filter(p => this.hasCid(p, code)).map(p => ({ p, deg: info[p.id].degree, side: info[p.id].side, rel: info[p.id].rel, onset: (this.condEntry(p, code) || {}).onset }));
+    const flags = [];
+    const breast = withCond('brca'), ovarian = withCond('ovarian');
+    { const reasons = [];
+      if (breast.length >= 2) reasons.push(breast.length + ' relatives with breast cancer');
+      if (ovarian.length >= 1) reasons.push('ovarian cancer in a blood relative');
+      const young = breast.filter(b => b.onset && b.onset < 50);
+      if (young.length) reasons.push('breast cancer before age 50 (' + young.map(y => y.rel + ' at ' + y.onset).join(', ') + ')');
+      if (reasons.length) flags.push({ severity:'referral', cat:'canc', title:'Hereditary breast & ovarian cancer (HBOC) pattern', criterion: reasons.join('; '), rec:'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Consider a genetics referral; enhanced breast screening (annual mammography \u00b1 MRI) may be indicated.', relatives: breast.concat(ovarian) });
+    }
+    const colo = withCond('colon'), endo = withCond('endometrial'), gast = withCond('gastric');
+    { const spectrum = colo.concat(endo, gast); const reasons = [];
+      const young = colo.filter(c => c.onset && c.onset < 50);
+      if (young.length) reasons.push('colorectal cancer before age 50 (' + young.map(y => y.rel + ' at ' + y.onset).join(', ') + ')');
+      if (spectrum.length >= 2) reasons.push(spectrum.length + ' relatives with Lynch-spectrum cancers (colorectal / endometrial / gastric)');
+      if (reasons.length) flags.push({ severity:'referral', cat:'canc', title:'Lynch syndrome pattern (hereditary colorectal)', criterion: reasons.join('; '), rec:'Consistent with Amsterdam II-type criteria. Consider a genetics referral and earlier, more frequent colonoscopy (often from age 20\u201325, or 10 years before the earliest family diagnosis).', relatives: spectrum });
+    }
+    const cad = withCond('cad'), chol = withCond('chol');
+    { const premature = cad.filter(c => c.deg === 1 && c.onset && ((this.sab(c.p) === 'm' && c.onset < 55) || (this.sab(c.p) === 'f' && c.onset < 65)));
+      const reasons = [];
+      if (premature.length) reasons.push('premature coronary disease in a first-degree relative (' + premature.map(y => y.rel + ' at ' + y.onset).join(', ') + ')');
+      if (chol.length && cad.length) reasons.push('high cholesterol clustering with coronary disease');
+      if (reasons.length) flags.push({ severity: premature.length ? 'referral' : 'discuss', cat:'card', title:'Premature cardiovascular disease', criterion: reasons.join('; '), rec:'Early lipid screening and ASCVD assessment advised; evaluate for familial hypercholesterolemia (FH). Discuss timing with your clinician.', relatives: cad.concat(chol) });
+    }
+    const covered = new Set(['brca','ovarian','colon','endometrial','gastric','cad','chol']);
+    { const present = new Set(); blood.forEach(p => this.cids(p).forEach(c => present.add(c)));
+      present.forEach(code => {
+        if (covered.has(code)) return;
+        const meta = this.cond(code);
+        if (!/dominant/i.test(meta.pattern || '')) return;
+        const aff = withCond(code);
+        if (!aff.length) return;
+        const gens = new Set(aff.map(a => a.p.gen));
+        const firstDeg = aff.some(a => a.deg === 1);
+        if (gens.size >= 2 || firstDeg) flags.push({ severity: firstDeg ? 'referral' : 'discuss', cat: meta.cat, title:'Autosomal-dominant pattern \u2014 ' + meta.name, criterion: aff.length + ' affected relative' + (aff.length === 1 ? '' : 's') + (gens.size >= 2 ? ' across ' + gens.size + ' generations' : '') + '; ' + meta.name + ' shows dominant inheritance', rec:'Vertical transmission consistent with autosomal-dominant inheritance. Predictive genetic testing and counseling may be appropriate \u2014 consider a genetics referral.', relatives: aff });
+      });
+    }
+    if (rootAge != null) {
+      const present = new Set(); blood.forEach(p => this.cids(p).forEach(c => present.add(c)));
+      const prox = [];
+      present.forEach(code => {
+        if (this.hasCid(rootP, code)) return;
+        const aff = withCond(code).filter(a => a.onset);
+        if (!aff.length) return;
+        const earliest = Math.min(...aff.map(a => a.onset));
+        if (rootAge >= earliest - 12 && rootAge <= earliest + 5) { const who = aff.find(a => a.onset === earliest); prox.push({ severity:'discuss', cat: this.cond(code).cat, title:'Age-of-onset alert \u2014 ' + this.cond(code).name, criterion: who.rel + ' diagnosed at ' + earliest + '; you are ' + rootAge, rec:'You are approaching the age at which this first appeared in your family. A timely screening conversation is reasonable.', relatives: aff }); }
+      });
+      prox.slice(0, 3).forEach(f => flags.push(f));
+    }
+    if (blood.length < 4) flags.push({ severity:'note', cat:null, title:'Limited family history', criterion:'only ' + blood.length + ' blood relative' + (blood.length === 1 ? '' : 's') + ' on record', rec:'A small or incomplete pedigree is not reassurance \u2014 absence of disease may simply reflect missing information. Add relatives to sharpen the analysis.', relatives: [] });
+    const rank = { referral:0, discuss:1, note:2 };
+    flags.sort((a, b) => rank[a.severity] - rank[b.severity]);
+    return flags;
+  }
+  genericRec(band, n) {
+    if (band === 'Diagnosed') return 'Already diagnosed \u2014 focus on ongoing management and monitoring with your care team.';
+    if (band === 'Clustered') return 'Multiple affected relatives \u2014 discuss earlier or more frequent screening and risk-reduction with your clinician.';
+    if (band === 'Close family') return 'A first-degree relative is affected \u2014 raise this family history at your next visit.';
+    if (band === 'In family') return 'A relative is affected \u2014 worth mentioning to your clinician.';
+    return 'Continue routine, age-appropriate screening.';
+  }
+
+  // ---------- mutations ----------
+  clone() { return { people: this.state.people.map(p => ({ ...p, conds: (p.conds || []).map(c => typeof c === 'string' ? { id: c, onset: null, prov: 'self' } : { ...c }) })), unions: this.state.unions.map(u => ({ p:[...u.p], c:[...u.c] })) }; }
+  toggleCond(personId, cid) {
+    const { people, unions } = this.clone();
+    const p = people.find(x => x.id === personId);
+    if (this.cids(p).includes(cid)) p.conds = p.conds.filter(c => (typeof c === 'string' ? c : c.id) !== cid); else p.conds.push({ id: cid, onset: null, prov: 'self' });
+    this.setState({ people, unions });
+  }
+  setCondField(personId, cid, field, value) {
+    const { people, unions } = this.clone();
+    const p = people.find(x => x.id === personId);
+    const e = (p.conds || []).find(c => (typeof c === 'string' ? c : c.id) === cid);
+    if (!e || typeof e === 'string') return;
+    if (field === 'onset') e.onset = (value === '' || value == null) ? null : (parseInt(value, 10) || null);
+    else if (field === 'prov') e.prov = value;
+    this.setState({ people, unions });
+  }
+  provLabel(prov) { return prov === 'record' ? 'records-confirmed' : prov === 'death' ? 'death certificate' : 'self-reported'; }
+  toggleOrgan(personId, organ) {
+    const people = this.state.people.map(p => {
+      if (p.id !== personId) return p;
+      const cur = this.organsOf(p);
+      const next = cur.includes(organ) ? cur.filter(o => o !== organ) : [...cur, organ];
+      return { ...p, organs: next };
+    });
+    this.setState({ people });
+  }
+  deletePerson(id) {
+    if (id === 'you') return;
+    let people = this.state.people.filter(p => p.id !== id);
+    let unions = this.state.unions.map(u => ({ p:u.p.filter(x => x !== id), c:u.c.filter(x => x !== id) }));
+    unions = unions.filter(u => (u.p.length + u.c.length) > 1);
+    this.setState({ people, unions, selectedId: null, form: null, riskRoot: this.state.riskRoot === id ? 'you' : this.state.riskRoot, tlPerson: this.state.tlPerson === id ? 'you' : this.state.tlPerson });
+  }
+  openAdd(anchorId, relation) {
+    this.setState({ form: { mode:'add', id:null, anchor: anchorId || 'you', relation: relation || 'child', name:'', sab:'f', gender:'woman', pronouns:'', organs: this.defaultOrgans('f'), living:true, birth:2000, death:'', conds:[], query:'' } });
+  }
+  openEdit(id) {
+    const p = this.P(id);
+    this.setState({ form: { mode:'edit', id, anchor:null, relation:null, name:p.name, sab:this.sab(p), gender:this.gender(p), pronouns:p.pronouns || '', organs:[...this.organsOf(p)], living:!p.dead, birth:p.birth, death:p.death || '', conds: this.cids(p), query:'' } });
+  }
+  saveForm() {
+    const f = this.state.form; if (!f) return;
+    if (!f.name.trim()) { return; }
+    if (f.mode === 'edit') {
+      const orig = this.P(f.id);
+      // preserve onset/provenance for conditions that were already on this person
+      const mergedConds = f.conds.map(id => this.hasCid(orig, id) ? { ...this.condEntry(orig, id) } : { id, onset: null, prov: 'self' });
+      const people = this.state.people.map(p => p.id === f.id ? { ...p, name:f.name.trim(), sex:f.sab, sab:f.sab, gender:f.gender, pronouns:f.pronouns, organs:[...f.organs], dead:f.living ? 0 : 1, birth:+f.birth || p.birth, death:f.living ? null : (+f.death || null), conds: mergedConds } : p);
+      this.setState({ people, form: null });
+      return;
+    }
+    // add
+    const { people, unions } = this.clone();
+    const A = people.find(p => p.id === f.anchor) || people.find(p => p.id === 'you');
+    const nid = 'n' + (++this._pc);
+    const np = { id:nid, name:f.name.trim(), sex:f.sab, sab:f.sab, gender:f.gender, pronouns:f.pronouns, organs:[...f.organs], gen:A.gen, x:A.x + 84, dead:f.living ? 0 : 1, birth:+f.birth || 1990, death:f.living ? null : (+f.death || null), conds: f.conds.map(id => ({ id, onset: null, prov: 'self' })) };
+    const rel = f.relation;
+    if (rel === 'partner') {
+      np.gen = A.gen; np.x = A.x + 84; unions.push({ p:[A.id, nid], c:[] });
+    } else if (rel === 'child') {
+      let u = unions.find(u => u.p.includes(A.id)); if (!u) { u = { p:[A.id], c:[] }; unions.push(u); }
+      u.c.push(nid); np.gen = A.gen + 1;
+      const px = u.p.map(id => people.find(p => p.id === id).x); np.x = px.reduce((a, b) => a + b, 0) / px.length;
+    } else if (rel === 'sibling') {
+      let u = unions.find(u => u.c.includes(A.id)); if (!u) { u = { p:[], c:[A.id] }; unions.push(u); }
+      u.c.push(nid); np.gen = A.gen; np.x = A.x + 84;
+    } else if (rel === 'parent') {
+      let u = unions.find(u => u.c.includes(A.id)); if (!u) { u = { p:[], c:[A.id] }; unions.push(u); }
+      if (u.p.length >= 2) { this.setState({ form: null }); return; }
+      const other = u.p[0] ? people.find(p => p.id === u.p[0]) : null;
+      u.p.push(nid); np.gen = A.gen - 1; np.x = other ? other.x + 84 : A.x;
+    }
+    people.push(np);
+    this.setState({ people, unions, form: null, selectedId: nid });
+  }
+
+  openAddEvent() { this.setState({ tlForm: { mode:'add', index:null, person: this.state.tlPerson, year:2026, type:'visit', title:'', detail:'' } }); }
+  openEditEvent(i) { const e = this.state.timeline[i]; this.setState({ tlForm: { mode:'edit', index:i, person: e.person, year:e.year, type:e.type, title:e.title, detail:e.detail || '' } }); }
+  saveEvent() {
+    const f = this.state.tlForm; if (!f || !f.title.trim()) return;
+    const ev = { person: f.person || this.state.tlPerson, year:+f.year || 2026, type:f.type, title:f.title.trim(), detail:f.detail.trim() };
+    const timeline = [...this.state.timeline];
+    if (f.mode === 'edit') timeline[f.index] = ev; else timeline.push(ev);
+    this.setState({ timeline, tlForm: null });
+  }
+  deleteEvent() { const f = this.state.tlForm; if (!f || f.index == null) { this.setState({ tlForm: null }); return; } const timeline = this.state.timeline.filter((_, i) => i !== f.index); this.setState({ timeline, tlForm: null }); }
+  setF(k, v) { this.setState(s => ({ form: { ...s.form, [k]: v } })); }
+  setSab(v) { this.setState(s => ({ form: { ...s.form, sab: v, organs: this.defaultOrgans(v) } })); }
+  setTF(k, v) { this.setState(s => ({ tlForm: { ...s.tlForm, [k]: v } })); }
+
+  renderVals() {
+    const cc = (id) => this.condColor(id);
+    const st = this.state;
+    const info = {}; st.people.forEach(p => { info[p.id] = this.relationInfo(p.id); });
+    const riskRoot = st.riskRoot || 'you';
+    const riskInfo = riskRoot === 'you' ? info : (() => { const m = {}; st.people.forEach(p => { m[p.id] = this.relationInfo(p.id, riskRoot); }); return m; })();
+
+    const go = {
+      overview: () => this.setState({ view:'overview' }),
+      tree:     () => this.setState({ view:'tree' }),
+      risk:     () => this.setState({ view:'risk' }),
+      timeline: () => this.setState({ view:'timeline' }),
+      export:   () => this.setState({ view:'export', selectedId:null }),
+    };
+    const navStyle = (id) => {
+      const active = st.view === id;
+      return { display:'flex', alignItems:'center', gap:'11px', padding:'9px 12px', borderRadius:'8px', fontSize:'13px', fontWeight: active ? 600 : 400, cursor:'pointer', transition:'background .12s', color: active ? '#e6eaf0' : '#8b94a3', background: active ? 'rgba(52,226,207,0.10)' : 'transparent', boxShadow: active ? 'inset 2px 0 0 #34e2cf' : 'none' };
+    };
+
+    const layout = this.computeLayout();
+    const pos = layout.pos;
+
+    // highlight mode: 'cond' spotlights one condition; 'cat' spotlights a whole category
+    const catMode = st.hlMode === 'cat';
+    const activeCat = catMode ? st.cat : null;
+    const activeCond = catMode ? null : st.cond;
+    const hlActive = catMode ? !!activeCat : !!activeCond;
+    const catCol = (k) => this.props.palette === 'colorblind' ? this.CAT[k].cb : this.CAT[k].c;
+    const hlColor = catMode ? (activeCat && catCol(activeCat)) : (activeCond && cc(activeCond));
+    const nodeAff = (p) => catMode ? this.cids(p).some(cid => this.cond(cid).cat === activeCat) : this.hasCid(p, activeCond);
+
+    const nodes = st.people.map(p => {
+      const affByFilter = hlActive && nodeAff(p);
+      const dimmed = hlActive && !affByFilter;
+      const g = this.gender(p);
+      const shape = g === 'woman' ? 'circle' : g === 'nb' ? 'diamond' : 'square';
+      const nb = shape === 'diamond';
+      let bg = '#161c25', border = '2px solid rgba(255,255,255,0.28)', glow = 'none', initColor = '#cdd4de';
+      if (affByFilter) { const fc = hlColor; bg = fc; border = '2px solid ' + fc; glow = '0 0 16px ' + fc + '66'; initColor = '#0b0e13'; }
+      if (p.you) border = affByFilter ? '2px solid ' + hlColor : '2px solid #34e2cf';
+      const box = {
+        position:'relative', width:'48px', height:'48px', borderRadius: shape === 'circle' ? '50%' : nb ? '7px' : '9px', transform: nb ? 'rotate(45deg)' : 'none',
+        background: bg, border: border,
+        boxShadow: p.you ? (glow === 'none' ? '0 0 0 3px rgba(52,226,207,0.18)' : glow + ',0 0 0 3px rgba(52,226,207,0.25)') : glow,
+        display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', transition:'filter .12s,box-shadow .2s',
+        opacity: dimmed ? 0.28 : (st.selectedId && st.selectedId !== p.id ? 0.72 : 1),
+        outline: st.selectedId === p.id ? '2px solid #6fa8ff' : 'none', outlineOffset:'3px',
+      };
+      const showDots = !hlActive && p.conds.length > 0;
+      const dots = this.cids(p).slice(0, 4).map(cid => ({ width:'5px', height:'5px', borderRadius:'1.5px', background: cc(cid) }));
+      const sabDiff = (g === 'man' && this.sab(p) !== 'm') || (g === 'woman' && this.sab(p) !== 'f') || g === 'nb';
+      const sabBadge = sabDiff ? this.sabLabel(this.sab(p)) : '';
+      return {
+        id: p.id, init: p.name.slice(0, 2),
+        initStyle: { fontFamily:"'IBM Plex Mono',monospace", fontSize:'13px', fontWeight:600, color:initColor, letterSpacing:'-0.3px', transform: nb ? 'rotate(-45deg)' : 'none' },
+        pos: { position:'absolute', left:(pos[p.id].x - 24) + 'px', top:pos[p.id].y + 'px', width:'48px' },
+        box, dead: !!p.dead, isYou: !!p.you, showDots, dots, hasSab: !!sabBadge, sabBadge,
+        label: p.name, years: p.dead ? (p.birth + '\u2013' + (p.death || '')) : ('b.' + p.birth),
+        onClick: () => this.setState({ selectedId: p.id, condPicker: false }),
+      };
+    });
+
+    const youGen = this.P('you').gen;
+    const genLabels = layout.gens.map(g => {
+      const diff = g - youGen;
+      const label = diff === 0 ? 'YOU' : (diff < 0 ? '\u25b2 ' + Math.abs(diff) : '\u25bc ' + diff);
+      return { label, style: { position:'absolute', left:'-58px', top:(40 + (g - layout.minG) * 170 + 14) + 'px', fontFamily:"'IBM Plex Mono',monospace", fontSize:'9px', letterSpacing:'1px', color:'#3f4653', background:'#0b0e13', padding:'2px 6px', borderRadius:'4px', border:'1px solid rgba(255,255,255,0.05)', whiteSpace:'nowrap' } };
+    });
+
+    // present-in-family conditions become quick highlight chips (sorted by prevalence in the tree)
+    const presentCount = {};
+    st.people.forEach(p => this.cids(p).forEach(id => { presentCount[id] = (presentCount[id] || 0) + 1; }));
+    const presentIds = Object.keys(presentCount).sort((a, b) => presentCount[b] - presentCount[a] || this.cond(a).name.localeCompare(this.cond(b).name));
+    const condChips = presentIds.map(id => {
+      const active = st.cond === id;
+      return { name: this.cond(id).name, color: cc(id), count: presentCount[id], onClick: () => this.setState({ hlMode:'cond', cat:null, cond: active ? null : id, hlOpen: false }),
+        style: { display:'flex', alignItems:'center', gap:'7px', padding:'5px 11px', borderRadius:'20px', fontSize:'11.5px', cursor:'pointer', transition:'all .12s', border: active ? '1px solid ' + cc(id) : '1px solid rgba(255,255,255,0.12)', background: active ? cc(id) + '22' : 'transparent', color: active ? '#e6eaf0' : '#a9b2bf' } };
+    });
+    // present-in-family categories (one chip per category, count = relatives with any condition in it)
+    const catCount = {};
+    st.people.forEach(p => { const seen = new Set(this.cids(p).map(cid => this.cond(cid).cat)); seen.forEach(k => { catCount[k] = (catCount[k] || 0) + 1; }); });
+    const catKeys = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a] || this.CAT[a].label.localeCompare(this.CAT[b].label));
+    const catChips = catKeys.map(k => {
+      const active = st.cat === k; const col = catCol(k);
+      return { name: this.CAT[k].label, color: col, count: catCount[k], onClick: () => this.setState({ hlMode:'cat', cond:null, cat: active ? null : k, hlOpen:false }),
+        style: { display:'flex', alignItems:'center', gap:'7px', padding:'5px 11px', borderRadius:'20px', fontSize:'11.5px', cursor:'pointer', transition:'all .12s', border: active ? '1px solid ' + col : '1px solid rgba(255,255,255,0.12)', background: active ? col + '22' : 'transparent', color: active ? '#e6eaf0' : '#a9b2bf' } };
+    });
+    const highlightChips = catMode ? catChips : condChips;
+    // breakdown string for a selected category, e.g. "Cancer \u2014 2\u00d7 Breast cancer, 1\u00d7 Colorectal cancer"
+    let catBreakdown = '';
+    if (catMode && st.cat) {
+      const per = {};
+      st.people.forEach(p => this.cids(p).forEach(cid => { if (this.cond(cid).cat === st.cat) per[cid] = (per[cid] || 0) + 1; }));
+      const parts = Object.keys(per).sort((a, b) => per[b] - per[a]).map(cid => per[cid] + '\u00d7 ' + this.cond(cid).name);
+      if (parts.length) catBreakdown = catCount[st.cat] + ' relatives \u00b7 ' + parts.join(', ');
+    }
+    const segStyle = (on) => ({ padding:'4px 10px', borderRadius:'5px', fontSize:'11px', cursor:'pointer', fontWeight: on ? 600 : 400, color: on ? '#0b0e13' : '#8b94a3', background: on ? '#34e2cf' : 'transparent', transition:'all .12s' });
+    const hlOpen = !!st.hlOpen;
+    const hlToggleStyle = { display:'flex', alignItems:'center', gap:'6px', padding:'5px 11px', borderRadius:'20px', fontSize:'11.5px', cursor:'pointer', transition:'all .12s', border:'1px dashed ' + (hlOpen ? 'rgba(52,226,207,0.6)' : 'rgba(255,255,255,0.18)'), background: hlOpen ? 'rgba(52,226,207,0.08)' : 'transparent', color:'#8b94a3', fontFamily:"'IBM Plex Mono',monospace", letterSpacing:'0.3px' };
+    const hlList = this.searchConditions(st.hlQuery, null, 40);
+    const hlResults = hlList.map(r => ({ ...r, onClick: () => this.setState({ hlMode:'cond', cat:null, cond: r.id, hlOpen: false, hlQuery: '' }) }));
+
+    // ---- selected drawer ----
+    const selP = st.selectedId ? this.P(st.selectedId) : null;
+    let sel = null;
+    if (selP) {
+      const g = this.gender(selP);
+      const shape = g === 'woman' ? 'circle' : g === 'nb' ? 'diamond' : 'square';
+      const nfo = info[selP.id];
+      const parentUnion = st.unions.find(u => u.c.includes(selP.id));
+      const canAddParent = !parentUnion || parentUnion.p.length < 2;
+      const selSab = this.sab(selP);
+      const selOrgans = this.organsOf(selP);
+      sel = {
+        name: selP.name, init: selP.name.slice(0, 2),
+        avatar: { width:'42px', height:'42px', flex:'none', borderRadius: shape === 'circle' ? '50%' : '10px', transform: shape === 'diamond' ? 'rotate(45deg)' : 'none', background: selP.conds.length ? 'linear-gradient(135deg,#2a3340,#1a2029)' : '#161c25', border:'2px solid ' + (selP.you ? '#34e2cf' : 'rgba(255,255,255,0.28)'), display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'IBM Plex Mono',monospace", fontSize:'14px', fontWeight:600, color:'#cdd4de' },
+        relLine: nfo.rel + (selP.pronouns ? ('  \u00b7  ' + selP.pronouns) : ''),
+        genderText: this.genderLabel(g), sabText: this.sabLabel(selSab),
+        status: selP.dead ? 'Deceased' : 'Living', statusColor: selP.dead ? '#8b94a3' : '#6fe0a0',
+        years: selP.dead ? (selP.birth + '\u2013' + selP.death) : ('b. ' + selP.birth),
+        degree: this.degLong(nfo.degree), side: nfo.side,
+        organs: this.ORGANS.map(o => ({ key:o, label: this.ORGAN_LABELS[o], present: selOrgans.includes(o), toggle: () => this.toggleOrgan(selP.id, o), style: { display:'flex', alignItems:'center', gap:'6px', padding:'4px 10px', borderRadius:'20px', fontSize:'11px', cursor:'pointer', border:'1px solid ' + (selOrgans.includes(o) ? 'rgba(52,226,207,0.5)' : 'rgba(255,255,255,0.12)'), background: selOrgans.includes(o) ? 'rgba(52,226,207,0.12)' : 'transparent', color: selOrgans.includes(o) ? '#e6eaf0' : '#5c6472' } })),
+        condCount: selP.conds.length, hasConds: selP.conds.length > 0, noConds: selP.conds.length === 0,
+        conds: this.cids(selP).map(cid => { const e = this.condEntry(selP, cid); return { name: this.cond(cid).name, color: cc(cid), pattern: this.cond(cid).pattern, onset: (e && e.onset != null) ? e.onset : '', prov: (e && e.prov) || 'self', onClick: () => this.setState({ view:'tree', hlMode:'cond', cat:null, cond: cid }), remove: () => this.toggleCond(selP.id, cid), setOnset: (ev) => this.setCondField(selP.id, cid, 'onset', ev.target.value), setProv: (ev) => this.setCondField(selP.id, cid, 'prov', ev.target.value) }; }),
+        canAddParent,
+        addParent: () => this.openAdd(selP.id, 'parent'),
+        addPartner: () => this.openAdd(selP.id, 'partner'),
+        addSibling: () => this.openAdd(selP.id, 'sibling'),
+        addChild: () => this.openAdd(selP.id, 'child'),
+        edit: () => this.openEdit(selP.id),
+        del: () => this.deletePerson(selP.id),
+        canDelete: !selP.you,
+      };
+    }
+
+    // drawer condition search (scoped to the selected person)
+    let drawerResults = [], drawerNoResults = false;
+    if (selP && st.condPicker) {
+      const dres = this.searchConditions(st.condQuery, new Set(this.cids(selP)), 30);
+      drawerResults = dres.map(r => ({ ...r, onClick: () => this.toggleCond(selP.id, r.id) }));
+      drawerNoResults = !!(st.condQuery && st.condQuery.trim()) && dres.length === 0;
+    }
+
+    const sevMeta = { referral:['#ff5d5d','rgba(255,93,93,0.14)','Referral criteria'], discuss:['#ffb043','rgba(255,176,67,0.14)','Discuss with clinician'], note:['#8b94a3','rgba(255,255,255,0.05)','Note'] };
+    const mapFlag = (f) => { const m = sevMeta[f.severity]; const dot = f.cat ? catCol(f.cat) : m[0]; return { title: f.title, criterion: f.criterion, rec: f.rec, color: dot, bg: m[1], badgeColor: m[0], badge: m[2], hasRel: (f.relatives || []).length > 0, relatives: (f.relatives || []).map(r => ({ label: r.rel + (r.onset ? (' \u00b7 age ' + r.onset) : ''), deg: this.degText(r.deg) })), open: () => this.setState({ view:'risk' }) }; };
+    const flagsRaw = this.detectPatterns(riskInfo, riskRoot);
+    const flagsYouRaw = riskRoot === 'you' ? flagsRaw : this.detectPatterns(info, 'you');
+    const flags = flagsRaw.map(mapFlag);
+    const flagsEmpty = flags.length === 0;
+    const topFlags = flagsYouRaw.filter(f => f.severity !== 'note').slice(0, 4).map(mapFlag);
+    const noFlags = topFlags.length === 0;
+    const referralCount = flagsYouRaw.filter(f => f.severity === 'referral').length;
+    const findings = this.familyFindings(riskInfo, riskRoot);
+    const riskRootName = this.P(riskRoot).name;
+    const riskPeople = st.people.map(p => ({ id: p.id, label: p.name + (p.id === 'you' ? ' (you)' : ' \u00b7 ' + info[p.id].rel) }));
+    const familyCodes = new Set(); st.people.forEach(p => { if (p.id !== riskRoot && info[p.id] && info[p.id].degree) this.cids(p).forEach(c => familyCodes.add(c)); });
+    const calcDefs = [
+      { name:'CanRisk / BOADICEA', domain:'Breast & ovarian', when:['brca','ovarian'], desc:'Validated breast/ovarian risk from pedigree, hormonal and genetic inputs.', note:'External hosted tool (canrisk.org) \u2014 not connected in this prototype.' },
+      { name:'PREMM5 / Amsterdam II', domain:'Colorectal (Lynch)', when:['colon','endometrial','gastric'], desc:'Estimates the likelihood of a Lynch-syndrome mismatch-repair mutation.', note:'External hosted tool \u2014 not connected in this prototype.' },
+      { name:'ASCVD / FH criteria', domain:'Cardiovascular', when:['cad','chol','stroke'], desc:'10-year cardiovascular risk and familial-hypercholesterolemia screening.', note:'External calculator \u2014 not connected in this prototype.' },
+    ];
+    const calculators = calcDefs.filter(c => c.when.some(code => familyCodes.has(code))).map(c => { const n = c.when.reduce((s, code) => s + st.people.filter(p => p.id !== riskRoot && info[p.id] && info[p.id].degree && this.hasCid(p, code)).length, 0); return { name:c.name, domain:c.domain, desc:c.desc, note:c.note, summary: n + ' affected relative' + (n === 1 ? '' : 's') + ' would seed this model' }; });
+
+    const distinctConds = new Set(st.people.flatMap(p => this.cids(p))).size;
+    const youP = this.P('you');
+    const youOrgans = this.organsOf(youP);
+    const famSignal = new Set(); st.people.forEach(p => { if (p.id !== 'you' && info[p.id] && info[p.id].degree) this.cids(p).forEach(c => famSignal.add(c)); });
+    const scMeta = { ref:['#6fa8ff','rgba(111,168,255,0.14)'], due:['#ffb043','rgba(255,176,67,0.14)'], ok:['#34e2cf','rgba(52,226,207,0.14)'] };
+    const screenings = this.screenDefs.filter(d => (d.organ === null || youOrgans.includes(d.organ)) && !(d.genetic && !d.flags.some(c => famSignal.has(c)))).map(d => {
+      const signal = d.flags.some(c => famSignal.has(c));
+      let status, k;
+      if (d.genetic) { status = 'Referred'; k = 'ref'; }
+      else if (signal) { status = 'Recommended'; k = 'due'; }
+      else { status = 'Routine'; k = 'ok'; }
+      return { name: d.name, why: d.why + (signal ? ' \u00b7 family history' : ''), freq: d.base, status, color: scMeta[k][0], bg: scMeta[k][1] };
+    });
+    const dueCount = screenings.filter(s => s.status === 'Recommended' || s.status === 'Referred').length;
+    const relCount = st.people.length - 1;
+    const genCount = layout.maxG - layout.minG + 1;
+    const stats = [
+      { value:String(relCount), label:'Relatives tracked', color:'#e6eaf0' },
+      { value:String(genCount), label:'Generations', color:'#e6eaf0' },
+      { value:String(distinctConds), label:'Conditions', color:'#6fa8ff' },
+      { value:String(referralCount), label:'Referral flags', color:'#ff5d5d' },
+      { value:String(dueCount), label:'Screenings due', color:'#ffb043' },
+    ];
+
+    // ---- timeline (a projection of ONE person's events) ----
+    const withIdx = st.timeline.map((e, i) => ({ ...e, idx: i }));
+    const mkEvent = (e) => { const m = this.typeMeta[e.type]; return { year:e.year, title:e.title, detail:e.detail, hasDetail:!!e.detail, typeLabel:m.label, color:m.color, chipBg:m.color + '22', onEdit:() => this.openEditEvent(e.idx), onDelete:() => { const timeline = st.timeline.filter((_, i) => i !== e.idx); this.setState({ timeline }); } }; };
+    const tlPersonId = st.tlPerson || 'you';
+    const tlPersonP = this.P(tlPersonId) || this.P('you');
+    const personEvents = withIdx.filter(e => (e.person || 'you') === tlPersonId).sort((a, b) => b.year - a.year || b.idx - a.idx);
+    const tlEvents = (st.tlType === 'all' ? personEvents : personEvents.filter(e => e.type === st.tlType)).map(mkEvent);
+    const tlEmpty = tlEvents.length === 0;
+    const youEvents = withIdx.filter(e => (e.person || 'you') === 'you').sort((a, b) => b.year - a.year || b.idx - a.idx);
+    const recent = youEvents.slice(0, 3).map(mkEvent);
+    const tlPeople = st.people.map(p => ({ id: p.id, label: p.name + (p.id === 'you' ? ' (you)' : ' \u00b7 ' + info[p.id].rel) }));
+    const tlHeading = tlPersonId === 'you' ? 'My Health Timeline' : (tlPersonP.name + '\u2019s Timeline');
+    const tlSubtitle = tlPersonId === 'you'
+      ? 'Personal record \u2014 diagnoses, medications, procedures, labs and screenings for Maya.'
+      : ('Health record for ' + tlPersonP.name + ' \u00b7 ' + info[tlPersonId].rel + '. Every relative keeps their own timeline.');
+    const typeKeys = ['all', ...Object.keys(this.typeMeta).filter(k => personEvents.some(e => e.type === k))];
+    const typeChips = typeKeys.map(k => {
+      const active = st.tlType === k; const m = this.typeMeta[k];
+      return { label: k === 'all' ? 'All events' : m.label, color: k === 'all' ? '#8b94a3' : m.color, showDot: k !== 'all', onClick: () => this.setState({ tlType: k }),
+        style: { display:'flex', alignItems:'center', gap:'7px', padding:'5px 12px', borderRadius:'20px', fontSize:'11.5px', cursor:'pointer', transition:'all .12s', border: active ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.12)', background: active ? 'rgba(255,255,255,0.08)' : 'transparent', color: active ? '#e6eaf0' : '#a9b2bf' } };
+    });
+
+    // ---- person form ----
+    const f = st.form;
+    let form = null, anchors = [], relations = [], formSelected = [], formResults = [], formNoResults = false;
+    if (f) {
+      const seg = (on) => ({ flex:1, textAlign:'center', padding:'8px', borderRadius:'7px', fontSize:'12.5px', cursor:'pointer', border:'1px solid ' + (on ? '#34e2cf' : 'rgba(255,255,255,0.14)'), background: on ? 'rgba(52,226,207,0.14)' : '#0b0e13', color: on ? '#e6eaf0' : '#8b94a3' });
+      form = {
+        title: f.mode === 'edit' ? ('Edit ' + f.name) : 'Add relative',
+        isAdd: f.mode === 'add', isEdit: f.mode === 'edit',
+        name: f.name, birth: f.birth, death: f.death, deceased: !f.living,
+        anchor: f.anchor, relation: f.relation, canDelete: f.mode === 'edit' && f.id !== 'you',
+        sabMStyle: seg(f.sab === 'm'), sabFStyle: seg(f.sab === 'f'), sabUStyle: seg(f.sab === 'u'),
+        genManStyle: seg(f.gender === 'man'), genWomanStyle: seg(f.gender === 'woman'), genNbStyle: seg(f.gender === 'nb'),
+        pronouns: f.pronouns,
+        livingStyle: seg(f.living), deceasedStyle: seg(!f.living),
+        organs: this.ORGANS.map(o => ({ key:o, label: this.ORGAN_LABELS[o], present: f.organs.includes(o), toggle: () => { const has = f.organs.includes(o); this.setF('organs', has ? f.organs.filter(x => x !== o) : [...f.organs, o]); }, style: { display:'flex', alignItems:'center', gap:'6px', padding:'5px 10px', borderRadius:'20px', fontSize:'11px', cursor:'pointer', border:'1px solid ' + (f.organs.includes(o) ? 'rgba(52,226,207,0.5)' : 'rgba(255,255,255,0.14)'), background: f.organs.includes(o) ? 'rgba(52,226,207,0.12)' : 'transparent', color: f.organs.includes(o) ? '#e6eaf0' : '#8b94a3' } })),
+        hasConds: f.conds.length > 0,
+      };
+      anchors = st.people.map(p => ({ id: p.id, label: p.name + (p.you ? ' (you)' : ' \u00b7 ' + info[p.id].rel) }));
+      relations = [ { v:'child', label:'Child of \u2193' }, { v:'partner', label:'Partner \u2194' }, { v:'sibling', label:'Sibling \u21d4' }, { v:'parent', label:'Parent \u2191' } ];
+      formSelected = f.conds.map(id => ({ name: this.cond(id).name, color: cc(id), bg: cc(id) + '22', remove: () => this.setF('conds', f.conds.filter(c => c !== id)) }));
+      const fres = this.searchConditions(f.query, new Set(f.conds), 40);
+      formResults = fres.map(r => ({ ...r, onClick: () => this.setF('conds', [...f.conds, r.id]) }));
+      formNoResults = !!(f.query && f.query.trim()) && fres.length === 0;
+    }
+
+    // ---- timeline form ----
+    const tf = st.tlForm;
+    let tlForm = null, typeOptions = [];
+    if (tf) {
+      tlForm = { title: tf.mode === 'edit' ? 'Edit event' : 'Add event', person: tf.person || 'you', year: tf.year, type: tf.type, evTitle: tf.title, detail: tf.detail, canDelete: tf.mode === 'edit' };
+      typeOptions = Object.keys(this.typeMeta).map(k => ({ v: k, label: this.typeMeta[k].label }));
+    }
+
+    // ---- exports & printable reports (item 4) ----
+    const fhirObj = this.buildFHIR(), fhirText = JSON.stringify(fhirObj, null, 2);
+    const phenoObj = this.buildPhenopacket(), phenoText = JSON.stringify(phenoObj, null, 2);
+    const rawObj = { schema:'lineage/v1', exported: this.nowISO(), people: st.people, unions: st.unions, timeline: st.timeline };
+    const rawText = JSON.stringify(rawObj, null, 2);
+    const fhirCount = fhirObj.entry.length, phenoRel = phenoObj.relatives.length;
+    const exportCards = [
+      { key:'fhir', name:'HL7 FHIR R4 Bundle', tag:'.json', desc:'A Patient + Condition + FamilyMemberHistory collection, SNOMED-coded where available. The format patient-access apps and EHRs read.', summary: fhirCount + ' resources', color:'#6fa8ff' },
+      { key:'pheno', name:'GA4GH Phenopacket v2', tag:'.json', desc:'Proband phenotypes + a computed pedigree with affected status \u2014 the standard for genetics and research pipelines.', summary: phenoRel + ' affected relatives + pedigree', color:'#b892ff' },
+      { key:'raw', name:'Lineage backup (native)', tag:'.json', desc:'The complete graph \u2014 people, unions and every timeline \u2014 for backup or moving between devices. Round-trips losslessly.', summary: st.people.length + ' people \u00b7 ' + st.timeline.length + ' events', color:'#34e2cf' },
+    ].map(c => ({ ...c, view: () => this.setState({ exportModal: c.key }), download: () => this.dl('lineage-' + c.key + '.json', c.key === 'fhir' ? fhirText : c.key === 'pheno' ? phenoText : rawText) }));
+    const exportKind = st.exportModal;
+    const exportText = exportKind === 'fhir' ? fhirText : exportKind === 'pheno' ? phenoText : exportKind === 'raw' ? rawText : '';
+    const exportTitle = exportKind === 'fhir' ? 'FHIR R4 Bundle' : exportKind === 'pheno' ? 'GA4GH Phenopacket v2' : 'Lineage native backup';
+    const exportFile = 'lineage-' + (exportKind || 'export') + '.json';
+
+    // printable report models (always proband vantage)
+    const reportFlags = flagsYouRaw.map(mapFlag);
+    const reportFindings = this.familyFindings(info, 'you').filter(r => r.hasAff || r.diagnosed).map(r => ({ name:r.name, band:r.band, bandColor:r.bandColor, pattern:r.pattern, rec:r.rec, affText: r.affected.map(a => a.rel).join(', '), affCount:r.affCount, onsetStr:r.onsetStr, hasOnset:r.hasOnset }));
+    const usedCondIds = new Set(); st.people.filter(p => p.gen >= youP.gen - 2 && p.gen <= youP.gen + 1).forEach(p => this.cids(p).forEach(c => usedCondIds.add(c)));
+    const pedigreeLegend = [...usedCondIds].sort((a, b) => this.cond(a).name.localeCompare(this.cond(b).name)).map(id => ({ name:this.cond(id).name, color: cc(id) }));
+    const grp = (t) => youEvents.filter(e => e.type === t).map(e => ({ year:e.year, title:e.title, detail:e.detail, hasDetail: !!e.detail }));
+    const hProblems = this.cids(youP).map(cid => { const e = this.condEntry(youP, cid); return { name:this.cond(cid).name, meta:(e && e.onset != null ? ('onset age ' + e.onset) : '') + (e && e.onset != null && e.prov ? ' \u00b7 ' : '') + (e && e.prov ? this.provLabel(e.prov) : '') }; });
+    const pedigreeSvgEl = React.createElement('div', { style:{ width:'100%' }, dangerouslySetInnerHTML:{ __html: this.buildPedigreeSVG() } });
+    const printData = {
+      kind: st.printDoc, isPedigree: st.printDoc === 'pedigree', isFlags: st.printDoc === 'flags', isHealth: st.printDoc === 'health',
+      patientName: youP.name, patientMeta: this.genderLabel(this.gender(youP)) + ' \u00b7 ' + this.sabLabel(this.sab(youP)) + ' \u00b7 b.' + youP.birth + ' \u00b7 age ' + (2026 - youP.birth),
+      date: this.today(), relCount, genCount,
+      pedigreeSvgEl, pedigreeLegend,
+      flags: reportFlags, noFlags: reportFlags.filter(f => f.badge !== 'Note').length === 0,
+      findings: reportFindings,
+      hProblems, hMeds: grp('medication'), hProcedures: grp('procedure'), hLabs: grp('lab'), hImmun: grp('immunization'), hScreen: grp('screening'), hGenetic: grp('genetic'),
+    };
+    const reportCards = [
+      { key:'pedigree', name:'Three-generation pedigree', tag:'PDF \u00b7 print', desc:'Standard NSGC-notation pedigree \u2014 grandparents through children \u2014 the diagram a genetics clinic expects.', action:() => this.doPrint('pedigree') },
+      { key:'flags', name:'Family-history red-flag summary', tag:'PDF \u00b7 print', desc:'Detected inheritance patterns, the criteria met, and the conditions clustering in your family. Hand this to your PCP.', action:() => this.doPrint('flags') },
+      { key:'health', name:'Personal health summary', tag:'PDF \u00b7 print', desc:'An IPS-style one-pager \u2014 problems, medications, procedures, labs and immunizations for ' + youP.name + '.', action:() => this.doPrint('health') },
+    ];
+
+    return {
+      go, navOverview: navStyle('overview'), navTree: navStyle('tree'), navRisk: navStyle('risk'), navTimeline: navStyle('timeline'), navExport: navStyle('export'),
+      isOverview: st.view === 'overview', isTree: st.view === 'tree', isRisk: st.view === 'risk', isTimeline: st.view === 'timeline', isExport: st.view === 'export',
+      exportCards, reportCards, printData,
+      exportModalOpen: !!exportKind, exportTitle, exportText, exportFile,
+      copyExport: () => { try { navigator.clipboard && navigator.clipboard.writeText(exportText); } catch (e) {} }, downloadExport: () => this.dl(exportFile, exportText), closeExport: () => this.setState({ exportModal: null }),
+      nodes, segs: this.segments(pos), genLabels, cw: layout.cw, ch: layout.ch,
+      highlightChips, isCondMode: !catMode, catBreakdown,
+      setModeCond: () => this.setState({ hlMode:'cond', cat:null, hlOpen:false }), setModeCat: () => this.setState({ hlMode:'cat', cond:null, hlOpen:false }),
+      modeCondStyle: segStyle(!catMode), modeCatStyle: segStyle(catMode),
+      addRelative: () => this.openAdd(st.selectedId || 'you', 'child'),
+      hasSel: !!sel, sel, closeSel: () => this.setState({ selectedId: null }),
+      condPickerOpen: st.condPicker, condPickerLabel: st.condPicker ? '\u2715 close' : '+ log condition', toggleCondPicker: () => this.setState({ condPicker: !st.condPicker, condQuery: '' }),
+      cond: catMode ? st.cat : st.cond, clearCond: () => this.setState({ cond: null, cat: null }),
+      drawerQuery: st.condQuery || '', drawerQueryInput: (e) => this.setState({ condQuery: e.target.value }),
+      drawerResults, drawerNoResults,
+      toggleHl: () => this.setState({ hlOpen: !st.hlOpen, hlQuery: '' }), hlToggleStyle, hlOpen, hlQuery: st.hlQuery || '', hlQueryInput: (e) => this.setState({ hlQuery: e.target.value }), hlResults, hlNoResults: !!(st.hlQuery && st.hlQuery.trim()) && hlResults.length === 0,
+      flags, flagsEmpty, topFlags, noFlags, findings, calculators, hasCalculators: calculators.length > 0,
+      stats, screenings, relCount, genCount,
+      tlEvents, recent, typeChips, addEvent: () => this.openAddEvent(),
+      tlEmpty, tlPeople, tlPerson: tlPersonId, tlPersonName: tlPersonP.name, tlHeading, tlSubtitle, tlSetPerson: (e) => this.setState({ tlPerson: e.target.value, tlType: 'all' }),
+      riskRoot, riskRootName, riskPeople, setRiskRoot: (e) => this.setState({ riskRoot: e.target.value }),
+      evPeople: tlPeople, tfPerson: (e) => this.setTF('person', e.target.value),
+      // person form
+      showForm: !!form, form, anchors, relations, formSelected, formResults, formNoResults,
+      formQuery: (st.form && st.form.query) || '', formQueryInput: (e) => this.setF('query', e.target.value),
+      fName: (e) => this.setF('name', e.target.value),
+      fBirth: (e) => this.setF('birth', e.target.value),
+      fDeath: (e) => this.setF('death', e.target.value),
+      setAnchor: (e) => this.setF('anchor', e.target.value),
+      setRelation: (e) => this.setF('relation', e.target.value),
+      setSabM: () => this.setSab('m'), setSabF: () => this.setSab('f'), setSabU: () => this.setSab('u'),
+      setGenMan: () => this.setF('gender', 'man'), setGenWoman: () => this.setF('gender', 'woman'), setGenNb: () => this.setF('gender', 'nb'),
+      fPronouns: (e) => this.setF('pronouns', e.target.value),
+      setLiving: () => this.setF('living', true), setDeceased: () => this.setF('living', false),
+      saveForm: () => this.saveForm(), cancelForm: () => this.setState({ form: null }), deleteForm: () => this.deletePerson(f.id),
+      // timeline form
+      showTlForm: !!tlForm, tlForm, typeOptions,
+      tfYear: (e) => this.setTF('year', e.target.value), tfType: (e) => this.setTF('type', e.target.value),
+      tfTitle: (e) => this.setTF('title', e.target.value), tfDetail: (e) => this.setTF('detail', e.target.value),
+      saveEvent: () => this.saveEvent(), cancelEvent: () => this.setState({ tlForm: null }), deleteEvent: () => this.deleteEvent(),
+      stop: (e) => { e.stopPropagation(); },
+    };
+  }
+}
+</script>
+</body>
+</html>
