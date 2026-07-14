@@ -1,7 +1,14 @@
 import { useStore } from '@/store/useStore';
 import { useCalculators, useFindings, useFlags, useRelations } from '../hooks';
 import { FlagCard } from '../components/FlagCard';
+import { ProvenanceMark } from '../components/ProvenanceMark';
 import { categoryColor } from '@/data/categories';
+import { PROV_META, PROVENANCE_ORDER, provenanceSummary } from '@/data/provenance';
+
+/** Visible one-line key explaining the provenance glyphs and that source carries weight. */
+const PROV_LEGEND = PROVENANCE_ORDER.map((p) => `${PROV_META[p].mark} ${PROV_META[p].label}`).join(
+  ' · ',
+);
 
 const BAND_COLOR: Record<string, string> = {
   Diagnosed: '#34e2cf',
@@ -50,6 +57,10 @@ export function PatternsView() {
         specific criterion met. Stemma reports patterns and referral criteria — it never
         manufactures a risk number. Validated calculators below are the right tool where a number is
         needed.
+      </p>
+      <p className="mono-dim" style={{ margin: '0 0 18px', color: 'var(--text-dim)' }}>
+        Provenance {PROV_LEGEND} — clinicians weight family history by its source (a
+        records-confirmed diagnosis carries more than a recollection).
       </p>
 
       <section style={{ marginBottom: 26 }}>
@@ -124,10 +135,21 @@ export function PatternsView() {
                 </span>
               </div>
               {f.affected.length > 0 && (
-                <div className="mono-dim" style={{ marginTop: 7 }}>
-                  {f.affected.map((a) => `${a.rel} (${a.deg})`).join(' · ')}
-                  {f.earliest != null ? ` · earliest onset ${f.earliest}` : ''}
-                </div>
+                <>
+                  <div className="mono-dim" style={{ marginTop: 7 }}>
+                    {f.affected.map((a, i) => (
+                      <span key={i}>
+                        {i > 0 ? ' · ' : ''}
+                        {a.rel} ({a.deg}
+                        {a.onset != null ? `, onset ${a.onset}` : ''}){' '}
+                        <ProvenanceMark prov={a.prov} />
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mono-dim" style={{ marginTop: 4, color: 'var(--text-dim)' }}>
+                    Sourcing: {provenanceSummary(f.affected.map((a) => a.prov))}
+                  </div>
+                </>
               )}
               <div
                 style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 7, lineHeight: 1.5 }}

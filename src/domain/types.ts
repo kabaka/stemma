@@ -61,8 +61,24 @@ export interface Condition {
   name: string;
   /** Clinical category. */
   cat: CategoryKey;
-  /** Rough lifetime prevalence, as a percentage (illustrative; see roadmap §3). */
+  /**
+   * Population prevalence as a percentage. Sourced to published epidemiology when
+   * {@link prevSource} is set (roadmap §3); otherwise an illustrative starting value.
+   */
   base: number;
+  /**
+   * Provenance for {@link base}: a short citation for the sourced figure (e.g.
+   * `'CDC WONDER 2021'`, `'SEER lifetime risk'`, `'IHME GBD 2021'`). Absent means the
+   * prevalence is still an illustrative placeholder, not bound to a source.
+   */
+  prevSource?: string;
+  /**
+   * Heritability — the proportion (0–1) of population variance attributable to genetics,
+   * from twin/registry studies. A population statistic, never a personal-risk number.
+   */
+  herit?: number;
+  /** Provenance for {@link herit}: a short citation for the heritability estimate. */
+  heritSource?: string;
   /** Inheritance pattern, freeform (e.g. `'Autosomal dominant'`). Read by the engine. */
   pattern: string;
   /** Lay-term search synonyms. */
@@ -71,6 +87,12 @@ export interface Condition {
   icd10?: string;
   /** Curated SNOMED CT concept id, baked in at authoring time. */
   snomed?: string;
+  /**
+   * Human Phenotype Ontology term id (e.g. `'HP:0100013'`), for the genetics audience.
+   * HPO is open and redistributable; it is the native vocabulary of the Phenopacket
+   * export. Stored with the `HP:` prefix included.
+   */
+  hpo?: string;
 }
 
 /** A condition recorded against a specific person. */

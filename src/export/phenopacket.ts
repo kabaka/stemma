@@ -11,7 +11,7 @@
  * given `opts` (`now`, `id`, `asOfYear`); the default id derives from `now`.
  */
 import type { Catalog } from '@/domain/catalog';
-import type { FamilyRecord, Person } from '@/domain/types';
+import type { Condition, FamilyRecord, Person } from '@/domain/types';
 import { condEntry, condIds, sabOf } from '@/domain/person';
 import { indexPeople, parentsOf, personById } from '@/domain/graph';
 
@@ -88,12 +88,37 @@ export interface PhenopacketOptions {
 }
 
 const FAMILY_ID = 'stemma-kindred';
-const SNOMED_RESOURCE: PhenopacketResource = {
-  id: 'snomed',
-  name: 'SNOMED CT',
-  url: 'http://snomed.info/sct',
-  namespacePrefix: 'SNOMED',
-  iriPrefix: 'http://snomed.info/id/',
+
+/**
+ * Ontology resources, keyed by CURIE prefix. SNOMED is always declared as the clinical
+ * baseline; HPO (the native Phenopacket phenotype vocabulary, open/redistributable) and
+ * the internal STEMMA namespace are declared only when a feature actually uses them, so
+ * every emitted CURIE prefix resolves to a declared Resource. The `url` fields are
+ * ontology-identity metadata written into the exported document — never fetched at runtime
+ * (Stemma's only runtime network call is the optional NLM vocabulary lookup).
+ */
+const RESOURCE_DEFS: Record<'HP' | 'SNOMED' | 'STEMMA', PhenopacketResource> = {
+  HP: {
+    id: 'hp',
+    name: 'Human Phenotype Ontology',
+    url: 'http://purl.obolibrary.org/obo/hp.owl',
+    namespacePrefix: 'HP',
+    iriPrefix: 'http://purl.obolibrary.org/obo/HP_',
+  },
+  SNOMED: {
+    id: 'snomed',
+    name: 'SNOMED CT',
+    url: 'http://snomed.info/sct',
+    namespacePrefix: 'SNOMED',
+    iriPrefix: 'http://snomed.info/id/',
+  },
+  STEMMA: {
+    id: 'stemma',
+    name: 'Stemma condition catalog',
+    url: 'https://kabaka.github.io/stemma',
+    namespacePrefix: 'STEMMA',
+    iriPrefix: 'https://kabaka.github.io/stemma/condition/',
+  },
 };
 
 function phenoSex(p: Person): PhenoSex {
@@ -116,13 +141,27 @@ export function buildPhenopacket(
   const proband = personById(idx, probandId);
   if (!proband) throw new Error(`proband ${probandId} not found in record`);
 
+  // Prefer HPO (the native Phenopacket phenotype vocabulary) when the catalog carries a
+  // term, then SNOMED CT, then the internal STEMMA namespace — recording which prefixes
+  // are used so metaData.resources declares exactly what the CURIEs reference.
+  const usedPrefixes = new Set<'HP' | 'SNOMED' | 'STEMMA'>();
+  const concept = (meta: Condition): OntologyClass => {
+    if (meta.hpo) {
+      usedPrefixes.add('HP');
+      return { id: meta.hpo, label: meta.name };
+    }
+    if (meta.snomed) {
+      usedPrefixes.add('SNOMED');
+      return { id: `SNOMED:${meta.snomed}`, label: meta.name };
+    }
+    usedPrefixes.add('STEMMA');
+    return { id: `STEMMA:${meta.id}`, label: meta.name };
+  };
+
   const features = (p: Person): PhenotypicFeature[] =>
     condIds(p).map((cid) => {
-      const meta = catalog.get(cid);
       const e = condEntry(p, cid);
-      const feature: PhenotypicFeature = {
-        type: { id: meta.snomed ? `SNOMED:${meta.snomed}` : `STEMMA:${cid}`, label: meta.name },
-      };
+      const feature: PhenotypicFeature = { type: concept(catalog.get(cid)) };
       if (e?.onset != null) feature.onset = { age: { iso8601duration: `P${e.onset}Y` } };
       return feature;
     });
@@ -160,16 +199,23 @@ export function buildPhenopacket(
     subject.timeAtLastEncounter = { age: { iso8601duration: `P${asOfYear - proband.birth}Y` } };
   }
 
+  // Assemble features (populating usedPrefixes) before declaring resources. SNOMED is the
+  // always-present clinical baseline; HP/STEMMA are added only when actually referenced.
+  const probandFeatures = features(proband);
+  const resources: PhenopacketResource[] = [RESOURCE_DEFS.SNOMED];
+  if (usedPrefixes.has('HP')) resources.push(RESOURCE_DEFS.HP);
+  if (usedPrefixes.has('STEMMA')) resources.push(RESOURCE_DEFS.STEMMA);
+
   return {
     id: opts.id ?? `stemma-family-${Date.parse(created)}`,
-    proband: { subject, phenotypicFeatures: features(proband) },
+    proband: { subject, phenotypicFeatures: probandFeatures },
     relatives,
     pedigree: { persons },
     metaData: {
       created,
       createdBy: 'Stemma',
       phenopacketSchemaVersion: '2.0',
-      resources: [SNOMED_RESOURCE],
+      resources,
     },
   };
 }

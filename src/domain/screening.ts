@@ -159,7 +159,7 @@ export const CALCULATOR_DEFS: readonly CalculatorDef[] = [
   {
     name: 'PREMM5 / Amsterdam II',
     domain: 'Colorectal (Lynch)',
-    when: ['colon', 'endometrial', 'gastric'],
+    when: ['colon', 'endometrial', 'gastric', 'ovarian', 'utuc'],
     desc: 'Estimates the likelihood of a Lynch-syndrome mismatch-repair mutation.',
     note: 'External hosted tool — not wired into the static build.',
   },

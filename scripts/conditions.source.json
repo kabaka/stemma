@@ -191,6 +191,21 @@
     "pattern": "Multifactorial"
   },
   {
+    "id": "utuc",
+    "name": "Upper urinary tract cancer (renal pelvis/ureter)",
+    "cat": "canc",
+    "base": 0.1,
+    "pattern": "Multifactorial / possible Lynch",
+    "syn": [
+      "urothelial carcinoma",
+      "transitional cell carcinoma",
+      "renal pelvis cancer",
+      "ureter cancer",
+      "tcc",
+      "utuc"
+    ]
+  },
+  {
     "id": "leukemia",
     "name": "Leukemia",
     "cat": "canc",

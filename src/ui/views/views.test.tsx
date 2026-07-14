@@ -50,6 +50,16 @@ describe('PatternsView', () => {
     expect(screen.getByText(/detected patterns/i)).toBeInTheDocument();
     expect(screen.getByText(/per-condition family findings/i)).toBeInTheDocument();
   });
+
+  it('surfaces provenance visibly: a legend and per-flag sourcing summaries (not SR-only)', () => {
+    render(<PatternsView />);
+    // The provenance key is visible to everyone, not gated behind hover/aria.
+    expect(screen.getByText(/clinicians weight family history by its source/i)).toBeInTheDocument();
+    // At least one flag carries a visible "Sourcing:" summary line.
+    const sourcing = screen.getAllByText(/^Sourcing:/i);
+    expect(sourcing.length).toBeGreaterThan(0);
+    expect(sourcing[0].className).not.toMatch(/visually-hidden/);
+  });
 });
 
 describe('TimelineView', () => {

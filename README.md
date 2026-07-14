@@ -100,7 +100,7 @@ src/
 │   ├── catalog.ts         # Condition lookup + ranked search over curated + long-tail
 │   └── *.test.ts          # Co-located unit tests (graph, patterns, screening, catalog)
 ├── data/              # Curated, pure data tables (typed against domain)
-│   ├── conditions.ts      # GENERATED — 115 curated conditions (do not hand-edit)
+│   ├── conditions.ts      # GENERATED — 116 curated conditions (do not hand-edit)
 │   ├── categories.ts      # Clinical categories + default/colorblind palettes
 │   ├── recommendations.ts # Curated per-condition advisory prompts
 │   ├── events.ts          # Timeline event-type metadata
@@ -130,11 +130,11 @@ scripts/gen-conditions.mjs   # Regenerates src/data/conditions.ts
 
 Stemma is **not limited to a fixed condition list.** The catalog has two layers:
 
-1. **Curated layer** — ~115 conditions in `src/data/conditions.ts`, *generated* by
+1. **Curated layer** — ~116 conditions in `src/data/conditions.ts`, *generated* by
    `scripts/gen-conditions.mjs`. These are the "conditions the engine understands": each carries
    the value-add metadata the pattern and screening logic reasons on — category, inheritance
-   pattern, rough prevalence, search synonyms — plus baked-in ICD-10-CM and SNOMED CT codes for
-   the high-signal subset (23 of them). Regenerate it with `npm run gen:conditions`; never edit
+   pattern, sourced prevalence + heritability, search synonyms — plus baked-in ICD-10-CM and
+   SNOMED CT codes (72 of them) and 32 HPO terms. Regenerate it with `npm run gen:conditions`; never edit
    it by hand.
 2. **Long-tail layer** — any of the ~74,000 ICD-10-CM codes, reached at runtime through the
    **vocabulary adapter** (`src/integrations/vocabulary.ts`). `VocabularyProvider` is a *port*;
