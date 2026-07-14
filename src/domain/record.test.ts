@@ -72,6 +72,17 @@ describe('linkRelative — parent', () => {
     const added = next.people.find((p) => p.id === 'newparent')!;
     expect(added.gen).toBe(anchor.gen - 1);
   });
+
+  it('refuses a third parent — a person has at most two — returning the same record reference', () => {
+    const record = seedRecord();
+    // Maya already has two recorded parents (Robert, Susan).
+    const union = record.unions.find((u) => u.children.includes('you'))!;
+    expect(union.parents).toEqual(['robert', 'susan']);
+
+    const next = linkRelative(record, 'you', 'parent', mkPerson('third'));
+    expect(next).toBe(record);
+    expect(next.people.some((p) => p.id === 'third')).toBe(false);
+  });
 });
 
 describe('linkRelative — child', () => {

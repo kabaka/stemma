@@ -1,11 +1,12 @@
-import { memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { useStore, type Relation } from '@/store/useStore';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, segments } from '@/domain/graph';
-import { condIds, defaultOrgans, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
+import { condIds, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
 import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import { GedcomImport } from '../components/GedcomImport';
+import { PersonForm, type PersonFormState } from '../components/PersonForm';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import type { Catalog } from '@/domain/catalog';
 import type { CategoryKey, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
@@ -117,8 +118,8 @@ export function PedigreeView() {
   const replaceRecord = useStore((s) => s.replaceRecord);
   const catalog = useCatalog();
 
-  const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [formState, setFormState] = useState<PersonFormState | null>(null);
   const [hlMode, setHlModeRaw] = useState<HlMode>('cond');
   // The active condition id (mode 'cond') or category key (mode 'cat'). The prototype
   // tracks these as two separate nullable fields, but they're never both set at
@@ -132,27 +133,36 @@ export function PedigreeView() {
 
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIsEmpty = useRef(isEmpty);
-  const prevAdding = useRef(adding);
   const prevImporting = useRef(importing);
   // loadSample()/resetRecord()/import swap the record without unmounting this view, so
   // whatever was focused — the header's own "Reset to empty"/"Load example family", or
   // the empty state's — can vanish out from under the user, dropping focus to <body>.
-  // Same when the add-relative or import form closes (Cancel/Submit unmount themselves).
-  // Move focus to the stable page heading on exactly those transitions: never on mount,
-  // and never when a form merely *opens* (its own toggle button stays put, so nothing is
-  // lost there) — matching the focus discipline PersonDrawer uses for the drawer.
+  // Same when the import panel closes (Cancel/Submit unmount it). Move focus to the stable
+  // page heading on exactly those transitions: never on mount, and never when the panel
+  // merely *opens* (its toggle button stays put). Add/edit doesn't need a case here —
+  // PersonForm is a modal that manages its own open/close focus (see PersonForm.tsx).
   useEffect(() => {
     const emptyChanged = prevIsEmpty.current !== isEmpty;
-    // "A panel was open and now none is" — evaluated across BOTH panels together. Switching
-    // from Add to Import (or back) closes one as the other opens, which must NOT count as a
-    // close: doing so would yank focus to the heading away from the toggle just pressed.
-    const wasOpen = prevAdding.current || prevImporting.current;
-    const isOpen = adding || importing;
-    if (emptyChanged || (wasOpen && !isOpen)) titleRef.current?.focus();
+    const importClosed = prevImporting.current && !importing;
+    if (emptyChanged || importClosed) titleRef.current?.focus();
     prevIsEmpty.current = isEmpty;
-    prevAdding.current = adding;
     prevImporting.current = importing;
-  }, [isEmpty, adding, importing]);
+  }, [isEmpty, importing]);
+
+  // Deleting a person unmounts their pedigree node AND its drawer/modal in the same commit,
+  // so the focus-return refs those layers captured now point at detached nodes — .focus()
+  // is a no-op and focus falls to <body>. The ordinary close paths (Escape/✕/backdrop)
+  // leave the node in place and hand focus back to it, so only deletion needs catching
+  // here: when the prior selection clears AND that person is gone, pull focus to the
+  // stable page heading (the same anchor the empty-state transition above uses).
+  const prevSelectedId = useRef(selectedId);
+  useEffect(() => {
+    const prev = prevSelectedId.current;
+    prevSelectedId.current = selectedId;
+    if (prev && !selectedId && !record.people.some((p) => p.id === prev)) {
+      titleRef.current?.focus();
+    }
+  }, [selectedId, record.people]);
 
   const { pos, cw, ch, gens, minGen, segs } = useMemo(() => {
     const layout = computeLayout(record.people);
@@ -202,28 +212,22 @@ export function PedigreeView() {
   };
 
   // loadSample()/resetRecord()/import swap the whole record without unmounting this view,
-  // so the local highlight/add-form state above must be cleared on every swap — otherwise
-  // a stale `activeId` outlives the record it was computed against (nothing in the new
-  // record matches it, so the whole tree dims with no chip showing as active) and a
-  // stale AddRelative `anchor` can mis-attach to the new proband. Every record-swap entry
-  // point — the header buttons, the empty state's own loader, and GEDCOM import — routes
-  // through this helper so none of them can forget.
+  // so the local highlight/form/import state above must be cleared on every swap —
+  // otherwise a stale `activeId` outlives the record it was computed against (nothing in
+  // the new record matches it, so the whole tree dims with no chip showing as active), a
+  // stale PersonForm `anchor`/`id` can mis-attach to or edit a person from the old record,
+  // and the import panel would linger. Every record-swap entry point — the header buttons,
+  // the empty state's own loader, and GEDCOM import — routes through this helper.
   const swapRecord = (action: () => void): void => {
     action();
     setActiveId(null);
-    setAdding(false);
+    setFormState(null);
     setImporting(false);
   };
 
-  // Opening one header panel closes the other so they never stack in the header.
-  const openAdding = (): void => {
-    setImporting(false);
-    setAdding((v) => !v);
-  };
-  const openImporting = (): void => {
-    setAdding(false);
-    setImporting((v) => !v);
-  };
+  // Toggle the import panel. Add/edit is a blocking modal (not a header panel), so there's
+  // no sibling panel to close here.
+  const openImporting = (): void => setImporting((v) => !v);
 
   const handleLoadSample = (): void => {
     if (window.confirm(CONFIRM_LOAD_SAMPLE)) swapRecord(loadSample);
@@ -295,10 +299,12 @@ export function PedigreeView() {
               <button
                 type="button"
                 className="btn btn--primary btn--sm"
-                aria-expanded={adding}
-                onClick={openAdding}
+                aria-haspopup="dialog"
+                onClick={() =>
+                  setFormState({ mode: 'add', anchor: record.probandId, relation: 'child' })
+                }
               >
-                {adding ? '✕ close' : '+ add relative'}
+                + add relative
               </button>
             </div>
           )}
@@ -310,8 +316,6 @@ export function PedigreeView() {
           attention — <b>not a diagnostic device</b>. Click any relative to view or edit their
           record.
         </p>
-
-        {adding && <AddRelative onDone={() => setAdding(false)} />}
 
         {importing && (
           <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
@@ -335,10 +339,8 @@ export function PedigreeView() {
       <div className="pedigree-body">
         {isEmpty ? (
           <EmptyState
-            onAdd={() => {
-              setImporting(false);
-              setAdding(true);
-            }}
+            onAdd={() => setFormState({ mode: 'add', anchor: record.probandId, relation: 'child' })}
+            onEditSelf={() => setFormState({ mode: 'edit', id: record.probandId })}
             onImport={openImporting}
             onLoadSample={handleEmptyLoadSample}
           />
@@ -414,19 +416,35 @@ export function PedigreeView() {
       )}
 
       {/* key remounts the drawer per person so its local edit/search state never bleeds across selections. */}
-      {selectedId && <PersonDrawer key={selectedId} personId={selectedId} />}
+      {selectedId && (
+        <PersonDrawer key={selectedId} personId={selectedId} onOpenForm={(s) => setFormState(s)} />
+      )}
+
+      {/* key remounts the modal per open request, so its local field state can never
+          carry over from one add/edit into the next (see PersonForm's own mount-time
+          initialization). */}
+      {formState && (
+        <PersonForm key={formKey(formState)} state={formState} onClose={() => setFormState(null)} />
+      )}
     </div>
   );
+}
+
+/** Stable per-open-request key for {@link PersonForm} — see the render call site. */
+function formKey(state: PersonFormState): string {
+  return state.mode === 'edit' ? `edit:${state.id}` : `add:${state.anchor}:${state.relation}`;
 }
 
 /** Shown when the record holds only the proband — never auto-loads the fictional
  * example family; the user opts in explicitly. */
 function EmptyState({
   onAdd,
+  onEditSelf,
   onImport,
   onLoadSample,
 }: {
   onAdd: () => void;
+  onEditSelf: () => void;
   onImport: () => void;
   onLoadSample: () => void;
 }) {
@@ -434,12 +452,16 @@ function EmptyState({
     <div className="pedigree-empty">
       <h2 style={{ fontSize: 17, fontWeight: 600 }}>Start your family history</h2>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 380, lineHeight: 1.5 }}>
-        Add relatives one at a time — or import a family tree you already have (GEDCOM, e.g. from
-        Ancestry). Stemma looks for hereditary patterns as the tree grows.
+        Add relatives one at a time — parents, siblings, children — fill in your own details first,
+        or import a family tree you already have (GEDCOM, e.g. from Ancestry). Stemma looks for
+        hereditary patterns as the tree grows.
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 6 }}>
-        <button type="button" className="btn btn--primary" onClick={onAdd}>
+        <button type="button" className="btn btn--primary" aria-haspopup="dialog" onClick={onAdd}>
           + Add relative
+        </button>
+        <button type="button" className="btn" aria-haspopup="dialog" onClick={onEditSelf}>
+          Edit your details
         </button>
         <button type="button" className="btn" onClick={onImport}>
           Import GEDCOM
@@ -660,160 +682,3 @@ const PedigreeNode = memo(function PedigreeNode({
     </div>
   );
 });
-
-const RELATIONS: { id: Relation; label: string }[] = [
-  { id: 'child', label: 'Child' },
-  { id: 'partner', label: 'Partner' },
-  { id: 'sibling', label: 'Sibling' },
-  { id: 'parent', label: 'Parent' },
-];
-
-/** Inline form to add a relative anchored to a chosen person. */
-function AddRelative({ onDone }: { onDone: () => void }) {
-  const record = useStore((s) => s.record);
-  const addRelative = useStore((s) => s.addRelative);
-  const selectPerson = useStore((s) => s.selectPerson);
-
-  const [anchor, setAnchor] = useState(record.probandId);
-  const [relation, setRelation] = useState<Relation>('child');
-  const [name, setName] = useState('');
-  const [sab, setSab] = useState<Sab>('f');
-  const [gender, setGender] = useState<Gender>('woman');
-  // Kept as a string so the field can be blanked while typing without snapping to 0.
-  const [birth, setBirth] = useState('2000');
-
-  const anchorId = useId();
-  const relationId = useId();
-  const nameId = useId();
-  const birthId = useId();
-  const sabId = useId();
-  const genderId = useId();
-
-  const submit = () => {
-    if (!name.trim()) return;
-    const birthYear = Number.parseInt(birth, 10);
-    const id = addRelative(anchor, relation, {
-      name,
-      sab,
-      gender,
-      dead: false,
-      birth: Number.isNaN(birthYear) ? null : birthYear,
-      death: null,
-      condIds: [],
-      organs: defaultOrgans(sab),
-    });
-    if (id) selectPerson(id);
-    onDone();
-  };
-
-  return (
-    <div className="card" style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
-      <div className="row wrap" style={{ gap: 12 }}>
-        <div>
-          <label className="lbl" htmlFor={anchorId}>
-            Relative of
-          </label>
-          <select
-            id={anchorId}
-            className="field"
-            style={{ width: 'auto' }}
-            value={anchor}
-            onChange={(e) => setAnchor(e.target.value)}
-          >
-            {record.people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="lbl" htmlFor={relationId}>
-            Relation
-          </label>
-          <select
-            id={relationId}
-            className="field"
-            style={{ width: 'auto' }}
-            value={relation}
-            onChange={(e) => setRelation(e.target.value as Relation)}
-          >
-            {RELATIONS.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="row wrap" style={{ gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 160 }}>
-          <label className="lbl" htmlFor={nameId}>
-            Name
-          </label>
-          <input
-            id={nameId}
-            className="field"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="lbl" htmlFor={birthId}>
-            Birth year
-          </label>
-          <input
-            id={birthId}
-            className="field"
-            style={{ width: 110 }}
-            type="number"
-            value={birth}
-            onChange={(e) => setBirth(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="row wrap" style={{ gap: 12 }}>
-        <div>
-          <label className="lbl" htmlFor={sabId}>
-            Sex assigned at birth
-          </label>
-          <select
-            id={sabId}
-            className="field"
-            style={{ width: 'auto' }}
-            value={sab}
-            onChange={(e) => setSab(e.target.value as Sab)}
-          >
-            <option value="f">AFAB</option>
-            <option value="m">AMAB</option>
-            <option value="u">Unknown</option>
-          </select>
-        </div>
-        <div>
-          <label className="lbl" htmlFor={genderId}>
-            Gender
-          </label>
-          <select
-            id={genderId}
-            className="field"
-            style={{ width: 'auto' }}
-            value={gender}
-            onChange={(e) => setGender(e.target.value as Gender)}
-          >
-            <option value="woman">Woman</option>
-            <option value="man">Man</option>
-            <option value="nb">Nonbinary</option>
-          </select>
-        </div>
-      </div>
-      <div className="row">
-        <button type="button" className="btn btn--primary btn--sm" onClick={submit}>
-          Add relative
-        </button>
-        <button type="button" className="btn btn--sm" onClick={onDone}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
 import { OverviewView } from './OverviewView';
@@ -443,6 +443,196 @@ describe('GedcomImport (accessibility)', () => {
     const btn = screen.getByRole('button', { name: /import family/i });
     expect(btn).toBeEnabled(); // still in the tab order
     expect(btn).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+describe('PedigreeView — person add/edit modal', () => {
+  it('the header "+ add relative" button opens PersonForm anchored to the proband', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /\+ add relative/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /add relative/i });
+    expect(within(dialog).getByRole('combobox', { name: /relative of/i })).toHaveValue('you');
+    expect(within(dialog).getByRole('combobox', { name: /connect as/i })).toHaveValue('child');
+  });
+
+  it('Escape closes the add-relative modal and returns focus to the button that opened it', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    const openButton = screen.getByRole('button', { name: /\+ add relative/i });
+    await user.click(openButton);
+    expect(screen.getByRole('dialog', { name: /add relative/i })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog', { name: /add relative/i })).not.toBeInTheDocument();
+    expect(openButton).toHaveFocus();
+  });
+
+  it('offers the drawer’s Parent quick-add until a person has two recorded parents', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+
+    // Walter (seed) has no recorded parents — quick-add offered.
+    await user.click(screen.getByRole('button', { name: /Walter/i }));
+    expect(
+      within(screen.getByRole('dialog', { name: /Walter/i })).getByRole('button', {
+        name: /add parent for walter/i,
+      }),
+    ).toBeInTheDocument();
+
+    // Give Walter one parent; a person can have two, so the quick-add must remain.
+    act(() => {
+      useStore.getState().addRelative('walter', 'parent', {
+        name: 'Walter Sr',
+        sab: 'm',
+        gender: 'man',
+        dead: false,
+        birth: 1890,
+        death: null,
+        condIds: [],
+      });
+    });
+    expect(
+      within(screen.getByRole('dialog', { name: /Walter/i })).getByRole('button', {
+        name: /add parent for walter/i,
+      }),
+    ).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('dialog', { name: /Walter/i })).getByRole('button', {
+        name: /^close$/i,
+      }),
+    );
+
+    // Maya (the proband) already has two recorded parents (Robert, Susan) — no quick-add.
+    await user.click(screen.getByRole('button', { name: /^Maya/i }));
+    const mayaDrawer = screen.getByRole('dialog', { name: /Maya/i });
+    expect(
+      within(mayaDrawer).queryByRole('button', { name: /add parent for maya/i }),
+    ).not.toBeInTheDocument();
+    // Partner/Sibling/Child are always offered, regardless of existing parents.
+    expect(
+      within(mayaDrawer).getByRole('button', { name: /add partner for maya/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('drawer "Add connected relative → Child" opens the form anchored correctly, and Save links the child', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /Robert/i }));
+    const drawer = screen.getByRole('dialog', { name: /Robert/i });
+    await user.click(within(drawer).getByRole('button', { name: /add child for robert/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /add relative/i });
+    expect(within(dialog).getByRole('combobox', { name: /relative of/i })).toHaveValue('robert');
+    expect(within(dialog).getByRole('combobox', { name: /connect as/i })).toHaveValue('child');
+
+    const before = useStore.getState().record.people.length;
+    await user.type(within(dialog).getByRole('textbox', { name: /^name/i }), 'Robert Junior');
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    const state = useStore.getState();
+    expect(state.record.people).toHaveLength(before + 1);
+    const child = state.record.people.find((p) => p.name === 'Robert Junior')!;
+    expect(
+      state.record.unions.some(
+        (u) => u.parents.includes('robert') && u.children.includes(child.id),
+      ),
+    ).toBe(true);
+    // The modal closed and the new person is now selected (its drawer replaces Robert's).
+    expect(screen.queryByRole('dialog', { name: /add relative/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Robert Junior/i })).toBeInTheDocument();
+  });
+
+  it('drawer "Edit details" opens an edit dialog prefilled for that person, and Save updates the record', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /Susan/i }));
+    const drawer = screen.getByRole('dialog', { name: /Susan/i });
+    await user.click(within(drawer).getByRole('button', { name: /edit details for susan/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /edit susan/i });
+    expect(within(dialog).getByRole('textbox', { name: /^name/i })).toHaveValue('Susan');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Deceased' }));
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    expect(useStore.getState().record.people.find((p) => p.id === 'susan')!.dead).toBe(true);
+  });
+
+  it('Escape over a drawer-launched edit dialog closes only the dialog, leaving the drawer open', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /Robert/i }));
+    // Both dialogs will contain "Robert", so match the drawer by its exact name.
+    expect(screen.getByRole('dialog', { name: 'Robert' })).toBeInTheDocument();
+
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Robert' })).getByRole('button', {
+        name: /edit details for robert/i,
+      }),
+    );
+    expect(screen.getByRole('dialog', { name: /edit robert/i })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    // The edit modal (topmost layer) closes; Robert's drawer beneath it must stay open —
+    // both listen for Escape on document, so the modal's presence has to arbitrate.
+    expect(screen.queryByRole('dialog', { name: /edit robert/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Robert' })).toBeInTheDocument();
+    expect(useStore.getState().selectedId).toBe('robert');
+  });
+
+  it('keeps focus on the page (not <body>) after deleting the selected person', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<PedigreeView />);
+
+    // Leo is a leaf relative, so deleting him doesn't empty the tree (the empty-state
+    // focus rescue never fires) — this exercises the delete-specific rescue in isolation.
+    await user.click(screen.getByRole('button', { name: /Leo/i }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Leo' })).getByRole('button', {
+        name: /edit details for leo/i,
+      }),
+    );
+    await user.click(
+      within(screen.getByRole('dialog', { name: /edit leo/i })).getByRole('button', {
+        name: /^delete$/i,
+      }),
+    );
+
+    expect(useStore.getState().record.people.some((p) => p.id === 'leo')).toBe(false);
+    // Focus must land on the stable page heading, not be dropped to <body>.
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByRole('heading', { name: /family pedigree/i })).toHaveFocus();
+  });
+
+  it('"Edit your details" from the empty state opens an edit dialog for the proband, and Save updates it', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /edit your details/i }));
+    const dialog = screen.getByRole('dialog', { name: /edit you/i });
+
+    const nameField = within(dialog).getByRole('textbox', { name: /^name/i });
+    await user.clear(nameField);
+    await user.type(nameField, 'Jordan');
+    await user.click(within(dialog).getByRole('button', { name: 'AFAB' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Woman' }));
+    await user.type(within(dialog).getByRole('spinbutton', { name: /birth year/i }), '1995');
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    const proband = useStore.getState().record.people.find((p) => p.isProband)!;
+    expect(proband.name).toBe('Jordan');
+    expect(proband.sab).toBe('f');
+    expect(proband.gender).toBe('woman');
+    expect(proband.birth).toBe(1995);
+    // Still the empty state — editing yourself isn't the same as adding a relative.
+    expect(screen.getByText(/start your family history/i)).toBeInTheDocument();
   });
 });
 

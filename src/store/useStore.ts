@@ -178,7 +178,10 @@ export const useStore = create<Store>()(
         };
         const record = get().record;
         const next = linkRelative(record, anchorId, relation, person);
-        if (next === record) return ''; // anchor not found
+        // linkRelative returns the same reference on any no-op — anchor not found, or the
+        // two-parent cap refusing a third parent. Report it as '' so callers don't select
+        // a person that was never added.
+        if (next === record) return '';
         set({ record: next });
         return id;
       },

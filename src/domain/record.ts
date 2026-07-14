@@ -14,6 +14,11 @@ const X_STEP = 120;
 /** How a new person attaches to an anchor. */
 export type Relation = 'partner' | 'child' | 'sibling' | 'parent';
 
+/** A person has at most two genetic parents — the single source of truth for the cap the
+ * domain enforces here and the UI mirrors for a fast, explained failure (PersonForm's
+ * save-guard, PersonDrawer's quick-add filter). */
+export const MAX_PARENTS = 2;
+
 /**
  * Link a fully-formed `person` (id already assigned) into the record by its `relation`
  * to `anchorId`, deriving generation and layout position. Returns a new record; if the
@@ -58,6 +63,11 @@ export function linkRelative(
       u = { parents: [], children: [anchor.id] };
       next.unions.push(u);
     }
+    // Refuse a third parent rather than silently producing a union the pedigree layout
+    // can't draw (segments() only bars a 2-parent union). Return the input unchanged so
+    // callers can detect the no-op, mirroring the anchor-not-found guard above. The UI
+    // also gates this (same MAX_PARENTS) for a fast, explained failure.
+    if (u.parents.length >= MAX_PARENTS) return record;
     u.parents.push(np.id);
     np.gen = anchor.gen - 1;
   }

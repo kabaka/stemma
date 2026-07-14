@@ -1,30 +1,54 @@
-import { useEffect, useId, useRef } from 'react';
-import { useStore, CURRENT_YEAR } from '@/store/useStore';
-import {
-  ORGAN_LABELS,
-  ORGANS,
-  genderLabel,
-  genderSymbol,
-  organsOf,
-  sabLabel,
-  sabOf,
-} from '@/domain/person';
+import { useEffect, useId, useMemo, useRef } from 'react';
+import { useStore, CURRENT_YEAR, type Relation } from '@/store/useStore';
+import { ORGAN_LABELS, ORGANS, genderLabel, organsOf, sabLabel, sabOf } from '@/domain/person';
+import { degreeLong, indexPeople, parentsOf } from '@/domain/graph';
+import { MAX_PARENTS } from '@/domain/record';
+import { useRelations } from '../hooks';
 import { ConditionPicker } from './ConditionPicker';
+import type { PersonFormState } from './PersonForm';
 
 /** The element focused just before the drawer opened (the pedigree node that triggered
  * it, for mouse or keyboard activation) — module-level so focus can return there on
  * close without threading a ref through the store. */
 let lastTriggerEl: HTMLElement | SVGElement | null = null;
 
-/** Editing drawer for the selected person. */
-export function PersonDrawer({ personId }: { personId: string }) {
+const RELATIVE_GRID: { relation: Relation; icon: string; label: string }[] = [
+  { relation: 'parent', icon: '↑', label: 'Parent' },
+  { relation: 'partner', icon: '↔', label: 'Partner' },
+  { relation: 'sibling', icon: '⇔', label: 'Sibling' },
+  { relation: 'child', icon: '↓', label: 'Child' },
+];
+
+function IdentityTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="identity-tile">
+      <div className="identity-tile__label">{label}</div>
+      <div className="identity-tile__value">{value}</div>
+    </div>
+  );
+}
+
+/** Editing drawer for the selected person: identity summary, organ inventory,
+ * conditions, quick-add for a connected relative, and edit/delete. */
+export function PersonDrawer({
+  personId,
+  onOpenForm,
+}: {
+  personId: string;
+  onOpenForm: (state: PersonFormState) => void;
+}) {
   const person = useStore((s) => s.record.people.find((p) => p.id === personId));
+  const people = useStore((s) => s.record.people);
+  const unions = useStore((s) => s.record.unions);
   const probandId = useStore((s) => s.record.probandId);
   const selectPerson = useStore((s) => s.selectPerson);
   const toggleOrgan = useStore((s) => s.toggleOrgan);
   const deletePerson = useStore((s) => s.deletePerson);
+  const relations = useRelations(probandId);
   const headingId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const idx = useMemo(() => indexPeople(people, unions), [people, unions]);
 
   // Move focus into the dialog on open, and hand it back to whatever triggered it
   // (typically a pedigree node) on close, so keyboard/screen-reader focus is never
@@ -41,7 +65,11 @@ export function PersonDrawer({ personId }: { personId: string }) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') selectPerson(null);
+      // Let the topmost layer win: when the add/edit modal is open on top of this drawer
+      // (opened from "Edit details" or a quick-add), its own Escape handler closes it —
+      // the drawer must not also deselect on the same keypress. Both listen on `document`,
+      // so backdrop/z-index can't arbitrate keyboard events; presence of the modal does.
+      if (e.key === 'Escape' && !document.querySelector('.modal-backdrop')) selectPerson(null);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -50,6 +78,7 @@ export function PersonDrawer({ personId }: { personId: string }) {
   if (!person) return null;
   const organs = organsOf(person);
   const isProband = person.id === probandId;
+  const info = relations.get(person.id);
   const age = person.dead
     ? person.birth != null && person.death != null
       ? person.death - person.birth
@@ -57,16 +86,17 @@ export function PersonDrawer({ personId }: { personId: string }) {
     : person.birth != null
       ? CURRENT_YEAR - person.birth
       : null;
+  const years = person.dead
+    ? `${person.birth ?? '?'}–${person.death ?? '?'}`
+    : person.birth != null
+      ? `b.${person.birth}`
+      : 'b. unknown';
+  // A person can have up to two genetic parents; offer the quick-add until they do
+  // (same MAX_PARENTS cap the domain enforces and PersonForm's save-guard mirrors).
+  const canAddParent = parentsOf(idx, person.id).length < MAX_PARENTS;
 
   return (
-    <div
-      className="drawer"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={headingId}
-      tabIndex={-1}
-      ref={panelRef}
-    >
+    <div className="drawer" role="dialog" aria-labelledby={headingId} tabIndex={-1} ref={panelRef}>
       <div className="drawer__body">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div>
@@ -77,14 +107,8 @@ export function PersonDrawer({ personId }: { personId: string }) {
               )}
             </h2>
             <div className="mono-dim" style={{ marginTop: 3 }}>
-              {genderSymbol(person.gender)} {genderLabel(person.gender)} · {sabLabel(sabOf(person))}
+              {info?.rel ?? (isProband ? 'You' : 'Relative')}
               {person.pronouns ? ` · ${person.pronouns}` : ''}
-            </div>
-            <div className="mono-dim">
-              {person.dead
-                ? `${person.birth ?? '?'}–${person.death ?? '?'}`
-                : `b.${person.birth ?? '?'}`}
-              {age != null ? ` · ${age} yrs` : ''}
             </div>
           </div>
           <button
@@ -95,6 +119,15 @@ export function PersonDrawer({ personId }: { personId: string }) {
           >
             ✕
           </button>
+        </div>
+
+        <div className="identity-grid" role="group" aria-label={`${person.name}'s details`}>
+          <IdentityTile label="Status" value={person.dead ? 'Deceased' : 'Living'} />
+          <IdentityTile label="Lifespan" value={age != null ? `${years} · ${age} yrs` : years} />
+          <IdentityTile label="Kinship" value={degreeLong(info?.degree ?? null)} />
+          <IdentityTile label="Lineage" value={info?.side ?? '—'} />
+          <IdentityTile label="Gender" value={genderLabel(person.gender)} />
+          <IdentityTile label="Sex at birth" value={sabLabel(sabOf(person))} />
         </div>
 
         <div>
@@ -118,15 +151,58 @@ export function PersonDrawer({ personId }: { personId: string }) {
 
         <ConditionPicker personId={person.id} />
 
-        {!isProband && (
+        <div>
+          <h3 className="overline" style={{ marginBottom: 9 }}>
+            Add connected relative
+          </h3>
+          <div className="relative-grid">
+            {RELATIVE_GRID.filter((r) => r.relation !== 'parent' || canAddParent).map((r) => (
+              <button
+                key={r.relation}
+                type="button"
+                className="btn btn--sm"
+                aria-haspopup="dialog"
+                aria-label={`Add ${r.label.toLowerCase()} for ${person.name}`}
+                onClick={() => onOpenForm({ mode: 'add', anchor: person.id, relation: r.relation })}
+              >
+                <span aria-hidden="true">{r.icon}</span> {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          className="row"
+          style={{ gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)' }}
+        >
           <button
             type="button"
-            className="btn btn--sm btn--danger"
-            onClick={() => deletePerson(person.id)}
+            className="btn"
+            style={{ flex: 1 }}
+            // Contains the visible "Edit details" text (WCAG 2.5.3 Label in Name), so voice
+            // control can match it, while still naming the person for screen readers.
+            aria-label={`Edit details for ${person.name}`}
+            aria-haspopup="dialog"
+            onClick={() => onOpenForm({ mode: 'edit', id: person.id })}
           >
-            Remove {person.name} from the record
+            Edit details
           </button>
-        )}
+          {!isProband && (
+            <button
+              type="button"
+              className="btn btn--danger"
+              aria-label={`Delete ${person.name}`}
+              onClick={() => {
+                // No undo — confirm like the app's other destructive actions.
+                if (window.confirm(`Remove ${person.name} from the family record?`)) {
+                  deletePerson(person.id);
+                }
+              }}
+            >
+              Delete
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
