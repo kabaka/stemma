@@ -1,42 +1,231 @@
-import { useId, useMemo, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore, type Relation } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, segments } from '@/domain/graph';
-import { condIds, defaultOrgans, genderOf, sabOf } from '@/domain/person';
+import { condIds, defaultOrgans, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
 import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
+import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import type { Catalog } from '@/domain/catalog';
-import type { CategoryKey, Gender, Person, Sab } from '@/domain/types';
+import type { CategoryKey, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
 import type { Palette } from '@/data/categories';
 
-const S = 15;
+/** Node glyph size, in px — natural (unscaled) size, matching the prototype's readable
+ * scale. The canvas scrolls; it never shrinks nodes to fit the panel. Fed to the CSS box
+ * size via the `--node-size` custom property set on `.pedigree-canvas` below, so the
+ * position math here and the box size in components.css read from one number and can
+ * never drift apart. */
+const NODE = 44;
 
-/** The family pedigree — an interactive SVG over the relationship graph, plus an
- * editing drawer for the selected person. Glyphs follow 2022 NSGC notation: gender
- * drives shape, sex-assigned-at-birth is annotated when it differs. */
+/** `CSSProperties` doesn't type custom properties — this narrows the cast to exactly
+ * the one variable the canvas sets. */
+interface CanvasStyle extends CSSProperties {
+  '--node-size': string;
+}
+
+const CONFIRM_LOAD_SAMPLE = 'Load the example family? This replaces your current record.';
+
+/** True only for the record's untouched default shape — a single proband still named
+ * "You", with no birth year and no conditions recorded. The one case where swapping it
+ * out for the example family is genuinely lossless, so the empty state's own load
+ * button can skip the confirmation the header button always shows. `people.length ===
+ * 1` alone isn't a safe stand-in for "nothing to lose": a user can add a relative, edit
+ * their own proband record, then delete the relative and land right back at one
+ * (edited) person. */
+function isPristineRecord(record: FamilyRecord): boolean {
+  if (record.people.length !== 1) return false;
+  const [p] = record.people;
+  return p.name === 'You' && p.birth == null && p.conds.length === 0;
+}
+
+/** Whether a person's sex assigned at birth differs from what their gender would imply
+ * by default — the 2022 NSGC annotation trigger for both the node's visual "AFAB"/
+ * "AMAB" tag and its accessible name (`nodeLabel`), computed once so the two can never
+ * drift apart. Deliberately excludes 'u' (not recorded): that's the untouched default
+ * proband's "nothing entered yet", not a meaningful difference to flag — so this view
+ * suppresses the tag where the SVG export's equivalent `sabDiff` check (no 'u' gate,
+ * see `src/export/pedigree-svg.ts`) would still show one for an explicitly-recorded
+ * "Unknown" sab. That's an intentional, narrow divergence between the two surfaces. */
+function sabAnnotationDiffers(person: Person): boolean {
+  const g = genderOf(person);
+  const sab = sabOf(person);
+  return (
+    sab !== 'u' && ((g === 'man' && sab !== 'm') || (g === 'woman' && sab !== 'f') || g === 'nb')
+  );
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** WCAG relative luminance of a `#rrggbb` colour. */
+function relativeLuminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex).map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two `#rrggbb` colours. */
+function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  const [lighter, darker] = la > lb ? [la, lb] : [lb, la];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Deliberately the true luminance extremes, not the theme's softer `#08121a`/`--text`
+// ink tones used elsewhere: this is the one spot that must clear 4.5:1 against an
+// arbitrary, unpredictable fill colour (any category × either palette), and the softer
+// tones don't reliably get there. Worst case across all 14 categories × both palettes —
+// the colorblind palette's "blood" fill (#C0407A) — is ~3.83:1 against `#08121a` alone
+// and only ~4.09:1 against the better of `#08121a`/`--text`, both still short of 4.5:1;
+// picking the better of the two true extremes clears it at ~4.94:1.
+const INITIALS_DARK = '#000000';
+const INITIALS_LIGHT = '#ffffff';
+
+/** Initials colour for a filled (affected) node: whichever of black or white has
+ * higher contrast against THIS fill, so every category clears 4.5:1 (WCAG 1.4.3) — a
+ * single hardcoded tone didn't. */
+function initialsColor(fill: string): string {
+  if (!fill.startsWith('#')) return 'var(--text)';
+  return contrastRatio(fill, INITIALS_DARK) >= contrastRatio(fill, INITIALS_LIGHT)
+    ? INITIALS_DARK
+    : INITIALS_LIGHT;
+}
+
+/** Opacity applied to a non-matching node's coloured glyph (fill + initials) under an
+ * active highlight filter — never to its border or the name/years text outside the
+ * button, which stay at full contrast regardless (WCAG 1.4.3). */
+const DIM_OPACITY = 0.28;
+
+/** The family pedigree: a natural-size, scrollable canvas (never scaled to fit) with a
+ * Highlight control to spotlight a condition or category, plus an editing drawer for
+ * the selected person. Glyphs follow 2022 NSGC notation: gender drives shape,
+ * sex-assigned-at-birth is annotated when it differs. */
 export function PedigreeView() {
   const record = useStore((s) => s.record);
   const palette = useStore((s) => s.palette);
   const selectedId = useStore((s) => s.selectedId);
   const selectPerson = useStore((s) => s.selectPerson);
+  const loadSample = useStore((s) => s.loadSample);
+  const resetRecord = useStore((s) => s.resetRecord);
   const catalog = useCatalog();
-  const [adding, setAdding] = useState(false);
 
-  const { pos, cw, ch, segs } = useMemo(() => {
+  const [adding, setAdding] = useState(false);
+  const [hlMode, setHlModeRaw] = useState<HlMode>('cond');
+  // The active condition id (mode 'cond') or category key (mode 'cat'). The prototype
+  // tracks these as two separate nullable fields, but they're never both set at
+  // once — a single slot, reinterpreted by `hlMode`, makes that invariant structural
+  // instead of something every setter has to remember to uphold.
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // A fresh install (and resetRecord()) now yields a record holding only the proband —
+  // no fictional relatives. Show a friendly prompt instead of an empty tree.
+  const isEmpty = record.people.length === 1;
+
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const prevIsEmpty = useRef(isEmpty);
+  const prevAdding = useRef(adding);
+  // loadSample()/resetRecord() swap the record without unmounting this view, so
+  // whatever was focused — the header's own "Reset to empty"/"Load example family", or
+  // the empty state's — can vanish out from under the user, dropping focus to <body>.
+  // Same when the add-relative form closes (Cancel/Submit unmount themselves). Move
+  // focus to the stable page heading on exactly those transitions: never on mount, and
+  // never when the add form merely *opens* (its own toggle button stays put, so nothing
+  // is lost there) — matching the focus discipline PersonDrawer uses for the drawer.
+  useEffect(() => {
+    const emptyChanged = prevIsEmpty.current !== isEmpty;
+    const addFormClosed = prevAdding.current && !adding;
+    if (emptyChanged || addFormClosed) titleRef.current?.focus();
+    prevIsEmpty.current = isEmpty;
+    prevAdding.current = adding;
+  }, [isEmpty, adding]);
+
+  const { pos, cw, ch, gens, minGen, segs } = useMemo(() => {
     const layout = computeLayout(record.people);
     return { ...layout, segs: segments(record.unions, layout.pos) };
   }, [record.people, record.unions]);
+
+  // Tab order follows DOM order, not the absolute positioning below — sort by the
+  // computed layout position (generation, then horizontal position) so keyboard users
+  // move through the tree the way sighted users scan it, regardless of the order
+  // relatives happen to sit in the underlying record (a newly-added relative is
+  // appended to the array, not inserted by generation).
+  const orderedPeople = useMemo(
+    () => [...record.people].sort((a, b) => a.gen - b.gen || pos[a.id].x - pos[b.id].x),
+    [record.people, pos],
+  );
 
   const presentCategories = useMemo(
     () => legendCategories(record.people, catalog),
     [record.people, catalog],
   );
 
+  const setHlMode = (m: HlMode): void => {
+    setHlModeRaw(m);
+    setActiveId(null);
+  };
+  const toggleChip = (id: string): void => {
+    setActiveId((cur) => (cur === id ? null : id));
+  };
+  const highlightCondition = (id: string): void => {
+    setHlModeRaw('cond');
+    setActiveId(id);
+  };
+  const clearHighlight = (): void => setActiveId(null);
+
+  const hlActive = activeId != null;
+  let hlColor: string | null = null;
+  if (activeId != null) {
+    hlColor =
+      hlMode === 'cat'
+        ? categoryColor(activeId as CategoryKey, palette)
+        : categoryColor(catalog.get(activeId).cat, palette);
+  }
+  const nodeMatches = (p: Person): boolean => {
+    if (activeId == null) return false;
+    if (hlMode === 'cat') return condIds(p).some((id) => catalog.get(id).cat === activeId);
+    return hasCond(p, activeId);
+  };
+
+  // loadSample()/resetRecord() swap the whole record without unmounting this view, so
+  // the local highlight/add-form state above must be cleared on every swap — otherwise
+  // a stale `activeId` outlives the record it was computed against (nothing in the new
+  // record matches it, so the whole tree dims with no chip showing as active) and a
+  // stale AddRelative `anchor` can mis-attach to the new proband. Every record-swap
+  // entry point — both header buttons and the empty state's own loader — routes through
+  // this helper so none of them can forget.
+  const swapRecord = (action: () => void): void => {
+    action();
+    setActiveId(null);
+    setAdding(false);
+  };
+
+  const handleLoadSample = (): void => {
+    if (window.confirm(CONFIRM_LOAD_SAMPLE)) swapRecord(loadSample);
+  };
+  const handleResetToEmpty = (): void => {
+    if (window.confirm('Reset to empty? This removes everyone but you.')) {
+      swapRecord(resetRecord);
+    }
+  };
+  // `isEmpty` (people.length === 1) means "just the proband", not "nothing to lose" —
+  // see isPristineRecord. Only skip the confirmation when the record is still the
+  // untouched default; otherwise prompt exactly like the header button does.
+  const handleEmptyLoadSample = (): void => {
+    if (isPristineRecord(record) || window.confirm(CONFIRM_LOAD_SAMPLE)) swapRecord(loadSample);
+  };
+
+  const canvasStyle: CanvasStyle = { width: cw, height: ch, '--node-size': `${NODE}px` };
+
   return (
     // Plain positioning wrapper — App already renders <main className="main"> around every
     // view, so this must not carry the .main class too (that would stack two identical flex
-    // containers). It still needs the .main layout properties inlined so .scroll's flex:1
-    // scroll region and the drawer's height:100% overlay behave exactly as before.
+    // containers). It still needs the .main layout properties inlined so the pinned header +
+    // scrollable canvas below and the drawer's height:100% overlay behave exactly as before.
     <div
       style={{
         position: 'relative',
@@ -47,62 +236,135 @@ export function PedigreeView() {
         overflow: 'hidden',
       }}
     >
-      <div className="scroll">
+      <div className="pedigree-header">
         <div className="page-head">
-          <h1 className="page-title">Family Pedigree</h1>
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
-            aria-expanded={adding}
-            onClick={() => setAdding((v) => !v)}
-          >
-            {adding ? '✕ close' : '+ add relative'}
-          </button>
+          <h1 className="page-title" tabIndex={-1} ref={titleRef}>
+            Family Pedigree
+          </h1>
+          {/* The empty state below has its own, more prominent "+ Add relative" /
+              "Load example family" affordances, so this cluster only adds value once
+              there's a tree to manage — showing both here and there would be redundant. */}
+          {!isEmpty && (
+            <div className="row wrap" style={{ gap: 8 }}>
+              <button type="button" className="btn btn--sm" onClick={handleLoadSample}>
+                Load example family
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--danger"
+                onClick={handleResetToEmpty}
+              >
+                Reset to empty
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                aria-expanded={adding}
+                onClick={() => setAdding((v) => !v)}
+              >
+                {adding ? '✕ close' : '+ add relative'}
+              </button>
+            </div>
+          )}
         </div>
         <p className="lede">
-          Click any person to view and edit their record. Shape follows gender identity (circle =
-          woman, square = man, diamond = nonbinary); sex assigned at birth is annotated where it
-          differs.
+          2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary; sex
+          assigned at birth is noted when it differs. Filled = affected, coloured by condition
+          category; diagonal = deceased. Stemma surfaces patterns worth a clinician&rsquo;s
+          attention — <b>not a diagnostic device</b>. Click any relative to view or edit their
+          record.
         </p>
 
         {adding && <AddRelative onDone={() => setAdding(false)} />}
 
-        <div className="card" style={{ overflow: 'auto', padding: 12 }}>
-          <svg
-            viewBox={`0 0 ${cw} ${ch}`}
-            width="100%"
-            style={{ maxHeight: 620, minWidth: 640 }}
-            role="group"
-            aria-label="Family pedigree chart"
-          >
-            {segs.map((s, i) => (
-              <line
-                key={i}
-                x1={s.x1}
-                y1={s.y1}
-                x2={s.x2}
-                y2={s.y2}
-                stroke="#6b7280"
-                strokeWidth={1.3}
-              />
-            ))}
-            {record.people.map((p) => (
-              <PedigreeNode
-                key={p.id}
-                person={p}
-                x={pos[p.id].x}
-                y={pos[p.id].cy}
-                selected={p.id === selectedId}
-                proband={p.id === record.probandId}
-                fill={affectedFill(p, palette, catalog)}
-                label={nodeLabel(p, catalog)}
-                onSelect={() => selectPerson(p.id)}
-              />
-            ))}
-          </svg>
-        </div>
-        <CategoryLegend categories={presentCategories} palette={palette} />
+        {!isEmpty && (
+          <HighlightBar
+            mode={hlMode}
+            onSetMode={setHlMode}
+            activeId={activeId}
+            onToggleChip={toggleChip}
+            onHighlightCondition={highlightCondition}
+            onClear={clearHighlight}
+            people={record.people}
+            catalog={catalog}
+            palette={palette}
+          />
+        )}
       </div>
+
+      <div className="pedigree-body">
+        {isEmpty ? (
+          <EmptyState onAdd={() => setAdding(true)} onLoadSample={handleEmptyLoadSample} />
+        ) : (
+          <div className="pedigree-scroll">
+            <div
+              className="pedigree-canvas"
+              role="group"
+              aria-label="Family pedigree chart"
+              style={canvasStyle}
+            >
+              <svg
+                width={cw}
+                height={ch}
+                style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}
+                aria-hidden="true"
+                pointerEvents="none"
+              >
+                {segs.map((s, i) => (
+                  <line
+                    key={i}
+                    x1={s.x1}
+                    y1={s.y1}
+                    x2={s.x2}
+                    y2={s.y2}
+                    stroke="#6b7280"
+                    strokeWidth={1.3}
+                  />
+                ))}
+              </svg>
+              {gens.map((g) => {
+                const rep = record.people.find((p) => p.gen === g);
+                if (!rep) return null;
+                return (
+                  <div
+                    key={g}
+                    className="pedigree-gen-label"
+                    aria-hidden="true"
+                    style={{ top: pos[rep.id].y + 14 }}
+                  >
+                    Gen {g - minGen + 1}
+                  </div>
+                );
+              })}
+              {orderedPeople.map((p) => (
+                <PedigreeNode
+                  key={p.id}
+                  person={p}
+                  x={pos[p.id].x}
+                  cy={pos[p.id].cy}
+                  selected={p.id === selectedId}
+                  proband={p.id === record.probandId}
+                  catalog={catalog}
+                  palette={palette}
+                  hlActive={hlActive}
+                  matches={hlActive && nodeMatches(p)}
+                  hlColor={hlColor}
+                  onSelect={selectPerson}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!isEmpty && presentCategories.length > 0 && (
+        <div className="pedigree-footer">
+          <h2 className="overline" style={{ display: 'block', marginBottom: 8 }}>
+            Legend
+          </h2>
+          <CategoryLegend categories={presentCategories} palette={palette} />
+        </div>
+      )}
 
       {/* key remounts the drawer per person so its local edit/search state never bleeds across selections. */}
       {selectedId && <PersonDrawer key={selectedId} personId={selectedId} />}
@@ -110,21 +372,26 @@ export function PedigreeView() {
   );
 }
 
-function affectedFill(p: Person, palette: Palette, catalog: Catalog): string {
-  const ids = condIds(p);
-  if (!ids.length) return '#0e1218';
-  return categoryColor(catalog.get(ids[0]).cat, palette);
-}
-
-/** Accessible name for a pedigree node: identity plus affected state, since the node's
- * only other affected-category signal is fill hue (WCAG 1.4.1 — colour is never the sole
- * channel). */
-function nodeLabel(person: Person, catalog: Catalog): string {
-  const ids = condIds(person);
-  if (ids.length === 0) return `${person.name}, unaffected`;
-  const meta = catalog.get(ids[0]);
-  const catLabel = CATEGORIES[meta.cat].label.toLowerCase();
-  return `${person.name}, affected: ${meta.name} (${catLabel})`;
+/** Shown when the record holds only the proband — never auto-loads the fictional
+ * example family; the user opts in explicitly. */
+function EmptyState({ onAdd, onLoadSample }: { onAdd: () => void; onLoadSample: () => void }) {
+  return (
+    <div className="pedigree-empty">
+      <h2 style={{ fontSize: 17, fontWeight: 600 }}>Start your family history</h2>
+      <p style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 380, lineHeight: 1.5 }}>
+        Add relatives one at a time — parents, siblings, children. Stemma looks for hereditary
+        patterns as the tree grows.
+      </p>
+      <div className="row wrap" style={{ gap: 10, marginTop: 6 }}>
+        <button type="button" className="btn btn--primary" onClick={onAdd}>
+          + Add relative
+        </button>
+        <button type="button" className="btn" onClick={onLoadSample}>
+          Load example family
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Condition categories actually present in the record, in the catalog's canonical order. */
@@ -155,123 +422,186 @@ function CategoryLegend({ categories, palette }: { categories: CategoryKey[]; pa
   );
 }
 
+/** Accessible name for a pedigree node — everything a sighted user reads visually
+ * (deceased/birth years, the sex-assigned-at-birth annotation, the proband's "you" tag,
+ * every condition, and highlight-match state) folded into one sentence, since all of
+ * that is otherwise conveyed only by `aria-hidden` glyphs/text or colour alone (WCAG
+ * 1.1.1 / 1.4.1). Every condition is named, not just the first — an active highlight
+ * can match on any of a person's conditions (e.g. their second), and naming only the
+ * first would silently fail to say why a match lit up. */
+function nodeLabel(
+  person: Person,
+  catalog: Catalog,
+  hlActive: boolean,
+  matches: boolean,
+  proband: boolean,
+): string {
+  const parts: string[] = [person.name];
+  if (proband) parts.push('you');
+
+  if (person.dead) {
+    parts.push(`died ${person.death ?? 'unknown year'}`);
+    if (person.birth != null) parts.push(`born ${person.birth}`);
+  } else if (person.birth != null) {
+    parts.push(`born ${person.birth}`);
+  }
+
+  if (sabAnnotationDiffers(person)) {
+    parts.push(`sex assigned at birth ${sabLabel(sabOf(person))}`);
+  }
+
+  const ids = condIds(person);
+  if (ids.length === 0) {
+    parts.push('unaffected');
+  } else {
+    const names = ids.map((id, i) => {
+      const meta = catalog.get(id);
+      return i === 0 ? `${meta.name} (${CATEGORIES[meta.cat].label.toLowerCase()})` : meta.name;
+    });
+    parts.push(`affected: ${names.join(', ')}`);
+  }
+
+  const base = parts.join(', ');
+  return hlActive && matches ? `${base}, highlighted` : base;
+}
+
 interface NodeProps {
   person: Person;
   x: number;
-  y: number;
+  cy: number;
   selected: boolean;
   proband: boolean;
-  fill: string;
-  label: string;
-  onSelect: () => void;
+  catalog: Catalog;
+  palette: Palette;
+  hlActive: boolean;
+  matches: boolean;
+  hlColor: string | null;
+  onSelect: (id: string) => void;
 }
 
-function PedigreeNode({ person, x, y, selected, proband, fill, label, onSelect }: NodeProps) {
+/** A single pedigree glyph, absolutely positioned at natural size. Memoized: `person` /
+ * `pos` stay referentially stable across pure selection/highlight interactions (neither
+ * mutates the record), so this skips re-rendering the (potentially many) nodes whose
+ * visual state didn't actually change — `onSelect` is the store's `selectPerson` action
+ * directly (already stable) rather than a per-node closure, to keep that comparison valid. */
+const PedigreeNode = memo(function PedigreeNode({
+  person,
+  x,
+  cy,
+  selected,
+  proband,
+  catalog,
+  palette,
+  hlActive,
+  matches,
+  hlColor,
+  onSelect,
+}: NodeProps) {
   const g: Gender = genderOf(person);
-  const stroke = selected ? '#34e2cf' : proband ? '#e6eaf0' : '#6b7280';
-  const sw = selected || proband ? 2.6 : 1.5;
   const sab: Sab = sabOf(person);
-  const sabDiffers = (g === 'man' && sab !== 'm') || (g === 'woman' && sab !== 'f') || g === 'nb';
-  const years = person.dead
-    ? `${person.birth ?? ''}–${person.death ?? ''}`
-    : `b.${person.birth ?? ''}`;
-  const sabTag = sabDiffers ? (sab === 'f' ? ' AFAB' : sab === 'm' ? ' AMAB' : '') : '';
+  const shape: 'circle' | 'square' | 'diamond' =
+    g === 'woman' ? 'circle' : g === 'nb' ? 'diamond' : 'square';
+  const ids = condIds(person);
+  const affected = ids.length > 0;
 
-  let shape;
-  if (g === 'woman')
-    shape = <circle cx={x} cy={y} r={S} fill={fill} stroke={stroke} strokeWidth={sw} />;
-  else if (g === 'nb')
-    shape = (
-      <rect
-        x={x - S}
-        y={y - S}
-        width={2 * S}
-        height={2 * S}
-        transform={`rotate(45 ${x} ${y})`}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={sw}
-      />
-    );
-  else
-    shape = (
-      <rect
-        x={x - S}
-        y={y - S}
-        width={2 * S}
-        height={2 * S}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={sw}
-      />
-    );
+  // Affected = filled with the first condition's category colour; unaffected = outline
+  // only. Condition dots (below) separately show every category the person carries.
+  const fill = affected ? categoryColor(catalog.get(ids[0]).cat, palette) : 'transparent';
+  const initColor = affected ? initialsColor(fill) : 'var(--text)';
+  const border = selected ? 'var(--accent)' : proband ? 'var(--text)' : '#6b7280';
+  const borderWidth = selected || proband ? 2.5 : 1.5;
+  const ring = selected
+    ? '0 0 0 3px rgba(111,168,255,0.35)'
+    : matches && hlColor
+      ? `0 0 0 3px ${hlColor}66`
+      : proband
+        ? '0 0 0 3px rgba(52,226,207,0.25)'
+        : undefined;
+
+  const sabDiffers = sabAnnotationDiffers(person);
+  const years = person.dead
+    ? `${person.birth ?? '?'}–${person.death ?? '?'}`
+    : person.birth != null
+      ? `b.${person.birth}`
+      : '';
+  const dots = ids.slice(0, 4).map((id) => categoryColor(catalog.get(id).cat, palette));
+  const extraConditions = ids.length - dots.length;
+  const dimmed = hlActive && !matches;
+  const label = nodeLabel(person, catalog, hlActive, matches, proband);
 
   return (
-    <g
-      className="pedigree-node"
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      style={{ cursor: 'pointer' }}
-    >
-      {shape}
-      {condIds(person).length > 1 && (
-        <>
-          <circle cx={x + S - 2} cy={y - S + 2} r={6} fill="#111" />
-          <text
-            x={x + S - 2}
-            y={y - S + 2}
-            fontSize={8}
-            fill="#fff"
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontFamily="monospace"
-          >
-            {condIds(person).length}
-          </text>
-        </>
-      )}
-      {person.dead && (
-        <line
-          x1={x - S - 5}
-          y1={y + S + 5}
-          x2={x + S + 5}
-          y2={y - S - 5}
-          stroke={stroke}
-          strokeWidth={1.6}
+    <div className="pedigree-node-wrap" style={{ left: x - NODE / 2, top: cy - NODE / 2 }}>
+      <button
+        type="button"
+        className="pedigree-node"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={selected}
+        onClick={() => onSelect(person.id)}
+        style={{
+          borderRadius: shape === 'circle' ? '50%' : 7,
+          transform: shape === 'diamond' ? 'rotate(45deg)' : undefined,
+          border: `${borderWidth}px solid ${border}`,
+          boxShadow: ring,
+        }}
+      >
+        {/* Only the coloured glyph — fill + initials — de-emphasizes under a highlight
+            filter (WCAG 1.4.3): the border above and the name/years below always stay
+            full-contrast, so a dimmed relative's identity and shape stay legible; only
+            "does this person match the current highlight" fades. */}
+        <span
+          aria-hidden="true"
+          className="pedigree-node__fill"
+          style={{
+            borderRadius: shape === 'circle' ? '50%' : 7,
+            background: fill,
+            opacity: dimmed ? DIM_OPACITY : 1,
+          }}
         />
+        <span
+          aria-hidden="true"
+          className="pedigree-node__init"
+          style={{
+            color: initColor,
+            opacity: dimmed ? DIM_OPACITY : 1,
+            transform: shape === 'diamond' ? 'rotate(-45deg)' : undefined,
+          }}
+        >
+          {person.name.slice(0, 2)}
+        </span>
+      </button>
+      {person.dead && <span aria-hidden="true" className="pedigree-node__slash" />}
+      {dots.length > 0 && (
+        <span aria-hidden="true" className="pedigree-node__dots">
+          {dots.map((c, i) => (
+            <span key={i} className="pedigree-node__dot" style={{ background: c }} />
+          ))}
+          {extraConditions > 0 && (
+            <span className="pedigree-node__dot-more">+{extraConditions}</span>
+          )}
+        </span>
       )}
-      <text
-        x={x}
-        y={y + S + 15}
-        fontSize={10.5}
-        fill="var(--text)"
-        textAnchor="middle"
-        fontWeight={600}
-      >
+      {proband && (
+        <span aria-hidden="true" className="pedigree-node__you">
+          YOU
+        </span>
+      )}
+      {sabDiffers && (
+        <span aria-hidden="true" className="pedigree-node__sab">
+          {sabLabel(sab)}
+        </span>
+      )}
+      <div aria-hidden="true" className="pedigree-node__name">
         {person.name}
-      </text>
-      <text
-        x={x}
-        y={y + S + 27}
-        fontSize={8}
-        fill="var(--text-faint)"
-        textAnchor="middle"
-        fontFamily="monospace"
-      >
-        {years}
-        {sabTag}
-      </text>
-    </g>
+      </div>
+      {years && (
+        <div aria-hidden="true" className="pedigree-node__years">
+          {years}
+        </div>
+      )}
+    </div>
   );
-}
+});
 
 const RELATIONS: { id: Relation; label: string }[] = [
   { id: 'child', label: 'Child' },

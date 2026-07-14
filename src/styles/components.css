@@ -258,6 +258,13 @@
   padding: 5px 10px;
   font-size: 11px;
 }
+/* Solid, opaque border/text (not the washed-out rgba this replaced) so the
+   destructive-action affordance clears WCAG 1.4.11 non-text contrast (>=3:1) as well
+   as text contrast, against both --bg-panel and --bg-hover. */
+.btn--danger {
+  color: var(--sev-referral);
+  border-color: var(--sev-referral);
+}
 
 .row {
   display: flex;
@@ -314,18 +321,229 @@ label.lbl {
   line-height: 1.45;
 }
 
-/* ---- Pedigree ---- */
+/* ---- Pedigree ----
+   Rebuilt as a natural-size, scrollable DOM canvas (never scaled to fit): a pinned
+   header (title + Highlight controls) above a flexible body that either scrolls the
+   canvas or shows the empty-state prompt, then a pinned footer for the category legend. */
+.pedigree-header {
+  padding: 22px 34px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.pedigree-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.pedigree-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 34px 40px 34px 70px;
+}
+.pedigree-canvas {
+  position: relative;
+}
+.pedigree-footer {
+  flex: none;
+  padding: 10px 34px;
+  border-top: 1px solid var(--border);
+}
+.pedigree-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px;
+}
+
+.pedigree-gen-label {
+  position: absolute;
+  left: -58px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.pedigree-node-wrap {
+  position: absolute;
+  width: var(--node-size);
+  height: var(--node-size);
+}
 .pedigree-node {
+  position: relative;
+  width: var(--node-size);
+  height: var(--node-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
   cursor: pointer;
+  transition:
+    filter 0.12s,
+    box-shadow 0.2s;
 }
 .pedigree-node:hover {
-  filter: brightness(1.15);
+  filter: brightness(1.18);
 }
+/* The coloured glyph fill, separated from .pedigree-node's own border so a highlight
+   filter can mute the fill (see PedigreeNode's `dimmed`) without ever touching border
+   contrast — WCAG 1.4.3 non-text contrast must hold regardless of highlight state. */
+.pedigree-node__fill {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.pedigree-node__init {
+  position: relative;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.3px;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.pedigree-node__slash {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 50%;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.55);
+  transform: rotate(-40deg);
+  pointer-events: none;
+}
+.pedigree-node__dots {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.pedigree-node__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 1.5px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  display: block;
+}
+/* Overflow count when a person has more conditions than the 4 dots shown — the full
+   list still reaches assistive tech via the node's accessible name (nodeLabel). */
+.pedigree-node__dot-more {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-faint);
+  margin-left: 1px;
+}
+.pedigree-node__you {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #08121a;
+  background: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pedigree-node__sab {
+  position: absolute;
+  top: 38px;
+  right: -8px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--bg);
+  background: var(--text-dim);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pedigree-node__name {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-align: center;
+  pointer-events: none;
+}
+.pedigree-node__years {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+/* Highlight / filter row (see PedigreeHighlight.tsx) */
+.pedigree-hl-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pedigree-hl-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+.pedigree-hl-count {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  /* Inherit from the chip button (text-dim normally, accent when aria-pressed) instead
+     of a hardcoded tone, which fell to ~3.77:1 against the pressed chip's background. */
+  color: currentColor;
+}
+.pedigree-hl-search-popover {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  z-index: 30;
+  width: 340px;
+  max-width: calc(100vw - 80px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+}
+
 .pedigree-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
-  margin: 12px 2px 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }

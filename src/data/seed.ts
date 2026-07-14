@@ -448,12 +448,43 @@ const rawTimeline: Omit<TimelineEvent, 'id'>[] = [
 
 const timeline: TimelineEvent[] = rawTimeline.map((e, i) => ({ ...e, id: `seed-${i}` }));
 
-/** A fresh copy of the illustrative seed record. */
+/**
+ * A fresh copy of the illustrative EXAMPLE record (the fictional Maya family). This is
+ * NOT the app's default state — it is loaded only on explicit opt-in ("Load example
+ * family") and used as a fixture in tests. Real users start from {@link emptyRecord}.
+ */
 export function seedRecord(): FamilyRecord {
   return {
     people: structuredClone(people),
     unions: structuredClone(unions),
     timeline: structuredClone(timeline),
+    probandId: 'you',
+  };
+}
+
+/**
+ * The real default: an empty record holding only the proband ("You"), with neutral,
+ * unset identity for the user to fill in. No fictional relatives, no fabricated history.
+ */
+export function emptyRecord(): FamilyRecord {
+  return {
+    people: [
+      {
+        id: 'you',
+        name: 'You',
+        sab: 'u',
+        gender: 'nb',
+        gen: 0,
+        x: 0,
+        dead: false,
+        birth: null,
+        death: null,
+        isProband: true,
+        conds: [],
+      },
+    ],
+    unions: [],
+    timeline: [],
     probandId: 'you',
   };
 }

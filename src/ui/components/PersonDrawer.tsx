@@ -121,8 +121,7 @@ export function PersonDrawer({ personId }: { personId: string }) {
         {!isProband && (
           <button
             type="button"
-            className="btn btn--sm"
-            style={{ color: 'var(--sev-referral)', borderColor: 'rgba(255,93,93,0.4)' }}
+            className="btn btn--sm btn--danger"
             onClick={() => deletePerson(person.id)}
           >
             Remove {person.name} from the record

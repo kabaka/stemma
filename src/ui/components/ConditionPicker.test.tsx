@@ -20,7 +20,7 @@ vi.mock('@/integrations/vocabulary', async () => {
 const searchMock = vi.mocked(defaultVocabularyProvider.search);
 
 beforeEach(() => {
-  useStore.getState().resetRecord();
+  useStore.getState().loadSample(); // tests attach conditions to example-family members
   searchMock.mockReset();
 });
 

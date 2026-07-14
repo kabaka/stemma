@@ -3,7 +3,30 @@ import { useStore } from './useStore';
 import { buildCatalog } from '@/domain/catalog';
 import type { FamilyRecord } from '@/domain/types';
 
-const reset = () => useStore.getState().resetRecord();
+// Most mutation tests operate on the example family, so load it explicitly (the app's
+// real default is now an empty record — see the "default record" block below).
+const reset = () => useStore.getState().loadSample();
+
+describe('default record', () => {
+  it('starts empty (proband only) — never the fictional example family', () => {
+    useStore.getState().resetRecord();
+    const record = useStore.getState().record;
+    expect(record.people).toHaveLength(1);
+    expect(record.people[0].isProband).toBe(true);
+    expect(record.people[0].name).toBe('You');
+    expect(record.people[0].conds).toEqual([]);
+    expect(record.unions).toEqual([]);
+    expect(record.timeline).toEqual([]);
+  });
+
+  it('loads the example family only on explicit opt-in', () => {
+    useStore.getState().resetRecord();
+    expect(useStore.getState().record.people.length).toBe(1);
+    useStore.getState().loadSample();
+    expect(useStore.getState().record.people.length).toBeGreaterThan(1);
+    expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+  });
+});
 
 describe('store mutations', () => {
   beforeEach(reset);
@@ -221,6 +244,50 @@ describe('replaceRecord', () => {
   });
 });
 
+describe('record-swap actions leave navigation state alone', () => {
+  beforeEach(reset);
+
+  // Regression test for a UI bug: PedigreeView keeps its own highlight/add-form state
+  // in local useState, which survives a record swap because loadSample()/resetRecord()/
+  // replaceRecord() never unmount the view. That local state has to be cleared by the
+  // view itself — but only because the store side of the contract genuinely holds:
+  // swapping the record is not a navigation event, so `view` (and nothing else in
+  // UiState) is untouched by any of the three swap actions. Pin that contract here so
+  // a future change to `recordUi()` can't silently start bouncing the user to Overview.
+  it('never resets `view` — swapping the record is not a navigation event', () => {
+    useStore.getState().setView('tree');
+
+    useStore.getState().loadSample();
+    expect(useStore.getState().view).toBe('tree');
+
+    useStore.getState().resetRecord();
+    expect(useStore.getState().view).toBe('tree');
+
+    const minimal: FamilyRecord = {
+      people: [
+        {
+          id: 'p1',
+          name: 'P1',
+          sab: 'f',
+          gender: 'woman',
+          gen: 0,
+          x: 0,
+          dead: false,
+          birth: 2000,
+          death: null,
+          conds: [],
+          isProband: true,
+        },
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    useStore.getState().replaceRecord(minimal);
+    expect(useStore.getState().view).toBe('tree');
+  });
+});
+
 describe('deletePerson (vantage reset)', () => {
   beforeEach(reset);
 
@@ -256,7 +323,7 @@ describe('persistence', () => {
     expect(persisted.state).not.toHaveProperty('riskRoot');
   });
 
-  it('falls back to a clean seed when a persisted blob fails the record shape guard', async () => {
+  it('falls back to a clean empty record when a persisted blob fails the record shape guard', async () => {
     localStorage.setItem(
       'stemma-record',
       JSON.stringify({ state: { record: { garbage: true } }, version: 1 }),
