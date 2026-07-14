@@ -12,6 +12,9 @@ dist-ssr/
 coverage/
 .vitest/
 
+# Ad hoc local verification screenshots (Playwright), never committed
+.pedigree-shots/
+
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json

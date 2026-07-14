@@ -3,7 +3,30 @@ import { useStore } from './useStore';
 import { buildCatalog } from '@/domain/catalog';
 import type { FamilyRecord } from '@/domain/types';
 
-const reset = () => useStore.getState().resetRecord();
+// Most mutation tests operate on the example family, so load it explicitly (the app's
+// real default is now an empty record — see the "default record" block below).
+const reset = () => useStore.getState().loadSample();
+
+describe('default record', () => {
+  it('starts empty (proband only) — never the fictional example family', () => {
+    useStore.getState().resetRecord();
+    const record = useStore.getState().record;
+    expect(record.people).toHaveLength(1);
+    expect(record.people[0].isProband).toBe(true);
+    expect(record.people[0].name).toBe('You');
+    expect(record.people[0].conds).toEqual([]);
+    expect(record.unions).toEqual([]);
+    expect(record.timeline).toEqual([]);
+  });
+
+  it('loads the example family only on explicit opt-in', () => {
+    useStore.getState().resetRecord();
+    expect(useStore.getState().record.people.length).toBe(1);
+    useStore.getState().loadSample();
+    expect(useStore.getState().record.people.length).toBeGreaterThan(1);
+    expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+  });
+});
 
 describe('store mutations', () => {
   beforeEach(reset);

@@ -8,7 +8,8 @@ import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
 import { ReportsView } from './ReportsView';
 
-beforeEach(() => useStore.getState().resetRecord());
+// These views are asserted against the example family; the app's real default is empty.
+beforeEach(() => useStore.getState().loadSample());
 
 describe('OverviewView', () => {
   it('renders headline stats and the top hereditary flag', () => {
@@ -64,11 +65,12 @@ describe('PedigreeView', () => {
     render(<PedigreeView />);
     // The chart is a labelled group (not role="img", which would hide the nodes from AT).
     const chart = screen.getByRole('group', { name: /family pedigree/i });
-    // Nodes are real buttons, so they're focusable and operable without a pointer.
+    // Nodes are real buttons, so they're natively focusable and operable without a
+    // pointer — no tabindex patching needed (that was only necessary for the old SVG <g>).
     expect(within(chart).getByRole('button', { name: /Maya/i })).toBeInTheDocument();
     const robert = within(chart).getByRole('button', { name: /Robert/i });
     expect(robert).toBeInTheDocument();
-    expect(robert).toHaveAttribute('tabindex', '0');
+    expect(robert.tagName).toBe('BUTTON');
   });
 
   it('names affected nodes with the condition and category, not colour alone', () => {
@@ -93,6 +95,100 @@ describe('PedigreeView', () => {
     const dialog = screen.getByRole('dialog', { name: /Maya/i });
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveFocus();
+  });
+
+  it('states the clinical boundary', () => {
+    render(<PedigreeView />);
+    expect(screen.getByText(/not a diagnostic device/i)).toBeInTheDocument();
+  });
+
+  it('renders the natural-size canvas in a scrollable region, not scaled to fit', () => {
+    render(<PedigreeView />);
+    const chart = screen.getByRole('group', { name: /family pedigree chart/i });
+    // The old implementation used an <svg width="100%"> with a viewBox, which scales the
+    // whole tree down to fit the panel. The canvas is now a plain sized DOM element inside
+    // an overflow:auto region — width/height come from computeLayout(), not a viewBox.
+    expect(chart.tagName).toBe('DIV');
+    expect(chart.parentElement).toHaveClass('pedigree-scroll');
+  });
+
+  it('selecting a highlight chip dims non-matching nodes and offers a clear control', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    // Seed data: coronary heart disease (cad) is the most prevalent condition (Walter,
+    // Frank, Robert, Tom), so it's the first chip in Condition mode.
+    const chip = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    expect(within(highlightRow).queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+
+    await user.click(chip);
+
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    expect(within(highlightRow).getByRole('button', { name: /clear/i })).toBeInTheDocument();
+    // Robert has coronary heart disease (matches, full opacity); Helen only has BRCA
+    // (doesn't match, dimmed).
+    const robertWrap = screen.getByRole('button', { name: /Robert/i }).parentElement;
+    const helenWrap = screen.getByRole('button', { name: /Helen/i }).parentElement;
+    expect(helenWrap).toHaveStyle({ opacity: '0.28' });
+    expect(robertWrap).not.toHaveStyle({ opacity: '0.28' });
+
+    // Clicking the same chip again toggles the highlight back off.
+    await user.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    expect(within(highlightRow).queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+  });
+
+  it('switches to Category mode and highlights by category', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    const modeToggle = within(highlightRow).getByRole('group', { name: /highlight mode/i });
+
+    await user.click(within(modeToggle).getByRole('button', { name: /^category$/i }));
+    expect(within(modeToggle).getByRole('button', { name: /^category$/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    const cardiovascular = within(highlightRow).getByRole('button', { name: /cardiovascular/i });
+    await user.click(cardiovascular);
+    expect(cardiovascular).toHaveAttribute('aria-pressed', 'true');
+    // Robert's first condition (coronary heart disease) is cardiovascular; Helen's (BRCA)
+    // is not, so Helen is dimmed under the category filter too.
+    const helenWrap = screen.getByRole('button', { name: /Helen/i }).parentElement;
+    expect(helenWrap).toHaveStyle({ opacity: '0.28' });
+  });
+});
+
+describe('PedigreeView — empty record', () => {
+  it('shows the empty state with an Add relative affordance and a Load example family button', () => {
+    // The app's real default is empty (proband only); loadSample() in the outer
+    // beforeEach loaded the example family, so reset back to empty before rendering.
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+    expect(screen.getByText(/start your family history/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /\+ add relative/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /load example family/i })).toBeInTheDocument();
+    // No tree to highlight yet — the Highlight row only makes sense once there's a family.
+    expect(
+      screen.queryByRole('group', { name: /highlight a condition or category/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('loads the example family only when the user clicks the button (no auto-load)', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+    // Not auto-loaded: still just the proband, and no tree rendered yet.
+    expect(screen.queryByRole('group', { name: /family pedigree chart/i })).not.toBeInTheDocument();
+    expect(useStore.getState().record.people).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: /load example family/i }));
+
+    expect(useStore.getState().record.people.length).toBeGreaterThan(1);
+    expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+    expect(screen.getByRole('group', { name: /family pedigree chart/i })).toBeInTheDocument();
   });
 });
 

@@ -19,7 +19,7 @@ import type {
   TimelineEvent,
 } from '@/domain/types';
 import type { Palette } from '@/data/categories';
-import { seedRecord } from '@/data/seed';
+import { emptyRecord, seedRecord } from '@/data/seed';
 import { CONDITIONS } from '@/data/conditions';
 import { organsOf } from '@/domain/person';
 import { linkRelative, removePerson, type Relation } from '@/domain/record';
@@ -89,7 +89,10 @@ interface Actions {
   updateEvent: (id: string, patch: Partial<Omit<TimelineEvent, 'id'>>) => void;
   deleteEvent: (id: string) => void;
 
+  /** Reset to an empty record (proband only). */
   resetRecord: () => void;
+  /** Opt-in: load the fictional example family (for exploring the app). */
+  loadSample: () => void;
   replaceRecord: (record: FamilyRecord, extensions?: Condition[]) => void;
 }
 
@@ -100,9 +103,18 @@ const newId = (): string =>
     ? crypto.randomUUID()
     : `id-${Math.floor(Math.random() * 1e9).toString(36)}`;
 
-function initialUi(record: FamilyRecord): UiState {
+/**
+ * UI state that depends on *which record* is loaded — re-pointed whenever the record is
+ * swapped wholesale (reset / load sample / import), since the previous selection or risk
+ * vantage may not exist in the new record. Deliberately excludes `view`: swapping the
+ * record's data is not a navigation event, so wherever the user is looking (e.g. the
+ * Pedigree view's own "Load example family" control) is left alone rather than bounced
+ * to Overview out from under them.
+ */
+function recordUi(
+  record: FamilyRecord,
+): Pick<UiState, 'selectedId' | 'riskRoot' | 'tlPerson' | 'tlType'> {
   return {
-    view: 'overview',
     selectedId: null,
     riskRoot: record.probandId,
     tlPerson: record.probandId,
@@ -133,7 +145,7 @@ function isValidRecord(r: unknown): r is FamilyRecord {
 function migratePersisted(persisted: unknown): PersistedState {
   const s = (persisted ?? {}) as Partial<PersistedState>;
   if (!isValidRecord(s.record)) {
-    return { record: seedRecord(), extensions: [], palette: 'default' };
+    return { record: emptyRecord(), extensions: [], palette: 'default' };
   }
   return {
     record: s.record,
@@ -142,15 +154,16 @@ function migratePersisted(persisted: unknown): PersistedState {
   };
 }
 
-const seed = seedRecord();
+const initial = emptyRecord();
 
 export const useStore = create<Store>()(
   persist(
     (set, get) => ({
-      record: seed,
+      record: initial,
       extensions: [],
       palette: 'default',
-      ...initialUi(seed),
+      view: 'overview',
+      ...recordUi(initial),
 
       setView: (view) => set({ view }),
       // Swaps only the CategoryKey → colour mapping read via `categoryColor` (see
@@ -289,12 +302,17 @@ export const useStore = create<Store>()(
       },
 
       resetRecord: () => {
+        const record = emptyRecord();
+        set({ record, extensions: [], ...recordUi(record) });
+      },
+
+      loadSample: () => {
         const record = seedRecord();
-        set({ record, extensions: [], ...initialUi(record) });
+        set({ record, extensions: [], ...recordUi(record) });
       },
 
       replaceRecord: (record, extensions) => {
-        set({ record: cloneRecord(record), extensions: extensions ?? [], ...initialUi(record) });
+        set({ record: cloneRecord(record), extensions: extensions ?? [], ...recordUi(record) });
       },
     }),
     {
