@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildRecordFromGedcom, parseGedcom } from './gedcom';
 import { buildGedcom } from '@/export/gedcom';
 import { seedRecord } from '@/data/seed';
+import { indexPeople, parentsOf } from '@/domain/graph';
 
 /** A small, hand-written GEDCOM covering the shapes a real Ancestry-style export uses. */
 const SAMPLE = `0 HEAD
@@ -131,6 +132,123 @@ describe('buildRecordFromGedcom', () => {
     const union = record.unions.find((u) => u.parents.includes('I1'))!;
     expect(union.children).toEqual(['I2']); // @I1@ removed from its own children
     expect(union.children).not.toContain('I1');
+  });
+
+  it('resolves step / adopted / foster per parent (drops only the step edge, keeps the biological one)', () => {
+    // Blended family in ONE FAM record: I3 is step to the father (I1) but biological to the
+    // mother (I2, no _MREL) — so I3 must keep I2 and lose only I1. I4 is adopted by both
+    // (PEDI) — no genetic parent here. I5 is `unknown`/`unknown` (Ancestry's biological
+    // default) — keeps both. This is the exact real-world shape where dropping the whole child
+    // would silently lose the biological mother's edge.
+    const text = `0 @I1@ INDI
+1 NAME Step /Dad/
+1 SEX M
+0 @I2@ INDI
+1 NAME Bio /Mum/
+1 SEX F
+0 @I3@ INDI
+1 NAME Step /Son/
+1 SEX M
+0 @I4@ INDI
+1 NAME Adopted /Girl/
+1 SEX F
+0 @I5@ INDI
+1 NAME Own /Kid/
+1 SEX M
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+2 _FREL step
+1 CHIL @I4@
+2 PEDI adopted
+1 CHIL @I5@
+2 _FREL unknown
+2 _MREL unknown
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    expect(parsed.warnings.some((w) => /step, adopted, or foster/.test(w))).toBe(true);
+
+    const record = buildRecordFromGedcom(parsed, 'I5')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I3').sort()).toEqual(['I2']); // step to father: keeps only bio mother
+    expect(parentsOf(idx, 'I4')).toEqual([]); // adopted by both: no genetic parent here
+    expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // biological: keeps both
+  });
+
+  it('keeps both parents when a couple is encoded as two HUSB (same-sex convention)', () => {
+    // Some tools encode a same-sex couple as two HUSB (or two WIFE) rather than HUSB+WIFE.
+    // The second parent must not be dropped — the child is genetic to both.
+    const text = `0 @I1@ INDI
+1 NAME Dad /A/
+1 SEX M
+0 @I2@ INDI
+1 NAME Dad /B/
+1 SEX M
+0 @I3@ INDI
+1 NAME Their /Kid/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 HUSB @I2@
+1 CHIL @I3@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    const record = buildRecordFromGedcom(parsed, 'I3')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I3').sort()).toEqual(['I1', 'I2']); // both dads kept
+  });
+
+  it('keeps a parentless FAM as a sibling group (children linked, no genetic parents)', () => {
+    // A FAM whose parents are unknown (no HUSB/WIFE) still groups its children as siblings so
+    // they share a generation and lay out together — but with no genetic parent edge.
+    const text = `0 @I1@ INDI
+1 NAME Sib /One/
+1 SEX M
+0 @I2@ INDI
+1 NAME Sib /Two/
+1 SEX F
+0 @F1@ FAM
+1 CHIL @I1@
+1 CHIL @I2@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    expect(parsed.families).toEqual([{ parents: [], children: ['I1', 'I2'] }]);
+    const record = buildRecordFromGedcom(parsed, 'I1')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I1')).toEqual([]); // no genetic parents
+    expect(record.people.find((p) => p.id === 'I1')!.gen).toBe(
+      record.people.find((p) => p.id === 'I2')!.gen,
+    ); // siblings share a generation
+  });
+
+  it('honours the standard INDI.FAMC.PEDI adopted/foster tag (FamilySearch/Gramps convention)', () => {
+    // Spec-compliant exporters put pedigree on the individual's FAMC pointer, not the CHIL.
+    const text = `0 @I1@ INDI
+1 NAME A /Dad/
+1 SEX M
+0 @I2@ INDI
+1 NAME A /Mum/
+1 SEX F
+0 @I3@ INDI
+1 NAME Adopted /Child/
+1 SEX F
+1 FAMC @F1@
+2 PEDI adopted
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    const record = buildRecordFromGedcom(parsed, 'I1')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I3')).toEqual([]); // adopted via FAMC.PEDI — not a genetic child
+    expect(parsed.warnings.some((w) => /step, adopted, or foster/.test(w))).toBe(true);
   });
 });
 

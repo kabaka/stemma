@@ -469,6 +469,73 @@ describe('sibship contiguity and remarriage (regression for merged lineage lines
       expect(busOverlaps(rec, pos)).toEqual([]);
     }
   });
+
+  it('places a cross-family couple (with a child) adjacent, not with others drawn between', () => {
+    // Two families each with three children; one child from each marries the other and they
+    // have a child — the reported "bar drawn straight across the row from mother to father,
+    // through unrelated people" case. Their sibships stay contiguous AND the couple is adjacent.
+    const rec = layoutFromGraph({
+      people: ['a1', 'a2', 'b1', 'b2', 'ax', 'ay', 'az', 'bx', 'by', 'bz', 'kid'].map(mk),
+      unions: [
+        { parents: ['a1', 'a2'], children: ['ax', 'ay', 'az'] },
+        { parents: ['b1', 'b2'], children: ['bx', 'by', 'bz'] },
+        { parents: ['ay', 'by'], children: ['kid'] }, // middle children of each family marry
+      ],
+      timeline: [],
+      probandId: 'kid',
+    });
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(Math.abs(pos.ay.x - pos.by.x)).toBeLessThanOrEqual(96 + 0.5); // one cell apart
+    const gen = rec.people.find((p) => p.id === 'ay')!.gen;
+    const lo = Math.min(pos.ay.x, pos.by.x);
+    const hi = Math.max(pos.ay.x, pos.by.x);
+    const between = rec.people
+      .filter((p) => p.gen === gen && pos[p.id].x > lo + 0.5 && pos[p.id].x < hi - 0.5)
+      .map((p) => p.id);
+    expect(between).toEqual([]);
+  });
+
+  it('bridges two sibships through a founder who has a child in each (no bar across the row)', () => {
+    // `z` is a founder (no parents in view) who has a child with `a2` (sibship A) and another
+    // with `b2` (sibship B). A founder with real children must be treated as a chain node, not
+    // a held-out leaf — otherwise the two child-bearing marriages never bridge the sibships and
+    // z's bar to b2 is drawn across A's siblings.
+    const rec = layoutFromGraph({
+      people: ['ga1', 'ga2', 'gb1', 'gb2', 'a1', 'a2', 'a3', 'b1', 'b2', 'b3', 'z', 'ka', 'kb'].map(
+        mk,
+      ),
+      unions: [
+        { parents: ['ga1', 'ga2'], children: ['a1', 'a2', 'a3'] },
+        { parents: ['gb1', 'gb2'], children: ['b1', 'b2', 'b3'] },
+        { parents: ['a2', 'z'], children: ['ka'] },
+        { parents: ['z', 'b2'], children: ['kb'] },
+      ],
+      timeline: [],
+      probandId: 'ka',
+    });
+    const { pos } = computeLayout(rec.people, rec.unions);
+    // z sits directly between its two co-parents, adjacent to each.
+    expect(Math.abs(pos.z.x - pos.a2.x)).toBeLessThanOrEqual(96 + 0.5);
+    expect(Math.abs(pos.z.x - pos.b2.x)).toBeLessThanOrEqual(96 + 0.5);
+  });
+
+  it('keeps a nuclear couple adjacent even when one partner has extra childless marriages', () => {
+    // `you` married `w` (child `kid`) and also `w2`, `w3` (childless). The child-bearing couple
+    // must be adjacent; the extra spouses sit nearby but never wedge between you and w.
+    const rec = layoutFromGraph({
+      people: ['ga', 'gb', 'you', 'sib', 'w', 'w2', 'w3', 'kid'].map(mk),
+      unions: [
+        { parents: ['ga', 'gb'], children: ['you', 'sib'] },
+        { parents: ['you', 'w'], children: ['kid'] },
+        { parents: ['you', 'w2'], children: [] },
+        { parents: ['you', 'w3'], children: [] },
+      ],
+      timeline: [],
+      probandId: 'kid',
+    });
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(Math.abs(pos.you.x - pos.w.x)).toBeLessThanOrEqual(96 + 0.5); // nuclear couple adjacent
+  });
 });
 
 describe('re-rooting from a non-proband (Helen)', () => {

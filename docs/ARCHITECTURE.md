@@ -306,6 +306,13 @@ facts to a person who never entered them, so conditions are always added in Stem
 `SEX` maps to `sab` (genetics/geometry); the display `gender` is *defaulted* from `sab` via
 `genderFromSab` and stays freely editable per person afterwards — the same 2022 NSGC
 genetics/identity split the rest of the model holds to (see [§3](#3-data-model--person-is-the-atom)).
+Because the graph is **genetic** parentage, a step / adopted / foster relationship is not imported as
+a parent edge — otherwise a step-parent would surface as a blood relative in the kinship math. This is
+resolved **per parent**: Ancestry's `_FREL` (to father) / `_MREL` (to mother) and the standard
+child-level `PEDI` (from either the `CHIL` sub-tag or the individual's `FAMC`) are each read, so a
+child who is step to one parent but biological to the other keeps only the biological edge — a `FAM`
+can therefore yield the couple's union plus a single-parent union for that child. Ancestry's
+non-committal `unknown` is treated as genetic (its default for an unspecified-but-biological link).
 
 GEDCOM also carries no layout, so two new domain functions in
 [`src/domain/record.ts`](../src/domain/record.ts) derive one from the graph alone:

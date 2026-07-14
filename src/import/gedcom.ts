@@ -161,6 +161,14 @@ function genderFromSab(sab: Sab): Gender {
   return sab === 'm' ? 'man' : sab === 'f' ? 'woman' : 'nb';
 }
 
+/** Pedigree-linkage values that mark a child as NOT the genetic offspring of a parent. Kept
+ * deliberately narrow: only the unambiguous non-biological types. `natural`, `birth`,
+ * `unknown`, `sealed`, `related`, and an absent tag all stay (treated as genetic) —
+ * critically, `unknown` is Ancestry's default for an unspecified-but-biological link, so it
+ * must not be dropped. Applied per parent (`_FREL`/`_MREL`) or per child (`PEDI`) in the
+ * family loop, so a child biological to one parent keeps that edge. */
+const NON_BIOLOGICAL_PEDI = new Set(['step', 'adopted', 'adoptive', 'foster', 'guardian']);
+
 /** Parse GEDCOM text into its structural individuals and families. Never throws. */
 export function parseGedcom(text: string): ParsedGedcom {
   const roots = buildTree(text);
@@ -168,6 +176,10 @@ export function parseGedcom(text: string): ParsedGedcom {
 
   const individuals: GedcomIndividual[] = [];
   const knownIds = new Set<string>();
+  // Standard GEDCOM records an adopted/foster child's pedigree on the *individual's* `FAMC`
+  // pointer (`INDI.FAMC.PEDI`), not on the family's `CHIL` — keyed here by `child|family` so
+  // the family loop below can honour it alongside Ancestry's `_FREL`/`_MREL` convention.
+  const famcPedi = new Map<string, string>();
   let duplicateIds = 0;
   roots
     .filter((n) => n.tag === 'INDI')
@@ -178,6 +190,13 @@ export function parseGedcom(text: string): ParsedGedcom {
         return;
       }
       knownIds.add(id);
+
+      for (const fc of n.children) {
+        if (fc.tag !== 'FAMC') continue;
+        const famId = xrefToId(fc.value);
+        const pedi = childValue(fc, 'PEDI').trim().toLowerCase();
+        if (famId && pedi) famcPedi.set(`${id}|${famId}`, pedi);
+      }
 
       const nameNode = child(n, 'NAME');
       let name = cleanName(nameNode ? fullValue(nameNode) : '');
@@ -201,20 +220,83 @@ export function parseGedcom(text: string): ParsedGedcom {
 
   const families: GedcomFamily[] = [];
   let dangling = 0;
-  const resolve = (value: string, into: string[]): void => {
+  let stepLinks = 0;
+  // First known individual referenced by a `FAM` sub-tag; counts an unknown reference as a
+  // dangling link (matching the old `resolve` behaviour).
+  const resolveOne = (value: string): string | null => {
     const id = xrefToId(value);
-    if (!id) return;
-    if (knownIds.has(id)) into.push(id);
-    else dangling++;
+    if (!id) return null;
+    if (knownIds.has(id)) return id;
+    dangling++;
+    return null;
   };
   for (const n of roots.filter((n) => n.tag === 'FAM')) {
-    const parents: string[] = [];
-    const children: string[] = [];
+    const famId = xrefToId(n.xref);
+    const husbands: string[] = [];
+    const wives: string[] = [];
     for (const c of n.children) {
-      if (c.tag === 'HUSB' || c.tag === 'WIFE') resolve(c.value, parents);
-      else if (c.tag === 'CHIL') resolve(c.value, children);
+      if (c.tag === 'HUSB') {
+        const id = resolveOne(c.value);
+        if (id != null) husbands.push(id);
+      } else if (c.tag === 'WIFE') {
+        const id = resolveOne(c.value);
+        if (id != null) wives.push(id);
+      }
     }
-    if (parents.length + children.length > 0) families.push({ parents, children });
+    let husb: string | null = husbands[0] ?? null;
+    let wife: string | null = wives[0] ?? null;
+    // A couple encoded as two HUSB or two WIFE (some tools' same-sex-couple convention): use the
+    // second as the other parent slot so it is not silently dropped. The `_FREL`/`_MREL` step
+    // tags are an Ancestry convention that assumes one HUSB + one WIFE and won't co-occur here.
+    if (wife == null && husbands.length > 1) wife = husbands[1];
+    else if (husb == null && wives.length > 1) husb = wives[1];
+
+    // Stemma's graph is *genetic* parentage only. Resolve each child's relationship to each
+    // parent separately: a child linked step / adopted / foster to one parent (Ancestry's
+    // per-parent `_FREL`/`_MREL`, or the child-level `PEDI` from either the `CHIL` sub-tag or
+    // the individual's `FAMC`) is not that parent's genetic offspring and gets no edge to
+    // them — but its edge to the *other*, biological parent is kept. `unknown`/`natural`/
+    // absent all stay genetic. Children who share a biological-parent set form one union;
+    // this is why a `FAM` can yield the couple's union plus a single-parent union for a
+    // step-child who is biological to only one of them.
+    const both: string[] = [];
+    const fatherOnly: string[] = [];
+    const motherOnly: string[] = [];
+    const allKids: string[] = [];
+    for (const c of n.children) {
+      if (c.tag !== 'CHIL') continue;
+      const cid = resolveOne(c.value);
+      if (cid == null) continue;
+      allKids.push(cid);
+      const nonBio = (v: string): boolean => NON_BIOLOGICAL_PEDI.has(v.trim().toLowerCase());
+      const pedi =
+        childValue(c, 'PEDI').trim().toLowerCase() || famcPedi.get(`${cid}|${famId}`) || '';
+      const pediNonBio = NON_BIOLOGICAL_PEDI.has(pedi);
+      const fatherBio = husb != null && !nonBio(childValue(c, '_FREL')) && !pediNonBio;
+      const motherBio = wife != null && !nonBio(childValue(c, '_MREL')) && !pediNonBio;
+      if (fatherBio && motherBio) both.push(cid);
+      else if (fatherBio) fatherOnly.push(cid);
+      else if (motherBio) motherOnly.push(cid);
+      // A child with at least one *present* parent excluded had a relationship trimmed.
+      if ((husb != null && !fatherBio) || (wife != null && !motherBio)) stepLinks++;
+    }
+
+    const couple = [husb, wife].filter((x): x is string => x != null);
+    if (couple.length === 0) {
+      // No resolvable parents — keep the children as a parentless sibling group (their union
+      // carries no genetic edge, but it groups the siblings for generation/layout).
+      if (allKids.length) families.push({ parents: [], children: allKids });
+    } else {
+      // The couple's own union (their shared genetic children). Emitted whenever it has a known
+      // member or child; a degenerate single-parent/childless entry is harmless —
+      // `buildRecordFromGedcom` prunes it (it keeps only a couple or a parent+child).
+      if (couple.length + both.length > 0) families.push({ parents: couple, children: both });
+      // A step-child biological to only one parent joins that parent alone.
+      if (husb != null && fatherOnly.length)
+        families.push({ parents: [husb], children: fatherOnly });
+      if (wife != null && motherOnly.length)
+        families.push({ parents: [wife], children: motherOnly });
+    }
   }
 
   if (!individuals.length) {
@@ -228,6 +310,11 @@ export function parseGedcom(text: string): ParsedGedcom {
   if (duplicateIds) {
     warnings.push(
       `${duplicateIds} ${duplicateIds === 1 ? 'individual shared an id with an earlier record and was' : 'individuals shared ids with earlier records and were'} skipped.`,
+    );
+  }
+  if (stepLinks) {
+    warnings.push(
+      `${stepLinks} step, adopted, or foster ${stepLinks === 1 ? 'child link was' : 'child links were'} not imported as a blood relationship (Stemma tracks genetic parentage).`,
     );
   }
 
