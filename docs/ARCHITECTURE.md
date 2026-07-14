@@ -315,12 +315,16 @@ GEDCOM also carries no layout, so two new domain functions in
   partners and siblings share a generation), normalized so the oldest generation present is `0`.
   First assignment wins, so a contradictory cycle in malformed data degrades gracefully instead of
   looping.
-- **`layoutFromGraph(record)`** — assigns `gen` (via `deriveGenerations`) and an `x` coordinate per
-  person, ordering each generation by the barycentre of its already-placed parents so children sit
-  under them and edge crossings are reduced. This is distinct from — and a predecessor to —
-  `computeLayout` in [`src/domain/graph.ts`](../src/domain/graph.ts): `layoutFromGraph` derives the
-  stored `gen`/`x` from a bare union graph; `computeLayout` later turns whatever `gen`/`x` a record
-  already carries into de-overlapped pixel positions for rendering.
+- **`layoutFromGraph(record)`** — assigns `gen` (via `deriveGenerations`) and a _seed_ `x` per
+  person, ordering each generation by the barycentre of its already-placed parents. `gen` is
+  authoritative and used throughout the app; the `x` is only a starting order. The real horizontal
+  placement lives at render time in **`computeLayout`** ([`src/domain/graph.ts`](../src/domain/graph.ts)):
+  it bands by the authoritative `gen`, then runs a barycentre ordering pass (keeping couples adjacent)
+  and an isotonic-regression coordinate pass so children sit centred under their parents and partners
+  sit side by side. Doing the placement at render time fixes every record source uniformly — the
+  hand-authored seed, `layoutFromGraph`'s import output, and `linkRelative`'s local guesses all carry
+  only a partial `x` hint. `computeLayout` never re-derives `gen`, and its output is a `useMemo`-cached
+  view value that is never written back into the durable record.
 
 Because an imported record is the first thing fed to the store from outside its own trusted
 mutation path, `store.replaceRecord` now validates it against `isValidRecord` (moved to

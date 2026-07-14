@@ -200,37 +200,221 @@ export interface Layout {
   ch: number;
 }
 
-const MIN_SPACING = 88;
+/** Minimum horizontal centre-to-centre distance between two nodes in the same row. */
+const H_GAP = 96;
 const GEN_HEIGHT = 170;
+/** Left margin for the leftmost node's centre, so the negative-x generation label and
+ * the node's own half-width both clear the canvas edge. */
+const LEFT_MARGIN = 40;
+/** Fixed sweep counts (deterministic — never a wall-clock/perf bailout). Each round is a
+ * single top-down or bottom-up pass, alternating direction; rows are updated in place, so a
+ * node already sees its just-swept neighbours' new positions within the same pass. These
+ * counts sit comfortably above what any real pedigree depth needs to settle. */
+const ORDER_ROUNDS = 12;
+const COORD_ROUNDS = 40;
 
-/** Compute a generation-banded layout, de-overlapping nodes within each row. */
-export function computeLayout(people: Person[]): Layout {
-  const byGen: Record<number, Person[]> = {};
-  for (const p of people) (byGen[p.gen] ??= []).push(p);
-  const gens = Object.keys(byGen)
-    .map(Number)
-    .sort((a, b) => a - b);
+/** Parent / child / spouse adjacency for the layout, restricted to the people actually
+ * being laid out — a union member absent from `ids` (e.g. an ancestor outside the SVG
+ * export's generation window) is skipped, never dereferenced. */
+interface LayoutAdj {
+  parents: Map<string, string[]>;
+  children: Map<string, string[]>;
+  spouses: Map<string, string[]>;
+}
+
+function buildLayoutAdj(ids: Set<string>, unions: Union[]): LayoutAdj {
+  const parents = new Map<string, string[]>();
+  const children = new Map<string, string[]>();
+  const spouses = new Map<string, string[]>();
+  const push = (m: Map<string, string[]>, k: string, v: string): void => {
+    const a = m.get(k);
+    if (a) {
+      if (!a.includes(v)) a.push(v);
+    } else m.set(k, [v]);
+  };
+  for (const u of unions) {
+    const ps = u.parents.filter((id) => ids.has(id));
+    const cs = (u.children ?? []).filter((id) => ids.has(id));
+    for (const c of cs)
+      for (const p of ps) {
+        push(parents, c, p);
+        push(children, p, c);
+      }
+    for (let i = 0; i < ps.length; i++)
+      for (let j = i + 1; j < ps.length; j++) {
+        push(spouses, ps[i], ps[j]);
+        push(spouses, ps[j], ps[i]);
+      }
+  }
+  return { parents, children, spouses };
+}
+
+/** Mean of the given numbers, or `null` when the list is empty. */
+function meanOf(vals: number[]): number | null {
+  if (!vals.length) return null;
+  return vals.reduce((s, v) => s + v, 0) / vals.length;
+}
+
+/**
+ * L2 isotonic regression by pool-adjacent-violators: the non-decreasing sequence closest
+ * (least squares) to `e`. The building block for order-preserving, minimum-gap placement.
+ */
+function isotonic(e: number[]): number[] {
+  const val: number[] = [];
+  const wt: number[] = [];
+  for (const x of e) {
+    let v = x;
+    let w = 1;
+    while (val.length && val[val.length - 1] > v) {
+      const pv = val.pop() as number;
+      const pw = wt.pop() as number;
+      v = (v * w + pv * pw) / (w + pw);
+      w += pw;
+    }
+    val.push(v);
+    wt.push(w);
+  }
+  const out: number[] = [];
+  for (let k = 0; k < val.length; k++) for (let j = 0; j < wt[k]; j++) out.push(val[k]);
+  return out;
+}
+
+/**
+ * Place ordered nodes as close as possible (least squares) to their `desired` positions
+ * while keeping the input order and at least `gap` between neighbours. Substituting
+ * `z[i] = x[i] - i*gap` turns the min-gap constraint into monotonicity, solved by
+ * {@link isotonic}.
+ */
+function placeRow(desired: number[], gap: number): number[] {
+  const z = isotonic(desired.map((d, i) => d - i * gap));
+  return z.map((v, i) => v + i * gap);
+}
+
+/**
+ * Generation-banded pedigree layout. Bands people by their (authoritative) `gen`, orders
+ * each row to keep couples adjacent and reduce edge crossings, then assigns x-coordinates
+ * so children sit centred under their parents and partners sit side by side.
+ *
+ * The heavy lifting lives here, at render time, rather than in the stored `Person.x`: that
+ * field is only ever a partial hint (hand-authored in the seed, a barycentre pass in
+ * {@link layoutFromGraph} for imports, a local guess in `linkRelative`), so doing the real
+ * placement here fixes every source uniformly. `gen` stays authoritative input and is never
+ * re-derived (it also drives relationship labels); only horizontal order/position is owned
+ * here. Ordering and coordinates seed from the stored `x` order, so the result is stable and
+ * a decent starting point is preserved.
+ *
+ * `unions` is optional: with none given (e.g. Overview, which reads only the gen range) this
+ * degrades to a de-overlapped row packing. Pure and deterministic — fixed sweep counts, and
+ * every tie broken by the record's own order (`fileIndex`).
+ */
+export function computeLayout(people: Person[], unions: Union[] = []): Layout {
+  const ids = new Set(people.map((p) => p.id));
+  const adj = buildLayoutAdj(ids, unions);
+  const fileIndex = new Map(people.map((p, i) => [p.id, i]));
+
+  const byGen = new Map<number, Person[]>();
+  for (const p of people) {
+    const a = byGen.get(p.gen);
+    if (a) a.push(p);
+    else byGen.set(p.gen, [p]);
+  }
+  const gens = [...byGen.keys()].sort((a, b) => a - b);
   const minGen = gens[0] ?? 0;
   const maxGen = gens[gens.length - 1] ?? 0;
-  const pos: Record<string, LayoutNode> = {};
-  let maxX = 0;
+
+  // --- ordering: keep couples adjacent, reduce crossings ---
+  const order = new Map<number, string[]>();
   for (const g of gens) {
-    const row = byGen[g].slice().sort((a, b) => a.x - b.x);
-    let cur = -1e9;
-    for (const p of row) {
-      const x = Math.max(p.x, cur + MIN_SPACING);
-      cur = x;
-      const y = 40 + (g - minGen) * GEN_HEIGHT;
-      pos[p.id] = { x, y, cy: y + 24 };
-      if (x > maxX) maxX = x;
+    const row = byGen
+      .get(g)!
+      .slice()
+      .sort((a, b) => a.x - b.x || fileIndex.get(a.id)! - fileIndex.get(b.id)!);
+    order.set(
+      g,
+      row.map((p) => p.id),
+    );
+  }
+  const indexInRow = (): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const g of gens) order.get(g)!.forEach((id, i) => m.set(id, i));
+    return m;
+  };
+  for (let r = 0; r < ORDER_ROUNDS; r++) {
+    const down = r % 2 === 0;
+    const sweep = down ? gens : [...gens].reverse();
+    const idx = indexInRow();
+    for (const g of sweep) {
+      const row = order.get(g)!;
+      // Barycentre of a node's neighbours one generation away, in the swept direction.
+      const bary = (id: string): number | null =>
+        meanOf(((down ? adj.parents.get(id) : adj.children.get(id)) ?? []).map((n) => idx.get(n)!));
+      // Share the key across a couple so partners sort together (and land between their
+      // two families when both are placed). Falls back to current index when unanchored.
+      const key = new Map<string, number>();
+      row.forEach((id, i) => {
+        const group = [bary(id), ...(adj.spouses.get(id) ?? []).map((s) => bary(s))].filter(
+          (v): v is number => v != null,
+        );
+        key.set(id, group.length ? (meanOf(group) as number) : i);
+      });
+      const sorted = row
+        .slice()
+        .sort((a, b) => key.get(a)! - key.get(b)! || idx.get(a)! - idx.get(b)!);
+      order.set(g, sorted);
+      sorted.forEach((id, i) => idx.set(id, i));
     }
   }
+
+  // --- coordinate assignment: children centred under parents, partners side by side ---
+  const x = new Map<string, number>();
+  for (const g of gens) order.get(g)!.forEach((id, i) => x.set(id, i * H_GAP));
+  for (let r = 0; r < COORD_ROUNDS; r++) {
+    const down = r % 2 === 0;
+    const sweep = down ? gens : [...gens].reverse();
+    for (const g of sweep) {
+      const row = order.get(g)!;
+      // Balance the parent-side and child-side barycentres (each counted once, so a large
+      // sibship doesn't outvote two parents), blended with the spouse's target so couples
+      // share a centre. Unanchored nodes hold position.
+      const want = (id: string): number | null => {
+        const pm = meanOf((adj.parents.get(id) ?? []).map((n) => x.get(n)!));
+        const cm = meanOf((adj.children.get(id) ?? []).map((n) => x.get(n)!));
+        return meanOf([pm, cm].filter((v): v is number => v != null));
+      };
+      const desired = row.map((id) => {
+        const group = [want(id), ...(adj.spouses.get(id) ?? []).map((s) => want(s))].filter(
+          (v): v is number => v != null,
+        );
+        return group.length ? (meanOf(group) as number) : x.get(id)!;
+      });
+      placeRow(desired, H_GAP).forEach((v, i) => x.set(row[i], v));
+    }
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  for (const v of x.values()) {
+    if (v < minX) minX = v;
+    if (v > maxX) maxX = v;
+  }
+  if (!Number.isFinite(minX)) {
+    minX = 0;
+    maxX = 0;
+  }
+
+  const pos: Record<string, LayoutNode> = {};
+  for (const p of people) {
+    const px = (x.get(p.id) ?? 0) - minX + LEFT_MARGIN;
+    const y = 40 + (p.gen - minGen) * GEN_HEIGHT;
+    pos[p.id] = { x: px, y, cy: y + 24 };
+  }
+
   return {
     pos,
     minGen,
     maxGen,
     gens,
-    cw: maxX + 150,
+    cw: maxX - minX + LEFT_MARGIN + 150,
     ch: 40 + (maxGen - minGen) * GEN_HEIGHT + 120,
   };
 }
@@ -260,9 +444,13 @@ export function segments(unions: Union[], pos: Record<string, LayoutNode>): Segm
       const busY = pos[kids[0]].y - 22;
       if (py != null) segs.push({ x1: mx, y1: py, x2: mx, y2: busY });
       const cxs = kids.map((id) => pos[id].x);
-      const minX = Math.min(...cxs);
-      const maxX = Math.max(...cxs);
-      if (maxX !== minX) segs.push({ x1: minX, y1: busY, x2: maxX, y2: busY });
+      // The sibling bus must span the children AND the descent point (mx) so the drop line
+      // from the parents always lands on it — coordinate assignment centres children under
+      // their parents, but cross-union spacing in a shared row can still nudge mx just
+      // outside the children's own span, which previously left the drop line disconnected.
+      const busMinX = Math.min(...cxs, py != null ? mx : Number.POSITIVE_INFINITY);
+      const busMaxX = Math.max(...cxs, py != null ? mx : Number.NEGATIVE_INFINITY);
+      if (busMaxX !== busMinX) segs.push({ x1: busMinX, y1: busY, x2: busMaxX, y2: busY });
       for (const cid of kids)
         segs.push({ x1: pos[cid].x, y1: busY, x2: pos[cid].x, y2: pos[cid].y });
     }

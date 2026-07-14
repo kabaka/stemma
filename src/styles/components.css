@@ -596,6 +596,12 @@ textarea.field {
   color: var(--text-dim);
   text-align: center;
   pointer-events: none;
+  /* Cap the label a hair under the row's H_GAP (96px centre-to-centre, see computeLayout)
+     so a long name truncates with an ellipsis instead of colliding with its neighbours —
+     the full name stays in the node's accessible name, its hover title, and the drawer. */
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pedigree-node__years {
   position: absolute;
