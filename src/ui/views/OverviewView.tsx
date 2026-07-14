@@ -20,7 +20,7 @@ export function OverviewView() {
   const asOf = useAsOfYear();
 
   const relCount = record.people.length - 1;
-  const layout = computeLayout(record.people);
+  const layout = computeLayout(record.people, record.unions);
   const genCount = layout.maxGen - layout.minGen + 1;
   const distinctConds = new Set(record.people.flatMap((p) => condIds(p))).size;
   const referralCount = flags.filter((f) => f.severity === 'referral').length;

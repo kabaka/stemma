@@ -50,7 +50,10 @@ export function buildPedigreeSvg(
   const g0 = proband ? proband.gen : 0;
   // A four-generation window centred on the proband, matching the prototype.
   const included = record.people.filter((p) => p.gen >= g0 - 2 && p.gen <= g0 + 1);
-  const { pos } = computeLayout(included);
+  // Lay out only the windowed people, but with the full union set — `computeLayout` and
+  // `segments` both ignore union members that fall outside `included`, so cross-window
+  // parentage links are simply not drawn rather than crashing.
+  const { pos } = computeLayout(included, record.unions);
   const nodes = included.filter((p) => pos[p.id]);
   if (!nodes.length) {
     return '<svg xmlns="http://www.w3.org/2000/svg" width="100%"></svg>';

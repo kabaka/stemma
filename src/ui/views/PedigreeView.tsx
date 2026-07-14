@@ -165,7 +165,7 @@ export function PedigreeView() {
   }, [selectedId, record.people]);
 
   const { pos, cw, ch, gens, minGen, segs } = useMemo(() => {
-    const layout = computeLayout(record.people);
+    const layout = computeLayout(record.people, record.unions);
     return { ...layout, segs: segments(record.unions, layout.pos) };
   }, [record.people, record.unions]);
 
@@ -671,7 +671,7 @@ const PedigreeNode = memo(function PedigreeNode({
           {sabLabel(sab)}
         </span>
       )}
-      <div aria-hidden="true" className="pedigree-node__name">
+      <div aria-hidden="true" className="pedigree-node__name" title={person.name}>
         {person.name}
       </div>
       {years && (

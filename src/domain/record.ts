@@ -160,17 +160,19 @@ export function deriveGenerations(people: Person[], unions: Union[]): Map<string
 }
 
 /**
- * Assign `gen` and `x` layout coordinates to every person from the union graph, returning
- * a new record — the structural placement step for a record built from external parentage
- * (GEDCOM import, future FHIR-pull) that has no layout of its own. Distinct from, and a
- * predecessor to, `computeLayout` (`src/domain/graph.ts`): this derives the stored
- * `gen`/`x` from the graph; `computeLayout` later turns those into de-overlapped pixels.
+ * Assign `gen` and a seed `x` to every person from the union graph, returning a new record
+ * — the structural placement step for a record built from external parentage (GEDCOM
+ * import, future FHIR-pull) that has no layout of its own.
  *
- * Generations come from {@link deriveGenerations}; within each generation people are
- * ordered by the average horizontal position of their parents (a barycentre pass,
- * top-down) so children sit under their parents and edge crossings are reduced, then
- * spaced evenly. People with no placed parents (e.g. a married-in partner) keep the
- * record's own order and trail the positioned family. Pure and deterministic.
+ * `gen` (from {@link deriveGenerations}) is authoritative and consumed throughout the app
+ * (relationship labels, banding). The `x` it assigns is only a *seed ordering* hint: the
+ * real horizontal placement — children centred under parents, partners adjacent, crossing
+ * reduction — is done at render time by `computeLayout` (`src/domain/graph.ts`), which
+ * re-derives position from the union graph for every record source uniformly. So this pass
+ * just needs to produce a sensible left-to-right order for each generation, which it does
+ * by ordering on the barycentre of already-placed parents (top-down); married-in partners
+ * with no placed parents keep the record's own order and trail the positioned family. Pure
+ * and deterministic.
  */
 export function layoutFromGraph(record: FamilyRecord): FamilyRecord {
   const gen = deriveGenerations(record.people, record.unions);

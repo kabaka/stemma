@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
 import { buildCatalog } from '@/domain/catalog';
+import { layoutFromGraph } from './record';
+import type { FamilyRecord, Person, Union } from './types';
 import { detectPatterns, familyFindings } from './patterns';
 import {
   ancestors,
@@ -12,6 +14,8 @@ import {
   parentsOf,
   relationInfo,
   segments,
+  type LayoutNode,
+  type Segment,
 } from './graph';
 
 const record = seedRecord();
@@ -112,18 +116,104 @@ describe('degree labels', () => {
 });
 
 describe('computeLayout', () => {
-  it('bands people by generation and de-overlaps rows', () => {
-    const layout = computeLayout(record.people);
+  it('bands people by generation and returns a position for everyone', () => {
+    const layout = computeLayout(record.people, record.unions);
     expect(layout.minGen).toBe(0);
     expect(layout.maxGen).toBe(4);
     expect(Object.keys(layout.pos)).toHaveLength(record.people.length);
     // Generation 0 sits above generation 4.
     expect(layout.pos.walter.y).toBeLessThan(layout.pos.zoe.y);
   });
+
+  it('keeps at least the minimum horizontal gap between neighbours in a row', () => {
+    const layout = computeLayout(record.people, record.unions);
+    for (const g of layout.gens) {
+      const xs = record.people
+        .filter((p) => p.gen === g)
+        .map((p) => layout.pos[p.id].x)
+        .sort((a, b) => a - b);
+      for (let i = 1; i < xs.length; i++) {
+        expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(95); // H_GAP (96) minus rounding slack
+      }
+    }
+  });
+
+  it('is deterministic — the same record lays out identically twice (idempotent)', () => {
+    const a = computeLayout(record.people, record.unions);
+    const b = computeLayout(record.people, record.unions);
+    expect(a.pos).toEqual(b.pos);
+    expect(a.cw).toBe(b.cw);
+    expect(a.ch).toBe(b.ch);
+  });
+
+  it('centres a couple’s children under the middle of their partner bar', () => {
+    const layout = computeLayout(record.people, record.unions);
+    // Robert + Susan → Jack, Maya, Emma. The midpoint of the parents should sit within the
+    // horizontal span of their children (so the drop line lands on the sibling bus).
+    const mx = (layout.pos.robert.x + layout.pos.susan.x) / 2;
+    const kidsX = ['jack', 'you', 'emma'].map((id) => layout.pos[id].x);
+    expect(mx).toBeGreaterThanOrEqual(Math.min(...kidsX) - 1);
+    expect(mx).toBeLessThanOrEqual(Math.max(...kidsX) + 1);
+  });
+
+  it('works without unions (Overview call site) — still bands by generation', () => {
+    const layout = computeLayout(record.people);
+    expect(layout.minGen).toBe(0);
+    expect(layout.maxGen).toBe(4);
+    expect(Object.keys(layout.pos)).toHaveLength(record.people.length);
+  });
+
+  it('handles an empty people list', () => {
+    const layout = computeLayout([], []);
+    expect(layout.pos).toEqual({});
+    expect(layout.gens).toEqual([]);
+  });
 });
 
+/** Does the point `(x, busY)` — where the parents' drop line ends — actually sit on a drawn
+ * connector, so the descent is not floating free? True when a horizontal sibling bus at
+ * `busY` spans `x`, OR the descent lands exactly on a child's own vertical drop line (the
+ * single-perfectly-centred-child case, where no horizontal bus is drawn). */
+function descentLands(segs: Segment[], busY: number, x: number, childXs: number[]): boolean {
+  const onBus = segs.some(
+    (s) =>
+      s.y1 === busY &&
+      s.y2 === busY &&
+      x >= Math.min(s.x1, s.x2) - 0.01 &&
+      x <= Math.max(s.x1, s.x2) + 0.01,
+  );
+  return onBus || childXs.some((cx) => Math.abs(cx - x) <= 0.01);
+}
+
+/** For every union with children, the drop line from the parents' midpoint must connect to
+ * the sibling bus (or a child directly). Returns the ids of any union whose descent floats
+ * free — the exact defect the fix targets. */
+function disconnectedUnions(unions: Union[], pos: Record<string, LayoutNode>): string[][] {
+  const segs = segments(unions, pos);
+  const bad: string[][] = [];
+  for (const u of unions) {
+    const parts = u.parents.filter((id) => pos[id]);
+    const kids = (u.children ?? []).filter((id) => pos[id]);
+    if (!kids.length) continue;
+    const mx = parts.length
+      ? parts.reduce((s, id) => s + pos[id].x, 0) / parts.length
+      : pos[kids[0]].x;
+    const busY = pos[kids[0]].y - 22;
+    if (
+      !descentLands(
+        segs,
+        busY,
+        mx,
+        kids.map((id) => pos[id].x),
+      )
+    )
+      bad.push(u.parents);
+  }
+  return bad;
+}
+
 describe('segments', () => {
-  const layout = computeLayout(record.people);
+  const layout = computeLayout(record.people, record.unions);
   const segs = segments(record.unions, layout.pos);
 
   it('draws a partner bar between two unioned parents at equal cy', () => {
@@ -133,18 +223,91 @@ describe('segments', () => {
     expect(robert.cy).toBe(susan.cy);
   });
 
-  it("draws a sibling bus spanning Robert+Susan's 3 children (Jack, Maya, Emma)", () => {
+  it("draws a sibling bus spanning at least Robert+Susan's 3 children (Jack, Maya, Emma)", () => {
     const kids = ['jack', 'you', 'emma'].map((id) => layout.pos[id]);
     const busY = kids[0].y - 22;
     const minX = Math.min(...kids.map((k) => k.x));
     const maxX = Math.max(...kids.map((k) => k.x));
-    expect(segs).toContainEqual({ x1: minX, y1: busY, x2: maxX, y2: busY });
+    // Several families' buses share this Y; at least one (theirs) covers the children span
+    // (and, if needed, extends to the parents' descent point).
+    const covers = segs.some(
+      (s) =>
+        s.y1 === busY &&
+        s.y2 === busY &&
+        Math.min(s.x1, s.x2) <= minX + 0.01 &&
+        Math.max(s.x1, s.x2) >= maxX - 0.01,
+    );
+    expect(covers).toBe(true);
   });
 
   it('drops a vertical line from the sibling bus down to each child', () => {
     const jack = layout.pos.jack;
     const busY = jack.y - 22;
     expect(segs).toContainEqual({ x1: jack.x, y1: busY, x2: jack.x, y2: jack.y });
+  });
+
+  it('connects every parent drop line to its sibling bus (no floating descents) in the seed', () => {
+    expect(disconnectedUnions(record.unions, layout.pos)).toEqual([]);
+  });
+});
+
+describe('large / imported tree layout (regression for unreadable connectors)', () => {
+  const mk = (id: string): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen: 0,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+  });
+
+  // An imported-style tree (gen/x derived by layoutFromGraph, exactly as GEDCOM import does):
+  // four founder couples, cross-family marriages, grandchildren — the shape that produced
+  // the reported "descent line floats away from the sibling bus" defect.
+  function importedTree(): FamilyRecord {
+    const people: Person[] = [];
+    const unions: Union[] = [];
+    for (let f = 0; f < 4; f++) {
+      people.push(mk(`f${f}a`), mk(`f${f}b`));
+      unions.push({ parents: [`f${f}a`, `f${f}b`], children: [`c${f}0`, `c${f}1`] });
+      people.push(mk(`c${f}0`), mk(`c${f}1`));
+    }
+    people.push(mk('gc0'), mk('gc1'), mk('gc2'), mk('gc3'));
+    unions.push({ parents: ['c00', 'c10'], children: ['gc0', 'gc1'] });
+    unions.push({ parents: ['c20', 'c30'], children: ['gc2', 'gc3'] });
+    return layoutFromGraph({ people, unions, timeline: [], probandId: 'gc0' });
+  }
+
+  it('connects every parent drop line to its sibling bus', () => {
+    const rec = importedTree();
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
+  });
+
+  it('keeps each couple’s partner bar short (partners adjacent, not spanning the row)', () => {
+    const rec = importedTree();
+    const { pos } = computeLayout(rec.people, rec.unions);
+    for (const u of rec.unions) {
+      if (u.parents.length !== 2) continue;
+      const width = Math.abs(pos[u.parents[0]].x - pos[u.parents[1]].x);
+      expect(width).toBeLessThanOrEqual(96 * 1.5); // within ~1.5 cells, never a row-wide bar
+    }
+  });
+
+  it('lays out a windowed subset with the full union set (SVG export scenario) without crashing', () => {
+    const rec = importedTree();
+    // Mimic pedigree-svg: keep only two generations but pass ALL unions (many now point at
+    // people outside the window). Must not throw and must position every included person.
+    const included = rec.people.filter((p) => p.gen >= 1 && p.gen <= 2);
+    const { pos } = computeLayout(included, rec.unions);
+    expect(Object.keys(pos).sort()).toEqual(included.map((p) => p.id).sort());
+    for (const p of included) expect(Number.isFinite(pos[p.id].x)).toBe(true);
+    // The in-window union (c00×c10 → gc0,gc1) still connects.
+    expect(disconnectedUnions(rec.unions, pos)).toEqual([]);
   });
 });
 

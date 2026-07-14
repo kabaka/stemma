@@ -113,6 +113,52 @@ describe('PedigreeView', () => {
     expect(screen.getByRole('button', { name: /Maya, you,.*born 1988/i })).toBeInTheDocument();
   });
 
+  it('keeps the full name in the accessible name and a hover title when the visual label truncates', () => {
+    // A name wider than the label's max-width (see .pedigree-node__name) truncates visually
+    // with an ellipsis — but the full name must still reach assistive tech (via the button's
+    // accessible name) and sighted mouse users (via the title tooltip), never lost to CSS.
+    const longName = 'Alexandria Constantinides-Okonkwo';
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'you',
+            name: longName,
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1990,
+            death: null,
+            isProband: true,
+            conds: [],
+          },
+          {
+            id: 'kid',
+            name: 'Kid',
+            sab: 'm',
+            gender: 'man',
+            gen: 1,
+            x: 0,
+            dead: false,
+            birth: 2015,
+            death: null,
+            conds: [],
+          },
+        ],
+        unions: [{ parents: ['you'], children: ['kid'] }],
+        timeline: [],
+        probandId: 'you',
+      }),
+    );
+    render(<PedigreeView />);
+    const node = screen.getByRole('button', { name: new RegExp(longName) });
+    const nameEl = node.parentElement!.querySelector('.pedigree-node__name');
+    expect(nameEl).toHaveAttribute('title', longName);
+    expect(nameEl?.textContent).toBe(longName); // text intact; the ellipsis is CSS-only
+  });
+
   it('names every condition so a highlight matching a non-first condition is still explained', async () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
