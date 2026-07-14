@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
@@ -6,6 +6,7 @@ import { OverviewView } from './OverviewView';
 import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
+import { ReportsView } from './ReportsView';
 
 beforeEach(() => useStore.getState().resetRecord());
 
@@ -92,5 +93,46 @@ describe('PedigreeView', () => {
     const dialog = screen.getByRole('dialog', { name: /Maya/i });
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveFocus();
+  });
+});
+
+describe('ReportsView', () => {
+  // Downloads route through the Blob/URL/anchor-click trio, none of which jsdom
+  // actually performs — stub them so a click is observable without a real navigation.
+  let clicks: { href: string; download: string }[];
+
+  beforeEach(() => {
+    clicks = [];
+    // jsdom doesn't implement these at all (not even as a throwing stub), so they must
+    // be assigned outright rather than spied on.
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-url');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicks.push({ href: this.href, download: this.download });
+    });
+  });
+
+  it('downloads the GEDCOM export as a blob URL with the expected filename', async () => {
+    const user = userEvent.setup();
+    render(<ReportsView />);
+    const gedcomCard = screen.getByText('GEDCOM').closest('.card') as HTMLElement;
+    await user.click(within(gedcomCard).getByRole('button', { name: 'Download' }));
+
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].href).toBe('blob:mock-url');
+    expect(clicks[0].download).toBe('stemma-family.ged');
+  });
+
+  it('previews the GEDCOM export as text starting with the GEDCOM header', async () => {
+    const user = userEvent.setup();
+    render(<ReportsView />);
+    const gedcomCard = screen.getByText('GEDCOM').closest('.card') as HTMLElement;
+    await user.click(within(gedcomCard).getByRole('button', { name: 'Preview' }));
+
+    const pre = document.querySelector('pre');
+    expect(pre).toBeTruthy();
+    expect(pre!.textContent).toContain('0 HEAD');
   });
 });

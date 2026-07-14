@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
+import { buildCatalog } from '@/domain/catalog';
+import { detectPatterns, familyFindings } from './patterns';
 import {
   ancestors,
   childrenOf,
@@ -9,10 +11,13 @@ import {
   indexPeople,
   parentsOf,
   relationInfo,
+  segments,
 } from './graph';
 
 const record = seedRecord();
 const idx = indexPeople(record.people, record.unions);
+const catalog = buildCatalog([]);
+const AS_OF = 2026;
 
 describe('parentsOf / childrenOf', () => {
   it('reads genetic edges from unions', () => {
@@ -79,6 +84,21 @@ describe('relationInfo', () => {
     expect(ray.degree).toBe(3);
     expect(ray.rel).toContain('Cousin');
   });
+
+  it('distinguishes paternal vs maternal cousin side', () => {
+    // Ray: son of Tom, Robert's brother — a paternal-side cousin.
+    const ray = relationInfo(idx, 'ray', 'you');
+    // Mia: daughter of Linda, Susan's sister — a maternal-side cousin.
+    const mia = relationInfo(idx, 'mia', 'you');
+    expect(ray.side).toBe('Paternal');
+    expect(mia.side).toBe('Maternal');
+  });
+
+  it('bins a first cousin at the 3rd-degree boundary (r ≈ 0.125)', () => {
+    const ray = relationInfo(idx, 'ray', 'you');
+    expect(ray.degree).toBe(3);
+    expect(ray.r).toBeCloseTo(0.125, 5);
+  });
 });
 
 describe('degree labels', () => {
@@ -99,5 +119,62 @@ describe('computeLayout', () => {
     expect(Object.keys(layout.pos)).toHaveLength(record.people.length);
     // Generation 0 sits above generation 4.
     expect(layout.pos.walter.y).toBeLessThan(layout.pos.zoe.y);
+  });
+});
+
+describe('segments', () => {
+  const layout = computeLayout(record.people);
+  const segs = segments(record.unions, layout.pos);
+
+  it('draws a partner bar between two unioned parents at equal cy', () => {
+    const robert = layout.pos.robert;
+    const susan = layout.pos.susan;
+    expect(segs).toContainEqual({ x1: robert.x, y1: robert.cy, x2: susan.x, y2: susan.cy });
+    expect(robert.cy).toBe(susan.cy);
+  });
+
+  it("draws a sibling bus spanning Robert+Susan's 3 children (Jack, Maya, Emma)", () => {
+    const kids = ['jack', 'you', 'emma'].map((id) => layout.pos[id]);
+    const busY = kids[0].y - 22;
+    const minX = Math.min(...kids.map((k) => k.x));
+    const maxX = Math.max(...kids.map((k) => k.x));
+    expect(segs).toContainEqual({ x1: minX, y1: busY, x2: maxX, y2: busY });
+  });
+
+  it('drops a vertical line from the sibling bus down to each child', () => {
+    const jack = layout.pos.jack;
+    const busY = jack.y - 22;
+    expect(segs).toContainEqual({ x1: jack.x, y1: busY, x2: jack.x, y2: jack.y });
+  });
+});
+
+describe('re-rooting from a non-proband (Helen)', () => {
+  it('still raises the HBOC referral when detectPatterns is rooted at Helen', () => {
+    // Linda (daughter, degree 1, onset 47) and Mia (granddaughter, degree 2, onset 28)
+    // are blood relatives of Helen with early-onset breast cancer.
+    const flags = detectPatterns(seedRecord(), catalog, 'helen', AS_OF);
+    const hboc = flags.find((f) => /hereditary breast/i.test(f.title));
+    expect(hboc).toBeDefined();
+    expect(hboc!.severity).toBe('referral');
+  });
+
+  it('phrases an age-of-onset criterion in the third person ("Helen is"), not "you are"', () => {
+    const rerooted = seedRecord();
+    // Rosa is Helen's mother (1st-degree). Her age-of-onset (82) lands within the proximity
+    // window of Helen's own age (84 in AS_OF 2026), which the unmodified seed never triggers.
+    rerooted.people.find((p) => p.id === 'rosa')!.conds.push({ id: 'oa', onset: 82, prov: 'self' });
+    const flags = detectPatterns(rerooted, catalog, 'helen', AS_OF);
+    const alert = flags.find((f) => /age-of-onset/i.test(f.title));
+    expect(alert).toBeDefined();
+    expect(alert!.criterion).toMatch(/Helen is 84/);
+    expect(alert!.criterion).not.toMatch(/you are/i);
+  });
+
+  it("marks Helen's own condition as Diagnosed in familyFindings rooted at Helen", () => {
+    const findings = familyFindings(seedRecord(), catalog, 'helen');
+    const brca = findings.find((f) => f.id === 'brca');
+    expect(brca).toBeDefined();
+    expect(brca!.diagnosed).toBe(true);
+    expect(brca!.band).toBe('Diagnosed');
   });
 });

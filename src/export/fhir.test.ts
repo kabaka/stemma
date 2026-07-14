@@ -80,4 +80,41 @@ describe('buildFhirBundle', () => {
   it('is deterministic given now', () => {
     expect(build()).toEqual(build());
   });
+
+  it('excludes non-blood relatives (Alex, a spouse by marriage) from FamilyMemberHistory', () => {
+    const fmhs = build()
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirFamilyMemberHistory => r.resourceType === 'FamilyMemberHistory');
+    expect(fmhs.find((f) => f.name === 'Alex')).toBeUndefined();
+  });
+
+  it('marks a deceased relative with deceasedBoolean (Frank)', () => {
+    const fmhs = build()
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirFamilyMemberHistory => r.resourceType === 'FamilyMemberHistory');
+    const frank = fmhs.find((f) => f.name === 'Frank');
+    expect(frank).toBeDefined();
+    expect(frank!.deceasedBoolean).toBe(true);
+  });
+
+  it('omits the condition array for a blood relative with no recorded conditions (Rosa)', () => {
+    // Carol (Tom's wife) is a by-marriage relative and is excluded entirely (see the
+    // "excludes non-blood relatives" test above) — Rosa is a blood great-grandmother
+    // with an empty `conds` array, so she isolates the "no conditions" branch.
+    const fmhs = build()
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirFamilyMemberHistory => r.resourceType === 'FamilyMemberHistory');
+    const rosa = fmhs.find((f) => f.name === 'Rosa');
+    expect(rosa).toBeDefined();
+    expect(rosa!.condition).toBeUndefined();
+  });
+
+  it('codes sex from sex-assigned-at-birth, not gender identity (Ray: gender man, sab AFAB)', () => {
+    const fmhs = build()
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirFamilyMemberHistory => r.resourceType === 'FamilyMemberHistory');
+    const ray = fmhs.find((f) => f.name === 'Ray');
+    expect(ray).toBeDefined();
+    expect(ray!.sex.coding[0].code).toBe('female');
+  });
 });

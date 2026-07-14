@@ -47,4 +47,25 @@ describe('buildPhenopacket', () => {
       buildPhenopacket(seedRecord(), catalog, OPTS),
     );
   });
+
+  it('marks a deceased affected relative DECEASED in vitalStatus (Frank)', () => {
+    const pp = buildPhenopacket(seedRecord(), catalog, OPTS);
+    const frank = pp.relatives.find((r) => r.subject.id === 'frank');
+    expect(frank).toBeDefined();
+    expect(frank!.subject.vitalStatus?.status).toBe('DECEASED');
+  });
+
+  it('derives paternal/maternal pedigree ids from sex assigned at birth (Ray)', () => {
+    const pp = buildPhenopacket(seedRecord(), catalog, OPTS);
+    const ray = pp.pedigree.persons.find((x) => x.individualId === 'ray');
+    expect(ray?.paternalId).toBe('tom');
+    expect(ray?.maternalId).toBe('carol');
+  });
+
+  it('marks a condition-free relative UNAFFECTED and excludes them from relatives (Carol)', () => {
+    const pp = buildPhenopacket(seedRecord(), catalog, OPTS);
+    const carol = pp.pedigree.persons.find((x) => x.individualId === 'carol');
+    expect(carol?.affectedStatus).toBe('UNAFFECTED');
+    expect(pp.relatives.find((r) => r.subject.id === 'carol')).toBeUndefined();
+  });
 });

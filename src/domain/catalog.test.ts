@@ -62,6 +62,36 @@ describe('catalog search', () => {
     const hits = catalog.search('', new Set(['htn']));
     expect(hits.map((h) => h.id)).not.toContain('htn');
   });
+
+  it('caps the number of results returned', () => {
+    // A single common letter matches far more than 3 of the 115 curated conditions.
+    const hits = catalog.search('a', undefined, 3);
+    expect(hits).toHaveLength(3);
+  });
+
+  it('ranks match tiers: exact > name-prefix > word-boundary > synonym-substring', () => {
+    // A small crafted catalog isolates one condition per tier against the same query,
+    // so the only thing under test is score ordering, not which real conditions match.
+    const tiered = createCatalog(
+      [
+        { id: 'c-exact', name: 'Cat', cat: 'other', base: 0, pattern: '—' },
+        { id: 'c-prefix', name: 'Catalepsy', cat: 'other', base: 0, pattern: '—' },
+        { id: 'c-wordb', name: 'Scratch Cat Fever', cat: 'other', base: 0, pattern: '—' },
+        {
+          id: 'c-synsub',
+          name: 'Unrelated Finding',
+          cat: 'other',
+          base: 0,
+          pattern: '—',
+          syn: ['Advocate Something'], // "advocate" contains "cat" mid-word, not as a prefix
+        },
+      ],
+      [],
+      CATEGORY_LABELS,
+    );
+    const hits = tiered.search('cat').map((h) => h.id);
+    expect(hits).toEqual(['c-exact', 'c-prefix', 'c-wordb', 'c-synsub']);
+  });
 });
 
 describe('fallbackCondition', () => {
