@@ -28,13 +28,13 @@ monolith into typed, tested modules."
 | Area | Status | Notes |
 | --- | --- | --- |
 | Framework | ✅ | React 18 + TypeScript (strict) + Vite 5; off the `dc-runtime` entirely. |
-| Architecture | ✅ | Layered: pure `domain/` engine, `data/`, `integrations/`, `export/`, `store/`, `ui/`. See ARCHITECTURE.md. |
-| Domain port | ✅ | Kinship math, the pattern engine, screening, catalog — ported to typed modules, part of a **148-test** suite. |
+| Architecture | ✅ | Layered: pure `domain/` engine, `data/`, `integrations/`, `export/`, `import/`, `store/`, `ui/`. See ARCHITECTURE.md. |
+| Domain port | ✅ | Kinship math, the pattern engine, screening, catalog — ported to typed modules, part of a **202-test** suite. |
 | Condition catalog | ✅ | 115 curated conditions generated from the prototype + **verified ICD-10-CM** (23 high-signal) & SNOMED codes. |
 | Long-tail vocabulary | ✅ | `VocabularyProvider` port + NLM Clinical Tables provider (CORS, no key) — the app is **not** capped at 115 conditions. |
 | Standards export | ✅ | FHIR R4, Phenopacket v2, GEDCOM 5.5.1, pedigree SVG — all generated client-side. |
 | Linting / formatting | ✅ | ESLint 9 (flat) + Prettier; `npm run check` is the gate. |
-| Tests | ✅ | Vitest + Testing Library; 148 tests across domain, store, exports, integrations, and UI. |
+| Tests | ✅ | Vitest + Testing Library; 202 tests across domain, store, exports, imports, integrations, and UI. |
 | CI/CD | ✅ | GitHub Actions: `check` + build on PRs; Pages deploy on `main`. |
 | GitHub Pages | ✅ | Static build with the correct `base`; deploy workflow in place. |
 | LICENSE | ✅ | MIT. |
@@ -43,8 +43,8 @@ monolith into typed, tested modules."
 
 **Deliberately deferred** (documented, not built): a backend / sync, e2e-encrypted
 multi-tenant hosting, live CanRisk/PubMed calls (CORS/licence-gated), record import
-(OCR/FHIR-pull/GEDCOM-in/DNA), and the AI summarization layer. These are the roadmap
-below.
+(OCR/FHIR-pull/DNA — GEDCOM-in has since shipped, see Phase 3 below), and the AI
+summarization layer. These are the roadmap below.
 
 ## 3. Product roadmap
 
@@ -76,7 +76,12 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
   (`.ics`), and a printable "bring to your appointment" sheet.
 
 ### Phase 3 — Import pipelines (kill the retyping)
-- **GEDCOM import** (ideation §4) — reuse an existing family tree for the relationship graph.
+- **GEDCOM import** ✅ (ideation §4) — reuse an existing family tree for the relationship graph.
+  Shipped as `src/import/` (`parseGedcom` + `buildRecordFromGedcom`), the inverse of the export
+  layer. Scope is structural only — people and the parent/child graph; a genealogy file carries no
+  health data, so conditions are still entered in Stemma after import. See
+  [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
+  [ADR-008](./ARCHITECTURE.md#adr-008--gedcom-import-is-structural-only-via-a-new-import-layer).
 - **FHIR pull** from a patient portal / Apple Health (SMART on FHIR) (ideation §4).
 - **Record OCR/parse** for uploaded documents (ideation §6).
 - **Consumer DNA raw-file parse**, heavily caveated (ideation §3).
@@ -106,7 +111,7 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 | IHME GBD / CDC | Prevalence & heritability | Baked in | Phase 1 |
 | FHIR (portals, Apple Health) | Import & export | Export ✅; import needs SMART auth | Export live / import Phase 3 |
 | GA4GH Phenopacket / Pedigree | Genetics export | ✅ client-side | **Live** |
-| GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import Phase 3 | Export live |
+| GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import ✅ (GEDCOM 5.5.1, client-side) | **Live** |
 | RxNorm / openFDA / DailyMed | Medication normalization | Needs proxy | Phase 2–3 |
 | CanRisk, PREMM5, ASCVD | Validated risk models | Needs backend (keys/CORS) | Phase 4 |
 | PubMed | Evidence for the AI layer | Needs backend | Phase 5 |

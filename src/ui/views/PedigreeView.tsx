@@ -5,6 +5,7 @@ import { computeLayout, segments } from '@/domain/graph';
 import { condIds, defaultOrgans, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
 import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
+import { GedcomImport } from '../components/GedcomImport';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import type { Catalog } from '@/domain/catalog';
 import type { CategoryKey, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
@@ -24,6 +25,7 @@ interface CanvasStyle extends CSSProperties {
 }
 
 const CONFIRM_LOAD_SAMPLE = 'Load the example family? This replaces your current record.';
+const CONFIRM_IMPORT = 'Import this family tree? This replaces your current record.';
 
 /** True only for the record's untouched default shape — a single proband still named
  * "You", with no birth year and no conditions recorded. The one case where swapping it
@@ -112,9 +114,11 @@ export function PedigreeView() {
   const selectPerson = useStore((s) => s.selectPerson);
   const loadSample = useStore((s) => s.loadSample);
   const resetRecord = useStore((s) => s.resetRecord);
+  const replaceRecord = useStore((s) => s.replaceRecord);
   const catalog = useCatalog();
 
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [hlMode, setHlModeRaw] = useState<HlMode>('cond');
   // The active condition id (mode 'cond') or category key (mode 'cat'). The prototype
   // tracks these as two separate nullable fields, but they're never both set at
@@ -129,20 +133,26 @@ export function PedigreeView() {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIsEmpty = useRef(isEmpty);
   const prevAdding = useRef(adding);
-  // loadSample()/resetRecord() swap the record without unmounting this view, so
+  const prevImporting = useRef(importing);
+  // loadSample()/resetRecord()/import swap the record without unmounting this view, so
   // whatever was focused — the header's own "Reset to empty"/"Load example family", or
   // the empty state's — can vanish out from under the user, dropping focus to <body>.
-  // Same when the add-relative form closes (Cancel/Submit unmount themselves). Move
-  // focus to the stable page heading on exactly those transitions: never on mount, and
-  // never when the add form merely *opens* (its own toggle button stays put, so nothing
-  // is lost there) — matching the focus discipline PersonDrawer uses for the drawer.
+  // Same when the add-relative or import form closes (Cancel/Submit unmount themselves).
+  // Move focus to the stable page heading on exactly those transitions: never on mount,
+  // and never when a form merely *opens* (its own toggle button stays put, so nothing is
+  // lost there) — matching the focus discipline PersonDrawer uses for the drawer.
   useEffect(() => {
     const emptyChanged = prevIsEmpty.current !== isEmpty;
-    const addFormClosed = prevAdding.current && !adding;
-    if (emptyChanged || addFormClosed) titleRef.current?.focus();
+    // "A panel was open and now none is" — evaluated across BOTH panels together. Switching
+    // from Add to Import (or back) closes one as the other opens, which must NOT count as a
+    // close: doing so would yank focus to the heading away from the toggle just pressed.
+    const wasOpen = prevAdding.current || prevImporting.current;
+    const isOpen = adding || importing;
+    if (emptyChanged || (wasOpen && !isOpen)) titleRef.current?.focus();
     prevIsEmpty.current = isEmpty;
     prevAdding.current = adding;
-  }, [isEmpty, adding]);
+    prevImporting.current = importing;
+  }, [isEmpty, adding, importing]);
 
   const { pos, cw, ch, gens, minGen, segs } = useMemo(() => {
     const layout = computeLayout(record.people);
@@ -191,17 +201,28 @@ export function PedigreeView() {
     return hasCond(p, activeId);
   };
 
-  // loadSample()/resetRecord() swap the whole record without unmounting this view, so
-  // the local highlight/add-form state above must be cleared on every swap — otherwise
+  // loadSample()/resetRecord()/import swap the whole record without unmounting this view,
+  // so the local highlight/add-form state above must be cleared on every swap — otherwise
   // a stale `activeId` outlives the record it was computed against (nothing in the new
   // record matches it, so the whole tree dims with no chip showing as active) and a
-  // stale AddRelative `anchor` can mis-attach to the new proband. Every record-swap
-  // entry point — both header buttons and the empty state's own loader — routes through
-  // this helper so none of them can forget.
+  // stale AddRelative `anchor` can mis-attach to the new proband. Every record-swap entry
+  // point — the header buttons, the empty state's own loader, and GEDCOM import — routes
+  // through this helper so none of them can forget.
   const swapRecord = (action: () => void): void => {
     action();
     setActiveId(null);
     setAdding(false);
+    setImporting(false);
+  };
+
+  // Opening one header panel closes the other so they never stack in the header.
+  const openAdding = (): void => {
+    setImporting(false);
+    setAdding((v) => !v);
+  };
+  const openImporting = (): void => {
+    setAdding(false);
+    setImporting((v) => !v);
   };
 
   const handleLoadSample = (): void => {
@@ -217,6 +238,13 @@ export function PedigreeView() {
   // untouched default; otherwise prompt exactly like the header button does.
   const handleEmptyLoadSample = (): void => {
     if (isPristineRecord(record) || window.confirm(CONFIRM_LOAD_SAMPLE)) swapRecord(loadSample);
+  };
+  // GEDCOM import replaces the whole record, so it gets the same destructive-swap guard as
+  // "Load example family" — skipped only when the record is still the untouched default.
+  const handleGedcomImport = (imported: FamilyRecord): void => {
+    if (isPristineRecord(record) || window.confirm(CONFIRM_IMPORT)) {
+      swapRecord(() => replaceRecord(imported));
+    }
   };
 
   const canvasStyle: CanvasStyle = { width: cw, height: ch, '--node-size': `${NODE}px` };
@@ -246,6 +274,14 @@ export function PedigreeView() {
               there's a tree to manage — showing both here and there would be redundant. */}
           {!isEmpty && (
             <div className="row wrap" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn--sm"
+                aria-expanded={importing}
+                onClick={openImporting}
+              >
+                {importing ? '✕ close import' : 'Import GEDCOM'}
+              </button>
               <button type="button" className="btn btn--sm" onClick={handleLoadSample}>
                 Load example family
               </button>
@@ -260,7 +296,7 @@ export function PedigreeView() {
                 type="button"
                 className="btn btn--primary btn--sm"
                 aria-expanded={adding}
-                onClick={() => setAdding((v) => !v)}
+                onClick={openAdding}
               >
                 {adding ? '✕ close' : '+ add relative'}
               </button>
@@ -276,6 +312,10 @@ export function PedigreeView() {
         </p>
 
         {adding && <AddRelative onDone={() => setAdding(false)} />}
+
+        {importing && (
+          <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
+        )}
 
         {!isEmpty && (
           <HighlightBar
@@ -294,7 +334,14 @@ export function PedigreeView() {
 
       <div className="pedigree-body">
         {isEmpty ? (
-          <EmptyState onAdd={() => setAdding(true)} onLoadSample={handleEmptyLoadSample} />
+          <EmptyState
+            onAdd={() => {
+              setImporting(false);
+              setAdding(true);
+            }}
+            onImport={openImporting}
+            onLoadSample={handleEmptyLoadSample}
+          />
         ) : (
           <div className="pedigree-scroll">
             <div
@@ -374,17 +421,28 @@ export function PedigreeView() {
 
 /** Shown when the record holds only the proband — never auto-loads the fictional
  * example family; the user opts in explicitly. */
-function EmptyState({ onAdd, onLoadSample }: { onAdd: () => void; onLoadSample: () => void }) {
+function EmptyState({
+  onAdd,
+  onImport,
+  onLoadSample,
+}: {
+  onAdd: () => void;
+  onImport: () => void;
+  onLoadSample: () => void;
+}) {
   return (
     <div className="pedigree-empty">
       <h2 style={{ fontSize: 17, fontWeight: 600 }}>Start your family history</h2>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 380, lineHeight: 1.5 }}>
-        Add relatives one at a time — parents, siblings, children. Stemma looks for hereditary
-        patterns as the tree grows.
+        Add relatives one at a time — or import a family tree you already have (GEDCOM, e.g. from
+        Ancestry). Stemma looks for hereditary patterns as the tree grows.
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 6 }}>
         <button type="button" className="btn btn--primary" onClick={onAdd}>
           + Add relative
+        </button>
+        <button type="button" className="btn" onClick={onImport}>
+          Import GEDCOM
         </button>
         <button type="button" className="btn" onClick={onLoadSample}>
           Load example family

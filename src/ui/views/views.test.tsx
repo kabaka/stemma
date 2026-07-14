@@ -7,6 +7,7 @@ import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
 import { ReportsView } from './ReportsView';
+import { GedcomImport } from '../components/GedcomImport';
 
 // These views are asserted against the example family; the app's real default is empty.
 beforeEach(() => useStore.getState().loadSample());
@@ -322,6 +323,116 @@ describe('PedigreeView — empty record', () => {
     // Cancelled — the edited record must survive untouched.
     expect(useStore.getState().record.people).toHaveLength(1);
     expect(useStore.getState().record.people[0].birth).toBe(1990);
+  });
+});
+
+describe('PedigreeView — GEDCOM import', () => {
+  const SAMPLE = `0 HEAD
+0 @I1@ INDI
+1 NAME Alice /Green/
+1 SEX F
+1 BIRT
+2 DATE 1970
+0 @I2@ INDI
+1 NAME Bob /Green/
+1 SEX M
+1 BIRT
+2 DATE 2000
+0 @F1@ FAM
+1 HUSB @I1@
+1 CHIL @I2@
+0 TRLR
+`;
+  const gedcomFile = () => new File([SAMPLE], 'family.ged', { type: 'text/plain' });
+
+  it('seeds the pedigree from a GEDCOM file chosen in the empty state', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord(); // outer beforeEach loaded the sample; start empty
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+
+    // The parse summary and proband picker appear once the file is read.
+    const picker = await screen.findByRole('combobox', { name: /which of these is you/i });
+    expect(picker).toHaveValue('I1'); // defaults to the first individual
+
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    const record = useStore.getState().record;
+    expect(record.people.map((p) => p.name).sort()).toEqual(['Alice Green', 'Bob Green']);
+    expect(record.probandId).toBe('I1');
+    // And the imported people render into the tree.
+    expect(screen.getByRole('button', { name: /Alice Green/i })).toBeInTheDocument();
+  });
+
+  it('lets the user pick which imported person is the record owner', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+    const picker = await screen.findByRole('combobox', { name: /which of these is you/i });
+
+    await user.selectOptions(picker, 'I2');
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    expect(useStore.getState().record.probandId).toBe('I2');
+    expect(useStore.getState().record.people.find((p) => p.isProband)!.name).toBe('Bob Green');
+  });
+
+  it('confirms before replacing a record that is not the untouched default', async () => {
+    const user = userEvent.setup();
+    // The outer beforeEach loaded the example family, so the record is not pristine.
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<PedigreeView />);
+
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
+    await screen.findByRole('combobox', { name: /which of these is you/i });
+    await user.click(screen.getByRole('button', { name: /import family/i }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    // Cancelled — the original seed family survives untouched.
+    expect(useStore.getState().record.people.some((p) => p.name === 'Maya')).toBe(true);
+  });
+
+  it('the header Import GEDCOM button is a real toggle — a second press closes the panel', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />); // sample family loaded, header cluster visible
+    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
+    // Label swaps to a close affordance while open (aria-expanded is also true).
+    await user.click(screen.getByRole('button', { name: /close import/i }));
+    expect(screen.queryByLabelText(/gedcom file/i)).not.toBeInTheDocument();
+  });
+
+  it('does not steal focus to the heading when switching from Add relative to Import', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /\+ add relative/i }));
+    const importBtn = screen.getByRole('button', { name: /import gedcom/i });
+    await user.click(importBtn);
+    // Focus stays on the toggle the user just pressed, not yanked to the page heading.
+    expect(importBtn).toHaveFocus();
+    expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
+  });
+});
+
+describe('GedcomImport (accessibility)', () => {
+  it('keeps a persistent status region so the async parse summary can be announced', () => {
+    render(<GedcomImport onImport={vi.fn()} onCancel={vi.fn()} />);
+    // Present from first render (empty), so updating its text on parse is announced —
+    // rather than the region being inserted already populated (which SRs may miss).
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('keeps Import family keyboard-discoverable before a file parses (aria-disabled, not disabled)', () => {
+    render(<GedcomImport onImport={vi.fn()} onCancel={vi.fn()} />);
+    const btn = screen.getByRole('button', { name: /import family/i });
+    expect(btn).toBeEnabled(); // still in the tab order
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
   });
 });
 
