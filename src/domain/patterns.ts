@@ -149,15 +149,24 @@ export function detectPatterns(
       );
 
     const reasons = [...referralReasons, ...discussReasons];
-    if (reasons.length)
+    if (reasons.length) {
+      const isReferral = referralReasons.length > 0;
       flags.push({
-        severity: referralReasons.length ? 'referral' : 'discuss',
+        severity: isReferral ? 'referral' : 'discuss',
         cat: 'canc',
         title: 'Hereditary breast & ovarian cancer (HBOC) pattern',
         criterion: reasons.join('; '),
-        rec: 'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage (one side of the family). Consider a genetics referral; enhanced breast screening (annual mammography ± MRI) may be indicated.',
+        // Severity-aware wording (guardrail #1: never overstate). Only the referral path — a
+        // cluster on one lineage, ovarian at any age, or breast < 50 — may say criteria are
+        // met. The discuss path (two breast cancers split across lineages, nothing else)
+        // specifically does NOT meet per-lineage NCCN testing criteria, so it must not claim
+        // it does; it surfaces the finding and routes to a clinician + validated model.
+        rec: isReferral
+          ? 'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage (one side of the family). Consider a genetics referral; enhanced breast screening (annual mammography ± MRI) may be indicated.'
+          : 'Two or more breast cancers are present but not clustered on one lineage, so per-lineage BRCA1/2 testing criteria are not met. Still worth raising with a clinician, who can take a fuller history and run a validated risk model (Tyrer-Cuzick / CanRisk).',
         relatives: [...breast, ...ovarian],
       });
+    }
   }
 
   // --- Lynch syndrome (hereditary colorectal & spectrum) ---

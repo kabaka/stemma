@@ -163,7 +163,16 @@ accessibility, testing) — captured here so nothing is lost:
   the breast-cancer clustering trigger now counts relatives on the same lineage (maternal /
   paternal); 2+ breast cancers that don't concentrate on one recorded side downgrade to "discuss"
   with a prompt to record the side. Ovarian (any age) and breast < 50 stay side-independent
-  referral triggers.
+  referral triggers. **The same-lineage refinement was confirmed against NCCN v1.2025 by the
+  medical-domain-expert** (footnote "o": close relatives are counted "on the same side of the
+  family"), and the "discuss"-branch recommendation text was made severity-aware so it no longer
+  says "meets criteria" (guardrail #1).
+- **HBOC criteria sourcing & ancestry** (Phase 1, from the same sign-off). Cite the young-onset and
+  same-side branches as referral *screening* thresholds, not "NCCN testing criteria met": Stemma
+  flags breast cancer `< 50` (strict NCCN single-relative young-onset is `≤ 45`) and same-side `≥ 2`
+  (strict NCCN is a `≥ 3` same-side aggregate) — both slightly more sensitive, erring toward safety.
+  Also model **Ashkenazi-Jewish ancestry** as an any-age BRCA testing indication (currently not
+  represented).
 - ✅ **Lynch spectrum broadened** (Phase 1). Ovarian and upper-urinary-tract (renal pelvis /
   ureter urothelial) cancers now count toward the Lynch-spectrum tally. Ovarian intentionally
   seeds both HBOC and Lynch (different genes/pathways — a genetics evaluation disambiguates), with
@@ -181,3 +190,32 @@ accessibility, testing) — captured here so nothing is lost:
   view content isn't marked `inert`/`aria-hidden`, so a screen-reader user in browse mode can still
   reach controls behind the backdrop. The clean fix is a portal + `inert` on siblings; it's a
   cross-component change (App + views) deferred from the person-edit work.
+
+### Conversion-gap follow-ups
+
+From the prototype → app faithful-conversion audit ([`GAP-ANALYSIS.md`](./GAP-ANALYSIS.md)) — the
+prototype features dropped or left half-wired during the port, ranked. The engine, catalog, and
+kinship model came over faithfully; these are the real omissions, concentrated in what the app
+_emits_ and _edits_.
+
+- **[High] Printable clinical reports + a print stylesheet** (Phase 2, "bring to your appointment").
+  Restore the three one-pagers the prototype printed — a 3-generation NSGC pedigree, a
+  family-history red-flag summary, and an IPS-style personal-health summary — behind a real
+  `@media print` stylesheet. Today's lone `window.print()` prints the dark app chrome. Each sheet
+  must restate the clinical boundary (guardrail #3).
+- **[High] Native lossless backup + restore** (Phase 3 / no-lock-in). Export the complete record
+  (conditions, onset/provenance, timeline, organs, identity) to a versioned JSON and re-import it.
+  `replaceRecord` already validates and swaps a whole record, so restore is half-built; GEDCOM
+  (structural-only) and FHIR/Phenopacket (lossy) don't cover it. Guardrail #5.
+- **[High] Wire Timeline event editing into the UI.** `updateEvent` exists in the store but no view
+  uses it; add an edit affordance, plus a person picker in the event form so an event can be logged
+  to (or reassigned to) any relative rather than only the currently-viewed person.
+- **[Med] Restore dropped read surfaces.** Overview "Recent activity" (3 newest proband events);
+  the pedigree category-breakdown string ("N relatives · 2× X, 1× Y"); the drawer condition card's
+  inheritance-pattern line.
+- **[Med, guardrail] Re-assert the eroded guardrail copy.** Return the Patterns clinical boundary to
+  a first-class callout (not lede body text) (#3), and restore the drawer's "Screening keys off
+  organs present, not gender." line (#4).
+- **[Low] Cosmetic parity** (batch as capacity allows): proband-relative generation labels
+  (`YOU / ▲ / ▼`), the drawer avatar glyph, click-condition-to-highlight, the timeline spine + type
+  dots, the same-year sort tiebreaker, and the other minor items in GAP-ANALYSIS.md.

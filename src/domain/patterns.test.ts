@@ -125,6 +125,10 @@ describe('detectPatterns (HBOC same-lineage refinement)', () => {
     expect(hboc).toBeDefined();
     expect(hboc!.severity).toBe('discuss');
     expect(hboc!.criterion).toMatch(/not clustered on one lineage/i);
+    // Guardrail #1: a "discuss" flag must not assert that testing criteria are met (the
+    // recommendation text is severity-aware, per the medical-domain-expert sign-off).
+    expect(hboc!.rec).not.toMatch(/meets common criteria/i);
+    expect(hboc!.rec).toMatch(/testing criteria are not met/i);
   });
 
   it('keeps a referral when a single early-onset breast cancer (<50) is present, side aside', () => {
@@ -137,6 +141,8 @@ describe('detectPatterns (HBOC same-lineage refinement)', () => {
     expect(hboc).toBeDefined();
     expect(hboc!.severity).toBe('referral');
     expect(hboc!.criterion).toMatch(/before age 50/i);
+    // The referral path keeps the "meets criteria" language.
+    expect(hboc!.rec).toMatch(/meets common criteria/i);
   });
 
   it('refers on two affected first-degree relatives (siblings share both lineages)', () => {
