@@ -161,6 +161,26 @@ function genderFromSab(sab: Sab): Gender {
   return sab === 'm' ? 'man' : sab === 'f' ? 'woman' : 'nb';
 }
 
+/** Pedigree-linkage values that mark a child as NOT the genetic offspring of a family's
+ * parents. Kept deliberately narrow: only the unambiguous non-biological types. `natural`,
+ * `birth`, `unknown`, `sealed`, `related`, and an absent tag all stay (treated as genetic) —
+ * critically, `unknown` is Ancestry's default for an unspecified-but-biological link, so it
+ * must not be dropped. */
+const NON_BIOLOGICAL_PEDI = new Set(['step', 'adopted', 'adoptive', 'foster', 'guardian']);
+
+/** Whether a GEDCOM `CHIL` link is a step / adopted / foster relationship, from the
+ * `_FREL` (relation to father), `_MREL` (relation to mother), or standard `PEDI` sub-tags.
+ * Any one non-biological relationship excludes the genetic edge for the whole family — a
+ * child biological to one parent but step to the other is not the couple's shared genetic
+ * offspring, and their true parent is captured by their own natural-family record. */
+function isNonBiologicalChild(chil: GedcomNode): boolean {
+  return chil.children.some(
+    (c) =>
+      (c.tag === '_FREL' || c.tag === '_MREL' || c.tag === 'PEDI') &&
+      NON_BIOLOGICAL_PEDI.has(c.value.trim().toLowerCase()),
+  );
+}
+
 /** Parse GEDCOM text into its structural individuals and families. Never throws. */
 export function parseGedcom(text: string): ParsedGedcom {
   const roots = buildTree(text);
@@ -201,6 +221,7 @@ export function parseGedcom(text: string): ParsedGedcom {
 
   const families: GedcomFamily[] = [];
   let dangling = 0;
+  let stepLinks = 0;
   const resolve = (value: string, into: string[]): void => {
     const id = xrefToId(value);
     if (!id) return;
@@ -212,7 +233,16 @@ export function parseGedcom(text: string): ParsedGedcom {
     const children: string[] = [];
     for (const c of n.children) {
       if (c.tag === 'HUSB' || c.tag === 'WIFE') resolve(c.value, parents);
-      else if (c.tag === 'CHIL') resolve(c.value, children);
+      else if (c.tag === 'CHIL') {
+        // Stemma's graph is *genetic* parentage only. A child linked to this family as a
+        // step / adopted / foster relationship (Ancestry's `_FREL`/`_MREL`, or the standard
+        // `PEDI` tag) is not the genetic offspring of these parents, so it must not create a
+        // parentage edge — otherwise a step-parent shows up as a blood relative. The child's
+        // biological parents, when known, come from their own natural-family record. Only
+        // the explicit non-biological types are dropped; `unknown`/`natural`/absent stay.
+        if (isNonBiologicalChild(c)) stepLinks++;
+        else resolve(c.value, children);
+      }
     }
     if (parents.length + children.length > 0) families.push({ parents, children });
   }
@@ -228,6 +258,11 @@ export function parseGedcom(text: string): ParsedGedcom {
   if (duplicateIds) {
     warnings.push(
       `${duplicateIds} ${duplicateIds === 1 ? 'individual shared an id with an earlier record and was' : 'individuals shared ids with earlier records and were'} skipped.`,
+    );
+  }
+  if (stepLinks) {
+    warnings.push(
+      `${stepLinks} step, adopted, or foster ${stepLinks === 1 ? 'child link was' : 'child links were'} not imported as a blood relationship (Stemma tracks genetic parentage).`,
     );
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildRecordFromGedcom, parseGedcom } from './gedcom';
 import { buildGedcom } from '@/export/gedcom';
 import { seedRecord } from '@/data/seed';
+import { indexPeople, parentsOf } from '@/domain/graph';
 
 /** A small, hand-written GEDCOM covering the shapes a real Ancestry-style export uses. */
 const SAMPLE = `0 HEAD
@@ -131,6 +132,50 @@ describe('buildRecordFromGedcom', () => {
     const union = record.unions.find((u) => u.parents.includes('I1'))!;
     expect(union.children).toEqual(['I2']); // @I1@ removed from its own children
     expect(union.children).not.toContain('I1');
+  });
+
+  it('does not link a step / adopted / foster child as genetic offspring (_FREL/_MREL/PEDI)', () => {
+    // Step-son (via _FREL step) and adopted daughter (via PEDI) must NOT create a genetic
+    // parent edge to the step/adoptive father — otherwise he shows up as a blood relative.
+    // A `_MREL unknown` child (Ancestry's default) IS genetic and stays.
+    const text = `0 @I1@ INDI
+1 NAME Step /Dad/
+1 SEX M
+0 @I2@ INDI
+1 NAME Bio /Mum/
+1 SEX F
+0 @I3@ INDI
+1 NAME Step /Son/
+1 SEX M
+0 @I4@ INDI
+1 NAME Adopted /Girl/
+1 SEX F
+0 @I5@ INDI
+1 NAME Own /Kid/
+1 SEX M
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+2 _FREL step
+1 CHIL @I4@
+2 PEDI adopted
+1 CHIL @I5@
+2 _FREL unknown
+2 _MREL unknown
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    const fam = parsed.families[0];
+    expect(fam.children).toEqual(['I5']); // step & adopted excluded, unknown kept
+    expect(parsed.warnings.some((w) => /step, adopted, or foster/.test(w))).toBe(true);
+
+    const record = buildRecordFromGedcom(parsed, 'I5')!;
+    const idx = indexPeople(record.people, record.unions);
+    // The step-parent is not a genetic parent of the step/adopted children.
+    expect(parentsOf(idx, 'I3')).not.toContain('I1');
+    expect(parentsOf(idx, 'I4')).not.toContain('I1');
+    expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // own kid keeps both parents
   });
 });
 

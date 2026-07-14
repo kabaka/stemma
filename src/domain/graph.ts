@@ -223,9 +223,10 @@ interface LayoutAdj {
   /** Person → index of the union they are a *child* of (their sibship), for the first such
    * union that has a placed parent. The unit that must stay contiguous within a row. */
   birthUnion: Map<string, number>;
-  /** Person → index of the first union they are a *parent* of (their primary mating), used
-   * to keep a childless / married-in couple together when neither has a sibship in view. */
-  matingUnion: Map<string, number>;
+  /** Person → co-parents they have at least one child with (child-bearing marriages). These
+   * are the structural couples the ordering makes adjacent first, since their children hang
+   * below them; a childless marriage is only a spouse link. */
+  coParents: Map<string, string[]>;
 }
 
 function buildLayoutAdj(ids: Set<string>, unions: Union[]): LayoutAdj {
@@ -233,7 +234,7 @@ function buildLayoutAdj(ids: Set<string>, unions: Union[]): LayoutAdj {
   const children = new Map<string, string[]>();
   const spouses = new Map<string, string[]>();
   const birthUnion = new Map<string, number>();
-  const matingUnion = new Map<string, number>();
+  const coParents = new Map<string, string[]>();
   const push = (m: Map<string, string[]>, k: string, v: string): void => {
     const a = m.get(k);
     if (a) {
@@ -250,14 +251,17 @@ function buildLayoutAdj(ids: Set<string>, unions: Union[]): LayoutAdj {
         push(children, p, c);
       }
     }
-    for (const p of ps) if (!matingUnion.has(p)) matingUnion.set(p, ui);
     for (let i = 0; i < ps.length; i++)
       for (let j = i + 1; j < ps.length; j++) {
         push(spouses, ps[i], ps[j]);
         push(spouses, ps[j], ps[i]);
+        if (cs.length) {
+          push(coParents, ps[i], ps[j]);
+          push(coParents, ps[j], ps[i]);
+        }
       }
   });
-  return { parents, children, spouses, birthUnion, matingUnion };
+  return { parents, children, spouses, birthUnion, coParents };
 }
 
 /** Mean of the given numbers, or `null` when the list is empty. */
@@ -302,21 +306,25 @@ function placeRow(desired: number[], gap: number): number[] {
 }
 
 /**
- * Reorder one generation's row so that **each sibship stays contiguous**. A sibship — a
- * union's children — is the unit that must never be split by unrelated people, otherwise its
- * sibling bus is drawn across strangers and merges with a neighbour's (the reported
- * "unrelated people share one lineage line" defect). Structurally:
+ * Reorder one generation's row so that **each sibship stays contiguous** and **each couple
+ * sits adjacent**. A sibship (a union's children) must never be split by unrelated people, or
+ * its sibling bus is drawn across strangers and merges with a neighbour's; and a couple —
+ * especially the parents of a nuclear family — must sit side by side, or their partner bar is
+ * drawn straight across everyone between them. Both were reported defects.
  *
- * - every child of the same union shares a group id, so they sort as one block;
- * - a married-in partner (no sibship of their own in view) joins their mate's block and is
- *   placed beside them — a lone spouse to the block's outer edge, a remarried person between
- *   their two spouses (so each marriage's children drop from their own short bar);
- * - blocks are ordered by the barycentre of each sibship's parents, so children sit under
- *   them; within a block, siblings order by the barycentre of *their* children.
+ * The order is built from chains:
+ * - each sibship starts as one chain of full siblings; a sibling who marries into another
+ *   family is nudged toward the chain end nearest that family, so the couple can meet at an end;
+ * - chains are then merged along marriages — child-bearing ones first (their children hang
+ *   below, so they are structural), then childless — joining two chains only when both partners
+ *   sit at a free end, which keeps sibships whole while making the couple adjacent;
+ * - a pure married-in leaf (no sibship, no children — e.g. a third, childless spouse) is held
+ *   out and spliced in beside their mate at the end, so it can never scatter across the row.
  *
- * `idx` is every person's current index within its own row (all generations), the coordinate
- * the barycentres are taken over. Pure and deterministic — sibling ties break by prior
- * position, equal-anchor blocks by their (stable) group id.
+ * Chains are ordered left-to-right by their members' anchor (a child under its parents, a
+ * founder over its children). `idx` is every person's current index within its own row (all
+ * generations), the coordinate the anchors are taken over. Always returns a permutation of
+ * `row`. Pure and deterministic — every step breaks ties by prior position, then id.
  */
 function orderRow(
   row: string[],
@@ -325,45 +333,6 @@ function orderRow(
   unions: Union[],
 ): string[] {
   const inRow = new Set(row);
-  const append = (m: Map<string, string[]>, k: string, v: string): void => {
-    const a = m.get(k);
-    if (a) a.push(v);
-    else m.set(k, [v]);
-  };
-
-  // Group id: sibship members share `s<unionIdx>`; a married-in person joins a sibship
-  // spouse's group; an otherwise-free person shares `m<matingIdx>` with their spouse (keeps a
-  // founder couple together) or is a singleton `o<id>`.
-  const groupId = new Map<string, string>();
-  for (const id of row) {
-    const bu = adj.birthUnion.get(id);
-    if (bu != null) groupId.set(id, `s${bu}`);
-  }
-  // Attach each married-in person to a sibship spouse's group. Iterate to a fixpoint so an
-  // attachment can chain (a spouse of a spouse of a sibling), independent of row order —
-  // monotonic (only ever adds a group), so it settles in at most `row.length` passes.
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const id of row) {
-      if (groupId.has(id)) continue;
-      const host = (adj.spouses.get(id) ?? []).find(
-        (s) => inRow.has(s) && groupId.get(s)?.startsWith('s'),
-      );
-      if (host) {
-        groupId.set(id, groupId.get(host)!);
-        changed = true;
-      }
-    }
-  }
-  // Anyone still unattached: share a group with a free spouse (keeps a founder couple
-  // together) or stand alone.
-  for (const id of row) {
-    if (groupId.has(id)) continue;
-    const mu = adj.matingUnion.get(id);
-    groupId.set(id, mu != null ? `m${mu}` : `o${id}`);
-  }
-
-  const tie = (a: string, b: string): number => idx.get(a)! - idx.get(b)!;
   const childBary = (id: string): number => {
     const m = meanOf(
       (adj.children.get(id) ?? []).filter((c) => idx.has(c)).map((c) => idx.get(c)!),
@@ -371,68 +340,156 @@ function orderRow(
     return m != null ? m : idx.get(id)!;
   };
 
-  const groups = new Map<string, string[]>();
-  for (const id of row) append(groups, groupId.get(id)!, id);
-
-  // Anchor: a sibship sits under its parents' barycentre; a free group over its members' own
-  // children; either falls back to the group's current position.
-  const anchor = new Map<string, number>();
-  for (const [gid, mem] of groups) {
-    const here = meanOf(mem.map((m) => idx.get(m)!))!;
-    if (gid.startsWith('s')) {
-      const par = (unions[Number(gid.slice(1))]?.parents ?? []).filter((p) => idx.has(p));
-      anchor.set(gid, meanOf(par.map((p) => idx.get(p)!)) ?? here);
-    } else {
-      anchor.set(gid, meanOf(mem.map((m) => childBary(m))) ?? here);
-    }
+  // Where each person would like to sit: a child under its parents, a founder over its own
+  // children, a married-in person near a placed spouse; failing all, hold current position.
+  const base = new Map<string, number>();
+  for (const id of row) {
+    const bu = adj.birthUnion.get(id);
+    if (bu == null) continue;
+    const m = meanOf((unions[bu].parents ?? []).filter((p) => idx.has(p)).map((p) => idx.get(p)!));
+    if (m != null) base.set(id, m);
   }
-  const orderedGroups = [...groups.keys()].sort(
-    (a, b) => anchor.get(a)! - anchor.get(b)! || (a < b ? -1 : a > b ? 1 : 0),
+  for (const id of row)
+    if (!base.has(id)) {
+      const m = meanOf(
+        (adj.children.get(id) ?? []).filter((c) => idx.has(c)).map((c) => idx.get(c)!),
+      );
+      if (m != null) base.set(id, m);
+    }
+  for (let r = 0; r < 4; r++)
+    for (const id of row)
+      if (!base.has(id)) {
+        const m = meanOf(
+          (adj.spouses.get(id) ?? []).filter((s) => base.has(s)).map((s) => base.get(s)!),
+        );
+        if (m != null) base.set(id, m);
+      }
+  for (const id of row) if (!base.has(id)) base.set(id, idx.get(id)!);
+
+  // A pure married-in leaf: no sibship and no children in view, tied only by marriage to
+  // someone who IS placed. Held out and inserted beside their mate at the very end, so a third
+  // (childless) marriage cannot scatter across the row or wedge into a nuclear couple.
+  const hasKids = (id: string): boolean => (adj.children.get(id) ?? []).some((c) => inRow.has(c));
+  const inChain = (id: string): boolean => adj.birthUnion.get(id) != null || hasKids(id);
+  const attach = new Set(
+    row.filter(
+      (id) => !inChain(id) && (adj.spouses.get(id) ?? []).some((s) => inRow.has(s) && inChain(s)),
+    ),
   );
 
-  const out: string[] = [];
-  for (const gid of orderedGroups) {
-    const mem = groups.get(gid)!;
-    if (!gid.startsWith('s')) {
-      out.push(...mem.slice().sort((a, b) => childBary(a) - childBary(b) || tie(a, b)));
+  // Sibship chains: full siblings together, a child-bearing-married-out sibling nudged toward
+  // the end nearest their partner's family so the couple can join there.
+  const sibsBy = new Map<number, string[]>();
+  for (const id of row)
+    if (!attach.has(id)) {
+      const bu = adj.birthUnion.get(id);
+      if (bu != null) {
+        const a = sibsBy.get(bu);
+        if (a) a.push(id);
+        else sibsBy.set(bu, [id]);
+      }
+    }
+  const chains: string[][] = [];
+  const chainOf = new Map<string, number>();
+  const addChain = (ids: string[]): void => {
+    const i = chains.length;
+    chains.push(ids);
+    ids.forEach((id) => chainOf.set(id, i));
+  };
+  for (const [bu, sibs] of sibsBy) {
+    const dir = (s: string): number => {
+      const a = meanOf(
+        (adj.coParents.get(s) ?? [])
+          .filter((c) => inRow.has(c) && adj.birthUnion.get(c) !== bu)
+          .map((c) => base.get(c)!),
+      );
+      return a == null ? 0 : a < base.get(s)! ? -1 : a > base.get(s)! ? 1 : 0;
+    };
+    addChain(
+      sibs
+        .slice()
+        .sort(
+          (a, b) => dir(a) - dir(b) || childBary(a) - childBary(b) || idx.get(a)! - idx.get(b)!,
+        ),
+    );
+  }
+  for (const id of row) if (!attach.has(id) && !chainOf.has(id)) addChain([id]);
+
+  // Merge chains so a couple sits adjacent — child-bearing marriages first (structural), then
+  // childless. Two chains join only when both partners are at a free end; otherwise the couple
+  // stays a short cross-family bar rather than tearing a sibship apart.
+  const endSide = (c: string[], id: string): 'L' | 'R' | null =>
+    c[0] === id ? 'L' : c[c.length - 1] === id ? 'R' : null;
+  const mergeAlong = (pairs: [string, string][]): void => {
+    for (const [a, b] of pairs) {
+      if (attach.has(a) || attach.has(b)) continue;
+      const ia = chainOf.get(a)!;
+      const ib = chainOf.get(b)!;
+      if (ia === ib) continue;
+      const ca = chains[ia];
+      const cb = chains[ib];
+      const sa = endSide(ca, a);
+      const sb = endSide(cb, b);
+      if (!sa || !sb) continue;
+      const merged = (sa === 'R' ? ca : ca.slice().reverse()).concat(
+        sb === 'L' ? cb : cb.slice().reverse(),
+      );
+      chains[ia] = merged;
+      chains[ib] = [];
+      merged.forEach((id) => chainOf.set(id, ia));
+    }
+  };
+  const couples = (withKids: boolean): [string, string][] => {
+    const seen = new Set<string>();
+    const out: [string, string][] = [];
+    for (const a of row)
+      for (const b of (withKids ? adj.coParents : adj.spouses).get(a) ?? []) {
+        if (!inRow.has(b)) continue;
+        const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (withKids || !(adj.coParents.get(a) ?? []).includes(b)) out.push([a, b]);
+      }
+    return out.sort(
+      (p, q) =>
+        Math.min(base.get(p[0])!, base.get(p[1])!) - Math.min(base.get(q[0])!, base.get(q[1])!) ||
+        (p[0] < q[0] ? -1 : 1),
+    );
+  };
+  mergeAlong(couples(true));
+  mergeAlong(couples(false));
+
+  const live = chains.filter((c) => c.length);
+  const chainAnchor = (c: string[]): number => meanOf(c.map((id) => base.get(id)!))!;
+  live.sort((a, b) => chainAnchor(a) - chainAnchor(b) || idx.get(a[0])! - idx.get(b[0])!);
+  const flat = live.flat();
+
+  // Splice each held-out married-in spouse in beside their mate, on the side not already taken
+  // by the mate's co-parent (so a nuclear couple stays adjacent). Deterministic by base, id.
+  const posn = new Map(flat.map((id, i) => [id, i]));
+  for (const f of [...attach].sort((a, b) => base.get(a)! - base.get(b)! || (a < b ? -1 : 1))) {
+    const mate = (adj.spouses.get(f) ?? []).find((s) => posn.has(s));
+    if (mate == null) {
+      flat.push(f);
+      posn.set(f, flat.length - 1);
       continue;
     }
-    const sibs = mem
-      .filter((m) => adj.birthUnion.get(m) != null && groupId.get(m) === gid)
-      .sort((a, b) => childBary(a) - childBary(b) || tie(a, b));
-    const frees = mem.filter((m) => adj.birthUnion.get(m) == null);
-    const used = new Set<string>();
-    sibs.forEach((s, i) => {
-      // Only frees not already placed: a person married to two siblings of the SAME sibship
-      // (divorced one, married another) attaches to the first and must not be emitted twice —
-      // duplication here would compound across rounds into a runaway layout.
-      const mine = frees.filter((f) => !used.has(f) && (adj.spouses.get(f) ?? []).includes(s));
-      // A lone spouse goes to the block's outer edge; a remarried sibling sits between two
-      // spouses (spouse-person-spouse), so each marriage bar stays short.
-      const outerLeft = i < sibs.length / 2;
-      const left: string[] = [];
-      const right: string[] = [];
-      mine.forEach((f, k) => ((k % 2 === 0) === outerLeft ? left : right).push(f));
-      for (const f of [...left, s, ...right]) {
-        out.push(f);
-        used.add(f);
-      }
-    });
-    // A married-in person whose only spouse is themselves married-in (no sibling host) —
-    // trail them after the sibship rather than drop them.
-    for (const f of frees) if (!used.has(f)) out.push(f);
+    const mi = posn.get(mate)!;
+    const coLeft = mi > 0 && (adj.coParents.get(mate) ?? []).includes(flat[mi - 1]);
+    flat.splice(coLeft ? mi + 1 : mi, 0, f);
+    flat.forEach((id, i) => posn.set(id, i));
   }
-  return out;
+  return flat;
 }
 
 /**
- * Generation-banded pedigree layout. Bands people by their (authoritative) `gen`, orders
- * each row so every sibship stays contiguous, with a married-in partner beside their mate
- * (see {@link orderRow}), then assigns x-coordinates so children sit centred under their
- * parents. Keeping sibships contiguous is what stops a union's sibling bus from being drawn
- * across unrelated people or merging with a neighbour's. A marriage between two people who
- * each have their own sibship in view keeps both in their block, so its partner bar spans the
- * short gap between the two blocks rather than interleaving them.
+ * Generation-banded pedigree layout. Bands people by their (authoritative) `gen`, orders each
+ * row so every sibship stays contiguous and every couple sits adjacent (see {@link orderRow}),
+ * then assigns x-coordinates so children sit centred under their parents. Sibship contiguity
+ * stops a union's sibling bus from being drawn across unrelated people or merging with a
+ * neighbour's; couple adjacency stops a partner bar from being drawn straight across everyone
+ * between two spouses. A person with three or more marriages can only have two neighbours, so
+ * their least-structural (childless) partner may still sit a short distance away.
  *
  * The heavy lifting lives here, at render time, rather than in the stored `Person.x`: that
  * field is only ever a partial hint (hand-authored in the seed, a barycentre pass in

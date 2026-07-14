@@ -469,6 +469,49 @@ describe('sibship contiguity and remarriage (regression for merged lineage lines
       expect(busOverlaps(rec, pos)).toEqual([]);
     }
   });
+
+  it('places a cross-family couple (with a child) adjacent, not with others drawn between', () => {
+    // Two families each with three children; one child from each marries the other and they
+    // have a child — the reported "bar drawn straight across the row from mother to father,
+    // through unrelated people" case. Their sibships stay contiguous AND the couple is adjacent.
+    const rec = layoutFromGraph({
+      people: ['a1', 'a2', 'b1', 'b2', 'ax', 'ay', 'az', 'bx', 'by', 'bz', 'kid'].map(mk),
+      unions: [
+        { parents: ['a1', 'a2'], children: ['ax', 'ay', 'az'] },
+        { parents: ['b1', 'b2'], children: ['bx', 'by', 'bz'] },
+        { parents: ['ay', 'by'], children: ['kid'] }, // middle children of each family marry
+      ],
+      timeline: [],
+      probandId: 'kid',
+    });
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(Math.abs(pos.ay.x - pos.by.x)).toBeLessThanOrEqual(96 + 0.5); // one cell apart
+    const gen = rec.people.find((p) => p.id === 'ay')!.gen;
+    const lo = Math.min(pos.ay.x, pos.by.x);
+    const hi = Math.max(pos.ay.x, pos.by.x);
+    const between = rec.people
+      .filter((p) => p.gen === gen && pos[p.id].x > lo + 0.5 && pos[p.id].x < hi - 0.5)
+      .map((p) => p.id);
+    expect(between).toEqual([]);
+  });
+
+  it('keeps a nuclear couple adjacent even when one partner has extra childless marriages', () => {
+    // `you` married `w` (child `kid`) and also `w2`, `w3` (childless). The child-bearing couple
+    // must be adjacent; the extra spouses sit nearby but never wedge between you and w.
+    const rec = layoutFromGraph({
+      people: ['ga', 'gb', 'you', 'sib', 'w', 'w2', 'w3', 'kid'].map(mk),
+      unions: [
+        { parents: ['ga', 'gb'], children: ['you', 'sib'] },
+        { parents: ['you', 'w'], children: ['kid'] },
+        { parents: ['you', 'w2'], children: [] },
+        { parents: ['you', 'w3'], children: [] },
+      ],
+      timeline: [],
+      probandId: 'kid',
+    });
+    const { pos } = computeLayout(rec.people, rec.unions);
+    expect(Math.abs(pos.you.x - pos.w.x)).toBeLessThanOrEqual(96 + 0.5); // nuclear couple adjacent
+  });
 });
 
 describe('re-rooting from a non-proband (Helen)', () => {
