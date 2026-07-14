@@ -250,10 +250,12 @@ export function parseGedcom(text: string): ParsedGedcom {
     const both: string[] = [];
     const fatherOnly: string[] = [];
     const motherOnly: string[] = [];
+    const allKids: string[] = [];
     for (const c of n.children) {
       if (c.tag !== 'CHIL') continue;
       const cid = resolveOne(c.value);
       if (cid == null) continue;
+      allKids.push(cid);
       const nonBio = (v: string): boolean => NON_BIOLOGICAL_PEDI.has(v.trim().toLowerCase());
       const pedi =
         childValue(c, 'PEDI').trim().toLowerCase() || famcPedi.get(`${cid}|${famId}`) || '';
@@ -268,13 +270,21 @@ export function parseGedcom(text: string): ParsedGedcom {
     }
 
     const couple = [husb, wife].filter((x): x is string => x != null);
-    // The couple's own union (their shared genetic children). Emitted whenever it has a known
-    // member or child, matching the old behaviour; a degenerate single-parent/childless entry
-    // is harmless — `buildRecordFromGedcom` prunes it (it keeps only a couple or a parent+child).
-    if (couple.length + both.length > 0) families.push({ parents: couple, children: both });
-    // A step-child biological to only one parent joins that parent alone.
-    if (husb != null && fatherOnly.length) families.push({ parents: [husb], children: fatherOnly });
-    if (wife != null && motherOnly.length) families.push({ parents: [wife], children: motherOnly });
+    if (couple.length === 0) {
+      // No resolvable parents — keep the children as a parentless sibling group (their union
+      // carries no genetic edge, but it groups the siblings for generation/layout).
+      if (allKids.length) families.push({ parents: [], children: allKids });
+    } else {
+      // The couple's own union (their shared genetic children). Emitted whenever it has a known
+      // member or child; a degenerate single-parent/childless entry is harmless —
+      // `buildRecordFromGedcom` prunes it (it keeps only a couple or a parent+child).
+      if (couple.length + both.length > 0) families.push({ parents: couple, children: both });
+      // A step-child biological to only one parent joins that parent alone.
+      if (husb != null && fatherOnly.length)
+        families.push({ parents: [husb], children: fatherOnly });
+      if (wife != null && motherOnly.length)
+        families.push({ parents: [wife], children: motherOnly });
+    }
   }
 
   if (!individuals.length) {

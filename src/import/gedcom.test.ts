@@ -177,6 +177,30 @@ describe('buildRecordFromGedcom', () => {
     expect(parentsOf(idx, 'I5').sort()).toEqual(['I1', 'I2']); // biological: keeps both
   });
 
+  it('keeps a parentless FAM as a sibling group (children linked, no genetic parents)', () => {
+    // A FAM whose parents are unknown (no HUSB/WIFE) still groups its children as siblings so
+    // they share a generation and lay out together — but with no genetic parent edge.
+    const text = `0 @I1@ INDI
+1 NAME Sib /One/
+1 SEX M
+0 @I2@ INDI
+1 NAME Sib /Two/
+1 SEX F
+0 @F1@ FAM
+1 CHIL @I1@
+1 CHIL @I2@
+0 TRLR
+`;
+    const parsed = parseGedcom(text);
+    expect(parsed.families).toEqual([{ parents: [], children: ['I1', 'I2'] }]);
+    const record = buildRecordFromGedcom(parsed, 'I1')!;
+    const idx = indexPeople(record.people, record.unions);
+    expect(parentsOf(idx, 'I1')).toEqual([]); // no genetic parents
+    expect(record.people.find((p) => p.id === 'I1')!.gen).toBe(
+      record.people.find((p) => p.id === 'I2')!.gen,
+    ); // siblings share a generation
+  });
+
   it('honours the standard INDI.FAMC.PEDI adopted/foster tag (FamilySearch/Gramps convention)', () => {
     // Spec-compliant exporters put pedigree on the individual's FAMC pointer, not the CHIL.
     const text = `0 @I1@ INDI
