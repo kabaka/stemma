@@ -199,7 +199,9 @@ export const useStore = create<Store>()(
         person.pronouns = input.pronouns;
         person.organs = input.organs;
         person.dead = input.dead;
-        person.birth = input.birth ?? person.birth;
+        // Direct assignment so an explicit null can clear a birth year to "unknown"
+        // (a `?? person.birth` would make the field impossible to blank).
+        person.birth = input.birth;
         person.death = input.dead ? input.death : null;
         person.conds = input.condIds.map(
           (cid): ConditionEntry => prevById.get(cid) ?? { id: cid, onset: null, prov: 'self' },
@@ -245,7 +247,10 @@ export const useStore = create<Store>()(
         const entry = person?.conds.find((c) => c.id === condId);
         if (!entry) return;
         if (field === 'onset') {
-          entry.onset = value === '' ? null : Number.parseInt(value, 10) || null;
+          const n = Number.parseInt(value, 10);
+          // Preserve a genuine onset of 0 (congenital / at-birth); only '' or a
+          // non-numeric value clears it. A plain `|| null` would drop age 0.
+          entry.onset = value.trim() === '' || Number.isNaN(n) ? null : n;
         } else {
           entry.prov = value as Provenance;
         }

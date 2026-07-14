@@ -56,6 +56,37 @@ describe('store mutations', () => {
     expect(entry.prov).toBe('record');
   });
 
+  it('preserves a congenital onset age of 0 (does not collapse to null)', () => {
+    useStore.getState().toggleCondition('alex', 'celiac');
+    useStore.getState().setConditionField('alex', 'celiac', 'onset', '0');
+    const entry = useStore
+      .getState()
+      .record.people.find((p) => p.id === 'alex')!
+      .conds.find((c) => c.id === 'celiac')!;
+    expect(entry.onset).toBe(0);
+    // Blanking the field clears it back to unknown.
+    useStore.getState().setConditionField('alex', 'celiac', 'onset', '');
+    expect(
+      useStore
+        .getState()
+        .record.people.find((p) => p.id === 'alex')!
+        .conds.find((c) => c.id === 'celiac')!.onset,
+    ).toBeNull();
+  });
+
+  it('updatePerson can clear a birth year to unknown', () => {
+    useStore.getState().updatePerson('alex', {
+      name: 'Alex',
+      sab: 'm',
+      gender: 'man',
+      dead: false,
+      birth: null,
+      death: null,
+      condIds: [],
+    });
+    expect(useStore.getState().record.people.find((p) => p.id === 'alex')!.birth).toBeNull();
+  });
+
   it('never deletes the proband', () => {
     useStore.getState().deletePerson('you');
     expect(useStore.getState().record.people.some((p) => p.id === 'you')).toBe(true);

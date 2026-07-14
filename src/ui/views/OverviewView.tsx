@@ -72,8 +72,8 @@ export function OverviewView() {
                 history is not the same as low risk.
               </div>
             )}
-            {topFlags.map((f, i) => (
-              <FlagCard key={i} flag={f} />
+            {topFlags.map((f) => (
+              <FlagCard key={f.title} flag={f} />
             ))}
             {flags.length > topFlags.length && (
               <button

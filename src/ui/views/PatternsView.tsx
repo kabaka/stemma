@@ -60,8 +60,8 @@ export function PatternsView() {
               No notable patterns from this vantage.
             </div>
           )}
-          {flags.map((f, i) => (
-            <FlagCard key={i} flag={f} />
+          {flags.map((f) => (
+            <FlagCard key={f.title} flag={f} />
           ))}
         </div>
       </section>

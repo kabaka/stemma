@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore, type Relation } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, segments } from '@/domain/graph';
-import { condIds, genderOf, organsOf, sabOf } from '@/domain/person';
+import { condIds, defaultOrgans, genderOf, sabOf } from '@/domain/person';
 import { categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import type { Catalog } from '@/domain/catalog';
@@ -83,7 +83,8 @@ export function PedigreeView() {
         </div>
       </div>
 
-      {selectedId && <PersonDrawer personId={selectedId} />}
+      {/* key remounts the drawer per person so its local edit/search state never bleeds across selections. */}
+      {selectedId && <PersonDrawer key={selectedId} personId={selectedId} />}
     </div>
   );
 }
@@ -216,19 +217,21 @@ function AddRelative({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('');
   const [sab, setSab] = useState<Sab>('f');
   const [gender, setGender] = useState<Gender>('woman');
-  const [birth, setBirth] = useState(2000);
+  // Kept as a string so the field can be blanked while typing without snapping to 0.
+  const [birth, setBirth] = useState('2000');
 
   const submit = () => {
     if (!name.trim()) return;
+    const birthYear = Number.parseInt(birth, 10);
     const id = addRelative(anchor, relation, {
       name,
       sab,
       gender,
       dead: false,
-      birth,
+      birth: Number.isNaN(birthYear) ? null : birthYear,
       death: null,
       condIds: [],
-      organs: organsOf({ sab, organs: undefined } as Person),
+      organs: defaultOrgans(sab),
     });
     if (id) selectPerson(id);
     onDone();
@@ -280,7 +283,7 @@ function AddRelative({ onDone }: { onDone: () => void }) {
             style={{ width: 110 }}
             type="number"
             value={birth}
-            onChange={(e) => setBirth(Number(e.target.value))}
+            onChange={(e) => setBirth(e.target.value)}
           />
         </div>
       </div>

@@ -17,14 +17,20 @@ export function TimelineView() {
 
   const [adding, setAdding] = useState(false);
 
+  // Fall back gracefully rather than assert: a replaced/imported record whose probandId
+  // matches nobody must not crash the view.
   const person =
-    record.people.find((p) => p.id === tlPerson) ?? record.people.find((p) => p.isProband)!;
+    record.people.find((p) => p.id === tlPerson) ??
+    record.people.find((p) => p.isProband) ??
+    record.people[0];
   const events = useMemo(
     () => record.timeline.filter((e) => e.person === tlPerson).sort((a, b) => b.year - a.year),
     [record.timeline, tlPerson],
   );
   const shown = tlType === 'all' ? events : events.filter((e) => e.type === tlType);
   const presentTypes = EVENT_TYPES.filter((t) => events.some((e) => e.type === t));
+
+  if (!person) return <div className="scroll">No record loaded.</div>;
 
   const isProband = person.id === record.probandId;
 
@@ -147,14 +153,22 @@ interface EventFormProps {
 }
 
 function EventForm({ personId, onSave, onDone }: EventFormProps) {
-  const [year, setYear] = useState(new Date().getFullYear());
+  // String-backed so the field can be blanked while editing without snapping to 0.
+  const [year, setYear] = useState(String(new Date().getFullYear()));
   const [type, setType] = useState<EventType>('diagnosis');
   const [title, setTitle] = useState('');
   const [detail, setDetail] = useState('');
 
   const submit = () => {
     if (!title.trim()) return;
-    onSave({ person: personId, year, type, title: title.trim(), detail: detail.trim() });
+    const parsedYear = Number.parseInt(year, 10);
+    onSave({
+      person: personId,
+      year: Number.isNaN(parsedYear) ? new Date().getFullYear() : parsedYear,
+      type,
+      title: title.trim(),
+      detail: detail.trim(),
+    });
     onDone();
   };
 
@@ -167,7 +181,7 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
             className="field"
             type="number"
             value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
+            onChange={(e) => setYear(e.target.value)}
           />
         </div>
         <div style={{ flex: 1 }}>
