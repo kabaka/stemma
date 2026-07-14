@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Least privilege: the checks only read the repo. (Deploy uses its own scoped token.)
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify the generated catalog is up to date
+        run: |
+          npm run gen:conditions
+          git diff --exit-code -- src/data/conditions.ts \
+            || (echo "::error::src/data/conditions.ts is stale — run 'npm run gen:conditions' and commit." && exit 1)
+
+      - name: Format, lint, typecheck, test
+        run: npm run check
+
+      - name: Build
+        run: npm run build
