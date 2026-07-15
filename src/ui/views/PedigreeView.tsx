@@ -8,6 +8,7 @@ import { PersonDrawer } from '../components/PersonDrawer';
 import { GedcomImport } from '../components/GedcomImport';
 import { PersonForm, type PersonFormState } from '../components/PersonForm';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
+import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import type { Catalog } from '@/domain/catalog';
 import type { CategoryKey, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
 import type { Palette } from '@/data/categories';
@@ -184,6 +185,23 @@ export function PedigreeView() {
     [record.people, catalog],
   );
 
+  // Generation labels are anchored to the proband's own generation, not an absolute
+  // "Gen 1/2/3" — the you-centric orientation the prototype used (▲ = ancestors above,
+  // ▼ = descendants below). Falls back to the topmost layout generation if the proband
+  // somehow isn't found, so the labels never crash on a malformed record.
+  const probandGen = record.people.find((p) => p.id === record.probandId)?.gen ?? minGen;
+
+  // The payoff of category-highlight mode (restored from the prototype): a plain-language
+  // breakdown of what the spotlit category actually contains — "N relatives · 2× Breast
+  // cancer, 1× Colorectal cancer". Only meaningful with a category chip active.
+  const catBreakdown = useMemo(
+    () =>
+      hlMode === 'cat' && activeId != null
+        ? categoryBreakdown(record.people, catalog, activeId as CategoryKey)
+        : null,
+    [hlMode, activeId, record.people, catalog],
+  );
+
   const setHlMode = (m: HlMode): void => {
     setHlModeRaw(m);
     setActiveId(null);
@@ -309,12 +327,11 @@ export function PedigreeView() {
             </div>
           )}
         </div>
+        <ClinicalBoundary />
         <p className="lede">
           2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary; sex
           assigned at birth is noted when it differs. Filled = affected, coloured by condition
-          category; diagonal = deceased. Stemma surfaces patterns worth a clinician&rsquo;s
-          attention — <b>not a diagnostic device</b>. Click any relative to view or edit their
-          record.
+          category; diagonal = deceased. Click any relative to view or edit their record.
         </p>
 
         {importing && (
@@ -333,6 +350,11 @@ export function PedigreeView() {
             catalog={catalog}
             palette={palette}
           />
+        )}
+        {catBreakdown && (
+          <p className="mono-dim" role="status" style={{ marginTop: 8, lineHeight: 1.5 }}>
+            {catBreakdown}
+          </p>
         )}
       </div>
 
@@ -374,6 +396,8 @@ export function PedigreeView() {
               {gens.map((g) => {
                 const rep = record.people.find((p) => p.gen === g);
                 if (!rep) return null;
+                const diff = g - probandGen;
+                const label = diff === 0 ? 'YOU' : diff < 0 ? `▲ ${Math.abs(diff)}` : `▼ ${diff}`;
                 return (
                   <div
                     key={g}
@@ -381,7 +405,7 @@ export function PedigreeView() {
                     aria-hidden="true"
                     style={{ top: pos[rep.id].y + 14 }}
                   >
-                    Gen {g - minGen + 1}
+                    {label}
                   </div>
                 );
               })}
@@ -393,6 +417,7 @@ export function PedigreeView() {
                   cy={pos[p.id].cy}
                   selected={p.id === selectedId}
                   proband={p.id === record.probandId}
+                  probandGen={probandGen}
                   catalog={catalog}
                   palette={palette}
                   hlActive={hlActive}
@@ -474,6 +499,43 @@ function EmptyState({
   );
 }
 
+/**
+ * Plain-language breakdown of one category across the family, e.g. "3 people · Breast
+ * cancer (2), Colorectal cancer (1)" (restored from the prototype's `catBreakdown`). The
+ * lead count is people with *any* condition in the category (deduped per person, so it
+ * matches the highlight chip's count); each trailing `(n)` is the number of people
+ * carrying that specific condition. Conditions are sorted most-common-first, then by name.
+ * Returns null when the category isn't present (nothing to spell out).
+ *
+ * "people", not "relatives": this counts everyone in the record including the proband
+ * (matching `categoryChipsFor`'s chip count, which the lead number must equal) — and in
+ * this codebase "relative" specifically excludes the proband (see `OverviewView`'s
+ * `relCount` and the domain engine's `blood` filter), so calling the proband a relative
+ * would be wrong.
+ *
+ * The count is deliberately a trailing `(n)`, not the prototype's `n×` prefix: this is a
+ * family-history headcount, and a leading `2×` on a condition name reads too close to a
+ * "2× the risk" multiplier — the exact manufactured-number notation Stemma retired
+ * (guardrail #1, ADR-004). The parenthetical keeps it unambiguously a count.
+ */
+function categoryBreakdown(people: Person[], catalog: Catalog, cat: CategoryKey): string | null {
+  const per = new Map<string, number>();
+  let count = 0;
+  for (const p of people) {
+    const ids = condIds(p).filter((id) => catalog.get(id).cat === cat);
+    if (ids.length > 0) count += 1;
+    for (const id of ids) per.set(id, (per.get(id) ?? 0) + 1);
+  }
+  if (per.size === 0) return null;
+  const parts = [...per.entries()]
+    .sort(
+      ([aId, aCount], [bId, bCount]) =>
+        bCount - aCount || catalog.get(aId).name.localeCompare(catalog.get(bId).name),
+    )
+    .map(([id, n]) => `${catalog.get(id).name} (${n})`);
+  return `${count} ${count === 1 ? 'person' : 'people'} · ${parts.join(', ')}`;
+}
+
 /** Condition categories actually present in the record, in the catalog's canonical order. */
 function legendCategories(people: Person[], catalog: Catalog): CategoryKey[] {
   const present = new Set<CategoryKey>();
@@ -508,16 +570,30 @@ function CategoryLegend({ categories, palette }: { categories: CategoryKey[]; pa
  * that is otherwise conveyed only by `aria-hidden` glyphs/text or colour alone (WCAG
  * 1.1.1 / 1.4.1). Every condition is named, not just the first — an active highlight
  * can match on any of a person's conditions (e.g. their second), and naming only the
- * first would silently fail to say why a match lit up. */
+ * first would silently fail to say why a match lit up. The you-centric generation
+ * orientation the ▲/▼ row labels give sighted users (aria-hidden decorative) is folded in
+ * here too, so a screen-reader user gets the same "N generations above/below you" cue. */
 function nodeLabel(
   person: Person,
   catalog: Catalog,
   hlActive: boolean,
   matches: boolean,
   proband: boolean,
+  probandGen: number,
 ): string {
   const parts: string[] = [person.name];
-  if (proband) parts.push('you');
+  if (proband) {
+    parts.push('you');
+  } else {
+    // Same you-centric orientation as the ▲/▼ generation-row labels (which are
+    // aria-hidden). Lower `gen` is older, so a negative diff is an ancestor generation.
+    const diff = person.gen - probandGen;
+    if (diff === 0) parts.push('your generation');
+    else {
+      const n = Math.abs(diff);
+      parts.push(`${n} generation${n === 1 ? '' : 's'} ${diff < 0 ? 'above' : 'below'} you`);
+    }
+  }
 
   if (person.dead) {
     parts.push(`died ${person.death ?? 'unknown year'}`);
@@ -551,6 +627,7 @@ interface NodeProps {
   cy: number;
   selected: boolean;
   proband: boolean;
+  probandGen: number;
   catalog: Catalog;
   palette: Palette;
   hlActive: boolean;
@@ -570,6 +647,7 @@ const PedigreeNode = memo(function PedigreeNode({
   cy,
   selected,
   proband,
+  probandGen,
   catalog,
   palette,
   hlActive,
@@ -607,7 +685,7 @@ const PedigreeNode = memo(function PedigreeNode({
   const dots = ids.slice(0, 4).map((id) => categoryColor(catalog.get(id).cat, palette));
   const extraConditions = ids.length - dots.length;
   const dimmed = hlActive && !matches;
-  const label = nodeLabel(person, catalog, hlActive, matches, proband);
+  const label = nodeLabel(person, catalog, hlActive, matches, proband, probandGen);
 
   return (
     <div className="pedigree-node-wrap" style={{ left: x - NODE / 2, top: cy - NODE / 2 }}>

@@ -1,6 +1,7 @@
 import { useStore } from '@/store/useStore';
 import { useCalculators, useFindings, useFlags, useRelations } from '../hooks';
 import { FlagCard } from '../components/FlagCard';
+import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import { ProvenanceMark } from '../components/ProvenanceMark';
 import { categoryColor } from '@/data/categories';
 import { PROV_META, PROVENANCE_ORDER, provenanceSummary } from '@/data/provenance';
@@ -52,10 +53,10 @@ export function PatternsView() {
           </select>
         </label>
       </div>
+      <ClinicalBoundary />
       <p className="lede">
         Published red-flag patterns detected from {rootName}&rsquo;s vantage, each stating the
-        specific criterion met. Stemma reports patterns and referral criteria — it never
-        manufactures a risk number. Validated calculators below are the right tool where a number is
+        specific criterion met. Validated calculators below are the right tool where a number is
         needed.
       </p>
       <p className="mono-dim" style={{ margin: '0 0 18px', color: 'var(--text-dim)' }}>

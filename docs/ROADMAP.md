@@ -216,12 +216,16 @@ _emits_ and _edits_.
   affordance backed by the store's `updateEvent`, and the event form carries a person picker so an
   event can be logged to — or reassigned to — any relative rather than only the currently-viewed
   person (`src/ui/views/TimelineView.tsx`).
-- **[Med] Restore dropped read surfaces.** Overview "Recent activity" (3 newest proband events);
-  the pedigree category-breakdown string ("N relatives · 2× X, 1× Y"); the drawer condition card's
-  inheritance-pattern line.
-- **[Med, guardrail] Re-assert the eroded guardrail copy.** Return the Patterns clinical boundary to
-  a first-class callout (not lede body text) (#3), and restore the drawer's "Screening keys off
-  organs present, not gender." line (#4).
-- **[Low] Cosmetic parity** (batch as capacity allows): proband-relative generation labels
-  (`YOU / ▲ / ▼`), the drawer avatar glyph, click-condition-to-highlight, the timeline spine + type
-  dots, the same-year sort tiebreaker, and the other minor items in GAP-ANALYSIS.md.
+- ✅ **[Med] Restore dropped read surfaces.** Overview "Recent activity" (3 newest proband events, a
+  real list); the pedigree category-breakdown string — reworded to "N people · X (2), Y (1)" so its
+  count never reads as an "N×" risk multiplier (guardrail #1); the drawer condition card's
+  inheritance-pattern line (labelled for screen readers).
+- ✅ **[Med, guardrail] Re-assert the eroded guardrail copy.** A shared `ClinicalBoundary` callout
+  (bordered `role="note"`) now heads every on-screen analysis surface — Patterns, Overview, and
+  Pedigree — instead of lede body text (#3); the drawer restates "Screening keys off organs present,
+  not gender." at the organ inventory (#4).
+- ✅ **[Low → done] Proband-relative generation labels** (`YOU / ▲ / ▼`) restored on the pedigree,
+  with the "N generations above/below you" cue folded into each node's accessible name. Remaining
+  low/cosmetic parity (batch as capacity allows): the drawer avatar glyph, click-condition-to-
+  highlight, the timeline spine + type dots, the same-year sort tiebreaker, and the other minor
+  items in GAP-ANALYSIS.md.

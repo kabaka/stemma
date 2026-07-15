@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { condEntry, condIds } from '@/domain/person';
-import { categoryColor } from '@/data/categories';
+import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PROV_LABEL } from '@/data/provenance';
 import type { Provenance } from '@/domain/types';
 import {
@@ -83,7 +83,10 @@ export function ConditionPicker({ personId }: { personId: string }) {
             <div key={id} className="card" style={{ padding: '10px 12px' }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span className="row" style={{ gap: 8 }}>
+                  {/* Category is conveyed by the swatch colour alone for sighted users;
+                      name it for screen readers and colourblind users (WCAG 1.4.1). */}
                   <span
+                    aria-hidden="true"
                     style={{
                       width: 8,
                       height: 8,
@@ -91,7 +94,10 @@ export function ConditionPicker({ personId }: { personId: string }) {
                       background: categoryColor(meta.cat, palette),
                     }}
                   />
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{meta.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>
+                    {meta.name}
+                    <span className="visually-hidden"> · {CATEGORIES[meta.cat].label}</span>
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -102,6 +108,18 @@ export function ConditionPicker({ personId }: { personId: string }) {
                   ✕
                 </button>
               </div>
+              {/* Inheritance pattern (e.g. "Autosomal dominant"), restored from the
+                  prototype's condition card. Curated conditions carry it; a long-tail
+                  ICD-10 condition added via vocabulary search carries only the "—"
+                  placeholder, which says nothing — omit the line in that case. The value
+                  is labelled for screen readers, which otherwise hear a bare phrase with
+                  no indication of what it describes (WCAG 1.3.1). */}
+              {meta.pattern && meta.pattern !== '—' && (
+                <div className="mono-dim" style={{ marginTop: 4 }}>
+                  <span className="visually-hidden">Inheritance pattern: </span>
+                  {meta.pattern}
+                </div>
+              )}
               <div className="row" style={{ gap: 8, marginTop: 8 }}>
                 <label className="visually-hidden" htmlFor={onsetId}>
                   Onset age for {meta.name}

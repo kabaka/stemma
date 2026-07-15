@@ -28,9 +28,10 @@ describe('OverviewView', () => {
     expect(screen.getByText(/hereditary breast/i)).toBeInTheDocument();
   });
 
-  it('states the clinical boundary', () => {
+  it('states the clinical boundary as a first-class callout (guardrail #3)', () => {
     render(<OverviewView />);
-    expect(screen.getByText(/not a diagnostic device/i)).toBeInTheDocument();
+    const boundary = screen.getByRole('note', { name: /clinical boundary/i });
+    expect(boundary).toHaveTextContent(/not a diagnostic device/i);
   });
 
   it('marks section labels as real headings for screen-reader navigation', () => {
@@ -42,6 +43,24 @@ describe('OverviewView', () => {
       screen.getByRole('heading', { name: /screening status/i, level: 2 }),
     ).toBeInTheDocument();
   });
+
+  it('shows the proband’s three newest timeline events as recent activity (M1)', () => {
+    render(<OverviewView />);
+    expect(screen.getByRole('heading', { name: /recent activity/i, level: 2 })).toBeInTheDocument();
+    // Maya's three newest events: 2026 Annual physical, 2025 Genetic counseling,
+    // 2024 Annual mammogram — all with their year and type label.
+    expect(screen.getByText(/annual physical/i)).toBeInTheDocument();
+    expect(screen.getByText(/genetic counseling/i)).toBeInTheDocument();
+    expect(screen.getByText(/annual mammogram/i)).toBeInTheDocument();
+    // Only three; older proband events (and relatives' events) are not in the list.
+    expect(screen.queryByText(/started levothyroxine/i)).not.toBeInTheDocument();
+  });
+
+  it('marks recent activity as a real list of three items for assistive tech', () => {
+    render(<OverviewView />);
+    const list = screen.getByRole('list', { name: /recent activity/i });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+  });
 });
 
 describe('PatternsView', () => {
@@ -50,6 +69,14 @@ describe('PatternsView', () => {
     expect(screen.getByRole('heading', { name: /family patterns/i })).toBeInTheDocument();
     expect(screen.getByText(/detected patterns/i)).toBeInTheDocument();
     expect(screen.getByText(/per-condition family findings/i)).toBeInTheDocument();
+  });
+
+  it('renders the clinical boundary as a first-class callout, not lede body text (guardrail #3)', () => {
+    render(<PatternsView />);
+    const boundary = screen.getByRole('note', { name: /clinical boundary/i });
+    expect(boundary).toHaveClass('clinical-boundary');
+    expect(boundary).toHaveTextContent(/not a diagnostic device/i);
+    expect(boundary).toHaveTextContent(/never manufactures a risk number/i);
   });
 
   it('surfaces provenance visibly: a legend and per-flag sourcing summaries (not SR-only)', () => {
@@ -258,9 +285,49 @@ describe('PedigreeView', () => {
     expect(dialog).toHaveFocus();
   });
 
-  it('states the clinical boundary', () => {
+  it('states the clinical boundary as a first-class callout (guardrail #3)', () => {
     render(<PedigreeView />);
-    expect(screen.getByText(/not a diagnostic device/i)).toBeInTheDocument();
+    const boundary = screen.getByRole('note', { name: /clinical boundary/i });
+    expect(boundary).toHaveClass('clinical-boundary');
+    expect(boundary).toHaveTextContent(/not a diagnostic device/i);
+  });
+
+  it('labels generations relative to the proband (YOU / ▲ / ▼), not absolute Gen numbers (M5)', () => {
+    render(<PedigreeView />);
+    // Maya (proband) is gen 3: her parents' row is one above (▲ 1), grandparents two (▲ 2).
+    expect(screen.getByText('▲ 1')).toBeInTheDocument();
+    expect(screen.getByText('▲ 2')).toBeInTheDocument();
+    // The old absolute "Gen 1/2/3" labels are gone.
+    expect(screen.queryByText(/^Gen \d+$/)).not.toBeInTheDocument();
+  });
+
+  it('spells out a spotlighted category’s contents as a breakdown string (M2)', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    await user.click(within(highlightRow).getByRole('button', { name: /^Category$/i }));
+    // Cancer is present in the seed family (e.g. breast cancer), so it has a chip.
+    await user.click(within(highlightRow).getByRole('button', { name: /^Cancer,/i }));
+    // "N people · Breast cancer (2), …" — a headcount, never an "N×" multiplier.
+    expect(screen.getByText(/\d+ (person|people) · .*Breast cancer \(\d+\)/i)).toBeInTheDocument();
+  });
+
+  it('shows each recorded condition’s inheritance pattern in the drawer (M3)', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /Maya/i }));
+    // Maya carries hypothyroidism; its inheritance pattern value is shown on the card,
+    // prefixed with a screen-reader-only label so the bare value has context (WCAG 1.3.1).
+    expect(screen.getByText(/autoimmune \/ polygenic/i)).toBeInTheDocument();
+    // Each condition card carries the SR-only "Inheritance pattern:" prefix.
+    expect(screen.getAllByText(/inheritance pattern:/i).length).toBeGreaterThan(0);
+  });
+
+  it('states that screening keys off organs, not gender, in the drawer (guardrail #4)', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    await user.click(screen.getByRole('button', { name: /Maya/i }));
+    expect(screen.getByText(/screening keys off organs present, not gender/i)).toBeInTheDocument();
   });
 
   it('renders the natural-size canvas in a scrollable region, not scaled to fit', () => {
