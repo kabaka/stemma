@@ -632,10 +632,54 @@ export interface Segment {
   y2: number;
 }
 
-/** Connector line segments (partner bars, sibling buses, drop lines) for a layout. */
+/** A jogged (offset) line of descent awaiting a lane, so its horizontal never coincides with
+ * another jog's in the same child row. `mx`→`clampX` is the horizontal reach it occupies. */
+interface PendingJog {
+  mx: number;
+  py: number;
+  clampX: number;
+  busY: number;
+}
+
+/** Maximum vertical gap between adjacent jog lanes (compressed to fit when a generation stacks
+ * many lanes), and the minimum riser kept below the parent row so a lane never rides up onto
+ * the relationship line. */
+const JOG_LANE_GAP = 16;
+const JOG_MIN_RISER = 12;
+
+/**
+ * Connector line segments (relationship bars, sibship lines, lines of descent) for a layout,
+ * following the standardized (2022 NSGC / Bennett) pedigree line conventions:
+ *
+ * - a **relationship line** joins two partners at their centres;
+ * - a **sibship line** spans *only* the children — never stretched sideways to reach a descent
+ *   point that sits over no child (stretching it is what let two unions' buses merge into one
+ *   line, so a half-sibling read as the visible couple's child);
+ * - a **line of descent** drops from the relationship midpoint (or, for a partner not shown,
+ *   straight from the single parent) to the sibship. When that midpoint sits above the sibship
+ *   it is a plain vertical; when the sibship is pushed off-centre it jogs — a riser, a short
+ *   horizontal, then a drop. Jogs in the same child row that would share a horizontal are
+ *   pushed to separate lanes, so two lines of descent never merge into one.
+ *
+ * Pure and deterministic: lanes are assigned by a single greedy interval-colouring pass keyed
+ * on the jog's own horizontal reach (ties broken by `mx`), never a clock or randomness.
+ */
 export function segments(unions: Union[], pos: Record<string, LayoutNode>): Segment[] {
   const segs: Segment[] = [];
+  // Jogged descents are collected per child-row bus level and laned after the main pass; a jog
+  // can only conflict with another whose children share its generation.
+  const jogsByBus = new Map<number, PendingJog[]>();
+  // An exact-duplicate union (same parents and children) is the same relationship recorded
+  // twice — e.g. a child whose GEDCOM lists its parentage under two families. Draw it once, or
+  // its line of descent stacks into two parallel lines for a single child.
+  const drawn = new Set<string>();
+
   for (const u of unions) {
+    // JSON-encode the sorted id sets so ids containing a delimiter can't collide two distinct
+    // unions onto one key (which would silently drop the second union's connectors).
+    const dedupeKey = JSON.stringify([[...u.parents].sort(), [...(u.children ?? [])].sort()]);
+    if (drawn.has(dedupeKey)) continue;
+    drawn.add(dedupeKey);
     const parts = u.parents.filter((id) => pos[id]);
     if (parts.length === 2) {
       const a = pos[parts[0]];
@@ -643,22 +687,57 @@ export function segments(unions: Union[], pos: Record<string, LayoutNode>): Segm
       segs.push({ x1: a.x, y1: a.cy, x2: b.x, y2: b.cy });
     }
     const kids = (u.children ?? []).filter((id) => pos[id]);
-    if (kids.length) {
-      const px = parts.map((id) => pos[id].x);
-      const mx = px.length ? px.reduce((s, v) => s + v, 0) / px.length : pos[kids[0]].x;
-      const py = parts.length ? pos[parts[0]].cy : null;
-      const busY = pos[kids[0]].y - 22;
-      if (py != null) segs.push({ x1: mx, y1: py, x2: mx, y2: busY });
-      const cxs = kids.map((id) => pos[id].x);
-      // The sibling bus must span the children AND the descent point (mx) so the drop line
-      // from the parents always lands on it — coordinate assignment centres children under
-      // their parents, but cross-union spacing in a shared row can still nudge mx just
-      // outside the children's own span, which previously left the drop line disconnected.
-      const busMinX = Math.min(...cxs, py != null ? mx : Number.POSITIVE_INFINITY);
-      const busMaxX = Math.max(...cxs, py != null ? mx : Number.NEGATIVE_INFINITY);
-      if (busMaxX !== busMinX) segs.push({ x1: busMinX, y1: busY, x2: busMaxX, y2: busY });
-      for (const cid of kids)
-        segs.push({ x1: pos[cid].x, y1: busY, x2: pos[cid].x, y2: pos[cid].y });
+    if (!kids.length) continue;
+    const cxs = kids.map((id) => pos[id].x);
+    const cmin = Math.min(...cxs);
+    const cmax = Math.max(...cxs);
+    const busY = pos[kids[0]].y - 22;
+    // Sibship line: children only. Each child then hangs from it by its own individual line.
+    if (cmax !== cmin) segs.push({ x1: cmin, y1: busY, x2: cmax, y2: busY });
+    for (const cid of kids) segs.push({ x1: pos[cid].x, y1: busY, x2: pos[cid].x, y2: pos[cid].y });
+    if (!parts.length) continue; // parentless sibling group: siblings only, no line of descent
+    const mx = parts.reduce((s, id) => s + pos[id].x, 0) / parts.length;
+    const py = pos[parts[0]].cy;
+    if (mx >= cmin && mx <= cmax) {
+      // Descent point sits above the sibship — a plain vertical line of descent.
+      segs.push({ x1: mx, y1: py, x2: mx, y2: busY });
+    } else {
+      // Off-centre — a jogged line of descent, landing on the nearest edge of the sibship (an
+      // actual child's x, so the drop merges into the sibship line rather than floating).
+      const jog: PendingJog = { mx, py, clampX: mx < cmin ? cmin : cmax, busY };
+      const bucket = jogsByBus.get(busY);
+      if (bucket) bucket.push(jog);
+      else jogsByBus.set(busY, [jog]);
+    }
+  }
+
+  // Lane pass: within each child row, jogs whose horizontals overlap take separate lanes.
+  for (const [busY, jogs] of jogsByBus) {
+    const ordered = jogs
+      .map((j) => ({ j, lo: Math.min(j.mx, j.clampX), hi: Math.max(j.mx, j.clampX) }))
+      .sort((p, q) => p.lo - q.lo || p.hi - q.hi || p.j.mx - q.j.mx);
+    const laneHi: number[] = []; // rightmost reach claimed by each lane so far
+    const laned = ordered.map(({ j, lo, hi }) => {
+      let lane = laneHi.findIndex((e) => e < lo - 1); // touch-inclusive: leave a 1px margin
+      if (lane === -1) {
+        lane = laneHi.length;
+        laneHi.push(hi);
+      } else laneHi[lane] = hi;
+      return { j, lane };
+    });
+    // Distribute the lanes across the vertical room between the parents and the bus. A fixed
+    // gap would saturate (~7 lanes at GEN_HEIGHT) and then collapse every further lane onto one
+    // line — silently re-merging descents in a dense generation. Shrinking the step to fit keeps
+    // every lane at a distinct height however many overlap. Parents share a generation, so one
+    // room/step for the whole child-row bucket keeps the lanes evenly, deterministically spaced.
+    const bucketPy = Math.max(...jogs.map((j) => j.py));
+    const room = Math.max(busY - bucketPy - JOG_MIN_RISER, JOG_LANE_GAP);
+    const step = Math.min(JOG_LANE_GAP, room / laneHi.length);
+    for (const { j, lane } of laned) {
+      const jogY = busY - step * (lane + 1);
+      segs.push({ x1: j.mx, y1: j.py, x2: j.mx, y2: jogY }); // riser
+      segs.push({ x1: j.mx, y1: jogY, x2: j.clampX, y2: jogY }); // jog
+      segs.push({ x1: j.clampX, y1: jogY, x2: j.clampX, y2: j.busY }); // drop
     }
   }
   return segs;

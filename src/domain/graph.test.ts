@@ -170,46 +170,93 @@ describe('computeLayout', () => {
   });
 });
 
-/** Does the point `(x, busY)` — where the parents' drop line ends — actually sit on a drawn
- * connector, so the descent is not floating free? True when a horizontal sibling bus at
- * `busY` spans `x`, OR the descent lands exactly on a child's own vertical drop line (the
- * single-perfectly-centred-child case, where no horizontal bus is drawn). */
-function descentLands(segs: Segment[], busY: number, x: number, childXs: number[]): boolean {
-  const onBus = segs.some(
-    (s) =>
-      s.y1 === busY &&
-      s.y2 === busY &&
-      x >= Math.min(s.x1, s.x2) - 0.01 &&
-      x <= Math.max(s.x1, s.x2) + 0.01,
-  );
-  return onBus || childXs.some((cx) => Math.abs(cx - x) <= 0.01);
+/** Are `(ax,ay)` and `(bx,by)` in the same connected component of the drawn (axis-aligned)
+ * segment network? Union-find with T-junction support: any query point lying on a segment is
+ * connected to that segment's endpoints, so a jogged line of descent (riser → jog → drop) is
+ * traced end to end just like a plain vertical. */
+function pathConnects(segs: Segment[], ax: number, ay: number, bx: number, by: number): boolean {
+  const key = (x: number, y: number): string => `${Math.round(x * 10)},${Math.round(y * 10)}`;
+  const parent = new Map<string, string>();
+  const add = (k: string): void => {
+    if (!parent.has(k)) parent.set(k, k);
+  };
+  const find = (k: string): string => {
+    let r = k;
+    while (parent.get(r) !== r) {
+      parent.set(r, parent.get(parent.get(r)!)!);
+      r = parent.get(r)!;
+    }
+    return r;
+  };
+  const union = (p: string, q: string): void => {
+    add(p);
+    add(q);
+    parent.set(find(p), find(q));
+  };
+  const pts: Array<[number, number]> = [
+    [ax, ay],
+    [bx, by],
+  ];
+  for (const s of segs) {
+    pts.push([s.x1, s.y1]);
+    pts.push([s.x2, s.y2]);
+  }
+  for (const [x, y] of pts) add(key(x, y));
+  const onSeg = (s: Segment, x: number, y: number): boolean => {
+    if (
+      x < Math.min(s.x1, s.x2) - 0.05 ||
+      x > Math.max(s.x1, s.x2) + 0.05 ||
+      y < Math.min(s.y1, s.y2) - 0.05 ||
+      y > Math.max(s.y1, s.y2) + 0.05
+    )
+      return false;
+    return Math.abs((s.x2 - s.x1) * (y - s.y1) - (s.y2 - s.y1) * (x - s.x1)) < 0.5;
+  };
+  for (const s of segs) {
+    const end = key(s.x1, s.y1);
+    union(end, key(s.x2, s.y2));
+    for (const [x, y] of pts) if (onSeg(s, x, y)) union(key(x, y), end);
+  }
+  return find(key(ax, ay)) === find(key(bx, by));
 }
 
-/** For every union with children, the drop line from the parents' midpoint must connect to
- * the sibling bus (or a child directly). Returns the ids of any union whose descent floats
- * free — the exact defect the fix targets. */
+/** For every union with parents and children, the line of descent from the parents' midpoint
+ * must actually reach at least one child through the drawn network. Returns the ids of any
+ * union whose descent floats free — the defect the connector fix guards against. Each union is
+ * traced in isolation (its own segments only) so connectivity can't leak through a neighbour. */
 function disconnectedUnions(unions: Union[], pos: Record<string, LayoutNode>): string[][] {
-  const segs = segments(unions, pos);
   const bad: string[][] = [];
   for (const u of unions) {
     const parts = u.parents.filter((id) => pos[id]);
     const kids = (u.children ?? []).filter((id) => pos[id]);
-    if (!kids.length) continue;
-    const mx = parts.length
-      ? parts.reduce((s, id) => s + pos[id].x, 0) / parts.length
-      : pos[kids[0]].x;
-    const busY = pos[kids[0]].y - 22;
-    if (
-      !descentLands(
-        segs,
-        busY,
-        mx,
-        kids.map((id) => pos[id].x),
-      )
-    )
+    if (!kids.length || !parts.length) continue; // parentless group: no line of descent to trace
+    const segs = segments([u], pos);
+    const mx = parts.reduce((s, id) => s + pos[id].x, 0) / parts.length;
+    const py = pos[parts[0]].cy;
+    if (!kids.some((cid) => pathConnects(segs, mx, py, pos[cid].x, pos[cid].y)))
       bad.push(u.parents);
   }
   return bad;
+}
+
+/** Collinear, same-y horizontal segments whose x-ranges overlap — two drawn lines merged into
+ * one, which a reader cannot disambiguate. Empty for a standard-adherent layout. */
+function overlappingHorizontals(segs: Segment[]): string[] {
+  const hor = segs
+    .filter((s) => Math.abs(s.y1 - s.y2) < 0.01)
+    .map((s) => ({ y: s.y1, lo: Math.min(s.x1, s.x2), hi: Math.max(s.x1, s.x2) }));
+  const out: string[] = [];
+  for (let i = 0; i < hor.length; i++)
+    for (let j = i + 1; j < hor.length; j++) {
+      if (Math.abs(hor[i].y - hor[j].y) > 0.01) continue;
+      if (Math.min(hor[i].hi, hor[j].hi) - Math.max(hor[i].lo, hor[j].lo) > 0.5)
+        out.push(
+          `y=${Math.round(hor[i].y)} [${Math.round(Math.max(hor[i].lo, hor[j].lo))},${Math.round(
+            Math.min(hor[i].hi, hor[j].hi),
+          )}]`,
+        );
+    }
+  return out;
 }
 
 describe('segments', () => {
@@ -349,21 +396,20 @@ function unrelatedUnderBus(rec: FamilyRecord, pos: Record<string, LayoutNode>): 
   return bad;
 }
 
-/** X-range each union's sibling bus occupies (children plus the parents' descent point). */
+/** X-range each union's sibship line occupies — its children only, per the NSGC convention
+ * (the line of descent's offset is carried by a jog, never by widening this line). */
 function busOverlaps(rec: FamilyRecord, pos: Record<string, LayoutNode>): string[] {
   const genOf = new Map(rec.people.map((p) => [p.id, p.gen]));
   const ranges = rec.unions
     .map((u) => {
-      const parts = u.parents.filter((id) => pos[id]);
       const kids = (u.children ?? []).filter((id) => pos[id]);
       if (!kids.length) return null;
       const cxs = kids.map((id) => pos[id].x);
-      const mx = parts.length ? parts.reduce((s, id) => s + pos[id].x, 0) / parts.length : cxs[0];
       return {
         gen: genOf.get(kids[0])!,
         label: u.parents.join('+'),
-        min: Math.min(...cxs, mx),
-        max: Math.max(...cxs, mx),
+        min: Math.min(...cxs),
+        max: Math.max(...cxs),
       };
     })
     .filter((r): r is NonNullable<typeof r> => r != null);
@@ -467,6 +513,8 @@ describe('sibship contiguity and remarriage (regression for merged lineage lines
       const { pos } = computeLayout(rec.people, rec.unions);
       expect(unrelatedUnderBus(rec, pos)).toEqual([]);
       expect(busOverlaps(rec, pos)).toEqual([]);
+      // No two drawn horizontals merge into one line anywhere in the whole layout.
+      expect(overlappingHorizontals(segments(rec.unions, pos))).toEqual([]);
     }
   });
 
@@ -535,6 +583,104 @@ describe('sibship contiguity and remarriage (regression for merged lineage lines
     });
     const { pos } = computeLayout(rec.people, rec.unions);
     expect(Math.abs(pos.you.x - pos.w.x)).toBeLessThanOrEqual(96 + 0.5); // nuclear couple adjacent
+  });
+});
+
+describe('multi-mating half-siblings (regression for merged lines of descent)', () => {
+  const mk = (id: string, gen: number): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+  });
+
+  // Kim has a child with Matt (Alexis) AND a child by a partner not in the file (Matthew Allan,
+  // a half-sibling); Matt also has children by an earlier, unshown partner (Kevin, R1, R2).
+  // Asymmetric sibship sizes push the children off-centre from their parents, which used to make
+  // Kim's solo line of descent and the couple's line of descent share a horizontal at the same
+  // level — so a reader saw the half-sibling hanging off the couple. See the reported defect.
+  const rec = (): FamilyRecord =>
+    layoutFromGraph({
+      people: [
+        mk('kdad', 0),
+        mk('kmom', 0),
+        mk('kim', 1),
+        mk('matt', 1),
+        mk('mattallan', 2),
+        mk('alexis', 2),
+        mk('kevin', 2),
+        mk('kevsp', 2),
+        mk('r1', 2),
+        mk('r2', 2),
+        mk('gk1', 3),
+        mk('gk2', 3),
+      ],
+      unions: [
+        { parents: ['kdad', 'kmom'], children: ['kim'] },
+        { parents: ['kim'], children: ['mattallan'] }, // Kim + unshown partner
+        { parents: ['kim', 'matt'], children: ['alexis'] },
+        { parents: ['matt'], children: ['kevin', 'r1', 'r2'] }, // Matt + unshown partner
+        { parents: ['kevin', 'kevsp'], children: ['gk1', 'gk2'] },
+      ],
+      timeline: [],
+      probandId: 'alexis',
+    });
+
+  it('never merges two lines of descent into one horizontal', () => {
+    const { pos } = computeLayout(rec().people, rec().unions);
+    expect(overlappingHorizontals(segments(rec().unions, pos))).toEqual([]);
+  });
+
+  it('keeps every union connected to its own children', () => {
+    const r = rec();
+    const { pos } = computeLayout(r.people, r.unions);
+    expect(disconnectedUnions(r.unions, pos)).toEqual([]);
+  });
+
+  it('never stretches a sibship line across another union in the same generation', () => {
+    const r = rec();
+    const { pos } = computeLayout(r.people, r.unions);
+    expect(busOverlaps(r, pos)).toEqual([]);
+    expect(unrelatedUnderBus(r, pos)).toEqual([]);
+  });
+
+  it('draws an exact-duplicate union once, not as two stacked lines of descent', () => {
+    // A child whose GEDCOM records the same parentage under two families yields two identical
+    // unions; the line of descent must be drawn once, not stacked on two lanes.
+    const pos: Record<string, LayoutNode> = {
+      kim: { x: 40, y: 40, cy: 64 },
+      allan: { x: 160, y: 210, cy: 234 }, // pushed right → the descent jogs
+    };
+    const once = segments([{ parents: ['kim'], children: ['allan'] }], pos);
+    const twice = segments(
+      [
+        { parents: ['kim'], children: ['allan'] },
+        { parents: ['kim'], children: ['allan'] },
+      ],
+      pos,
+    );
+    expect(twice).toEqual(once);
+  });
+
+  it('separates many overlapping off-centre descents in one generation onto distinct lanes', () => {
+    // Twelve single-parent unions whose only child is pushed far to the right, so every line of
+    // descent must jog and all their horizontal reaches overlap — well past the ~7 lanes a fixed
+    // gap could hold at GEN_HEIGHT. The lanes must compress to stay distinct rather than collapse
+    // onto one line (which would silently re-merge descents in a dense generation).
+    const pos: Record<string, LayoutNode> = {};
+    const unions: Union[] = [];
+    for (let k = 0; k < 12; k++) {
+      pos[`p${k}`] = { x: k * 4, y: 40, cy: 64 }; // parents clustered on the left
+      pos[`c${k}`] = { x: 500 + k * 96, y: 210, cy: 234 }; // children fanned out far right
+      unions.push({ parents: [`p${k}`], children: [`c${k}`] });
+    }
+    expect(overlappingHorizontals(segments(unions, pos))).toEqual([]);
   });
 });
 

@@ -163,7 +163,12 @@ person to any vantage `rootId`:
 
 Because the vantage is a parameter, risk and screening can be recomputed from any member's point of
 view within one record (`store.riskRoot`). `computeLayout` / `segments` in the same module turn the
-graph into a generation-banded pedigree layout with partner bars, sibling buses, and drop lines.
+graph into a generation-banded pedigree layout whose connector lines follow the standardized (2022
+NSGC / Bennett) conventions: a **relationship line** between partners, a **sibship line** that spans
+*only* a union's own children, and a **line of descent** from the relationship midpoint (or, for a
+partner not in the record, straight from the single parent). That descent is a plain vertical when it
+sits above the sibship and a lane-separated orthogonal jog when the sibship is pushed off-centre, so
+two unions' lines never merge — a half-sibling never reads as the visible couple's child.
 
 ## 5. The hereditary-pattern engine
 
