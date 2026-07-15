@@ -273,6 +273,36 @@ describe('isValidRecord — deep validation', () => {
     expect(isValidRecord(rec)).toBe(false);
   });
 
+  it('rejects a person with a non-number gen/x (would render a NaN layout position)', () => {
+    const badGen = base();
+    (badGen.people[0] as unknown as Record<string, unknown>).gen = 'top';
+    expect(isValidRecord(badGen)).toBe(false);
+    const badX = base();
+    delete (badX.people[0] as unknown as Record<string, unknown>).x;
+    expect(isValidRecord(badX)).toBe(false);
+  });
+
+  it('rejects a malformed optional field but accepts valid or absent ones', () => {
+    const nonArray = base();
+    (nonArray.people[0] as unknown as Record<string, unknown>).organs = 'breasts'; // not an array
+    expect(isValidRecord(nonArray)).toBe(false);
+
+    const unknownOrgan = base();
+    unknownOrgan.people[0].organs = ['spleen'] as never; // not a known Organ
+    expect(isValidRecord(unknownOrgan)).toBe(false);
+
+    const badPronouns = base();
+    (badPronouns.people[0] as unknown as Record<string, unknown>).pronouns = 42;
+    expect(isValidRecord(badPronouns)).toBe(false);
+
+    const good = base();
+    good.people[0].organs = ['breasts', 'ovaries'];
+    good.people[0].pronouns = 'she/her';
+    expect(isValidRecord(good)).toBe(true);
+    // Absent optionals are fine (base() sets neither).
+    expect(isValidRecord(base())).toBe(true);
+  });
+
   it('rejects a malformed union or timeline event', () => {
     const badUnion = base();
     (badUnion.unions as unknown[]) = [{ parents: [1, 2], children: [] }];

@@ -222,6 +222,7 @@ export function layoutFromGraph(record: FamilyRecord): FamilyRecord {
 const SAB_VALUES = new Set(['m', 'f', 'u']);
 const GENDER_VALUES = new Set(['man', 'woman', 'nb']);
 const PROV_VALUES = new Set(['self', 'record', 'death']);
+const ORGAN_VALUES = new Set(['breasts', 'ovaries', 'uterus', 'cervix', 'prostate']);
 const EVENT_TYPES = new Set([
   'immunization',
   'visit',
@@ -249,9 +250,21 @@ function isValidPerson(p: unknown): p is Person {
     typeof person.dead !== 'boolean' ||
     !isNumOrNull(person.birth) ||
     !isNumOrNull(person.death) ||
+    // gen/x are required, non-optional layout coordinates; downstream layout math
+    // (computeLayout) reads them directly, so a non-number here would silently produce a
+    // NaN position, not a recomputed one — validate rather than trust.
+    typeof person.gen !== 'number' ||
+    typeof person.x !== 'number' ||
     !Array.isArray(person.conds)
   ) {
     return false;
+  }
+  // Optional fields, but if present they must be well-formed: `organsOf` only defaults a
+  // null/absent list, so a non-array `organs` would throw at its `.map`/`.includes` sites.
+  if (person.pronouns !== undefined && typeof person.pronouns !== 'string') return false;
+  if (person.organs !== undefined) {
+    if (!Array.isArray(person.organs) || !person.organs.every((o) => ORGAN_VALUES.has(o as string)))
+      return false;
   }
   return person.conds.every(
     (c) =>
@@ -293,9 +306,13 @@ function isValidEvent(e: unknown): boolean {
  *
  * The per-field checks are not cosmetic: downstream renderers interpolate `birth`/`death`/
  * `name` into an SVG string, so a hostile backup that smuggled a non-number `birth` through
- * a shallow guard could otherwise reach a `dangerouslySetInnerHTML` sink. Optional layout
- * hints (`gen`/`x`) and display extras (`pronouns`/`organs`) are intentionally not required
- * — they are recomputed or defaulted — keeping older/hand-built backups loadable.
+ * a shallow guard could otherwise reach a `dangerouslySetInnerHTML` sink; and the required
+ * layout coordinates (`gen`/`x`) are read directly by the layout math, so a non-number would
+ * silently render a `NaN` position rather than being recomputed. Every record Stemma
+ * produces — a store edit, a GEDCOM import, a native export — carries these fields (all
+ * construction routes through `layoutFromGraph`), so requiring them rejects only a corrupt
+ * or partial blob, which is the intent. Optional `pronouns`/`organs` are validated only when
+ * present.
  */
 export function isValidRecord(r: unknown): r is FamilyRecord {
   if (!r || typeof r !== 'object') return false;
