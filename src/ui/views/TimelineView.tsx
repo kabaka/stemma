@@ -1,8 +1,11 @@
 import { useId, useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { useRelations } from '../hooks';
+import { useDisclosureFocus, useRelations } from '../hooks';
 import { EVENT_META, EVENT_TYPES } from '@/data/events';
-import type { EventType } from '@/domain/types';
+import type { EventType, TimelineEvent } from '@/domain/types';
+
+/** The editable fields of a timeline event (everything but its id). */
+type EventDraft = Omit<TimelineEvent, 'id'>;
 
 /** One person's medical timeline — every relative keeps their own. */
 export function TimelineView() {
@@ -12,10 +15,13 @@ export function TimelineView() {
   const tlType = useStore((s) => s.tlType);
   const setTlType = useStore((s) => s.setTlType);
   const addEvent = useStore((s) => s.addEvent);
+  const updateEvent = useStore((s) => s.updateEvent);
   const deleteEvent = useStore((s) => s.deleteEvent);
   const relations = useRelations(record.probandId);
 
   const [adding, setAdding] = useState(false);
+  // The event currently being edited (its form replaces the row inline), or null.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const personSelectId = useId();
 
   // Fall back gracefully rather than assert: a replaced/imported record whose probandId
@@ -34,6 +40,21 @@ export function TimelineView() {
   if (!person) return <div className="scroll">No record loaded.</div>;
 
   const isProband = person.id === record.probandId;
+
+  // The person picker (shared by add + edit forms): "you" and each relative's relationship.
+  const peopleOptions = record.people.map((p) => ({
+    id: p.id,
+    label: `${p.name}${p.id === record.probandId ? ' (you)' : ` · ${relations.get(p.id)?.rel ?? ''}`}`,
+  }));
+
+  const startAdding = () => {
+    setEditingId(null);
+    setAdding((v) => !v);
+  };
+  const startEditing = (id: string) => {
+    setAdding(false);
+    setEditingId(id);
+  };
 
   return (
     <div className="scroll">
@@ -63,7 +84,7 @@ export function TimelineView() {
             type="button"
             className="btn btn--primary btn--sm"
             aria-expanded={adding}
-            onClick={() => setAdding((v) => !v)}
+            onClick={startAdding}
           >
             {adding ? '✕ close' : '+ log event'}
           </button>
@@ -76,7 +97,16 @@ export function TimelineView() {
       </p>
 
       {adding && (
-        <EventForm personId={person.id} onDone={() => setAdding(false)} onSave={addEvent} />
+        <EventForm
+          people={peopleOptions}
+          defaultPersonId={person.id}
+          submitLabel="Save event"
+          onDone={() => setAdding(false)}
+          onSubmit={(draft) => {
+            addEvent(draft);
+            setAdding(false);
+          }}
+        />
       )}
 
       <div className="row wrap" style={{ gap: 7, margin: '4px 0 18px' }}>
@@ -107,85 +137,145 @@ export function TimelineView() {
         </div>
       )}
       <ul className="timeline-list">
-        {shown.map((e) => (
-          <li className="timeline-item" key={e.id}>
-            <span className="mono-dim" style={{ paddingTop: 2 }}>
-              {e.year}
-            </span>
-            <div>
-              <div className="row" style={{ gap: 8 }}>
-                <span
-                  className="badge"
-                  style={{
-                    background: `${EVENT_META[e.type].color}22`,
-                    color: EVENT_META[e.type].color,
-                  }}
-                >
-                  {EVENT_META[e.type].label}
-                </span>
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{e.title}</span>
-              </div>
-              {e.detail && (
-                <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 4 }}>
-                  {e.detail}
+        {shown.map((e) =>
+          editingId === e.id ? (
+            <li key={e.id}>
+              <EventForm
+                people={peopleOptions}
+                initial={e}
+                submitLabel="Save changes"
+                onDone={() => setEditingId(null)}
+                onSubmit={(draft) => {
+                  updateEvent(e.id, draft);
+                  setEditingId(null);
+                }}
+              />
+            </li>
+          ) : (
+            <li className="timeline-item" key={e.id}>
+              <span className="mono-dim" style={{ paddingTop: 2 }}>
+                {e.year}
+              </span>
+              <div>
+                <div className="row" style={{ gap: 8 }}>
+                  <span
+                    className="badge"
+                    style={{
+                      background: `${EVENT_META[e.type].color}22`,
+                      color: EVENT_META[e.type].color,
+                    }}
+                  >
+                    {EVENT_META[e.type].label}
+                  </span>
+                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{e.title}</span>
                 </div>
-              )}
-            </div>
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={() => deleteEvent(e.id)}
-              aria-label={`Delete ${e.title}`}
-            >
-              ✕
-            </button>
-          </li>
-        ))}
+                {e.detail && (
+                  <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 4 }}>
+                    {e.detail}
+                  </div>
+                )}
+              </div>
+              <div className="row" style={{ gap: 4 }}>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => startEditing(e.id)}
+                  aria-expanded={editingId === e.id}
+                  aria-label={`Edit ${e.title}`}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => deleteEvent(e.id)}
+                  aria-label={`Delete ${e.title}`}
+                >
+                  ✕
+                </button>
+              </div>
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );
 }
 
+interface PersonOption {
+  id: string;
+  label: string;
+}
+
 interface EventFormProps {
-  personId: string;
-  onSave: (e: {
-    person: string;
-    year: number;
-    type: EventType;
-    title: string;
-    detail: string;
-  }) => void;
+  people: PersonOption[];
+  /** Pre-filled values when editing an existing event. */
+  initial?: TimelineEvent;
+  /** Person to attach a *new* event to (ignored when `initial` is set). */
+  defaultPersonId?: string;
+  submitLabel: string;
+  onSubmit: (draft: EventDraft) => void;
   onDone: () => void;
 }
 
-function EventForm({ personId, onSave, onDone }: EventFormProps) {
-  // String-backed so the field can be blanked while editing without snapping to 0.
-  const [year, setYear] = useState(String(new Date().getFullYear()));
-  const [type, setType] = useState<EventType>('diagnosis');
-  const [title, setTitle] = useState('');
-  const [detail, setDetail] = useState('');
+function EventForm({
+  people,
+  initial,
+  defaultPersonId,
+  submitLabel,
+  onSubmit,
+  onDone,
+}: EventFormProps) {
+  // String-backed year so the field can be blanked while editing without snapping to 0.
+  const [personId, setPersonId] = useState(
+    initial?.person ?? defaultPersonId ?? people[0]?.id ?? '',
+  );
+  const [year, setYear] = useState(String(initial?.year ?? new Date().getFullYear()));
+  const [type, setType] = useState<EventType>(initial?.type ?? 'diagnosis');
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [detail, setDetail] = useState(initial?.detail ?? '');
 
+  const personId_ = useId();
   const yearId = useId();
   const typeId = useId();
   const titleId = useId();
   const detailId = useId();
+  // Move focus into the form on open (first field), back to the trigger on close.
+  const firstFieldRef = useDisclosureFocus<HTMLSelectElement>();
 
   const submit = () => {
     if (!title.trim()) return;
     const parsedYear = Number.parseInt(year, 10);
-    onSave({
+    onSubmit({
       person: personId,
       year: Number.isNaN(parsedYear) ? new Date().getFullYear() : parsedYear,
       type,
       title: title.trim(),
       detail: detail.trim(),
     });
-    onDone();
   };
 
   return (
     <div className="card" style={{ marginBottom: 18, display: 'grid', gap: 12 }}>
-      <div className="row" style={{ gap: 12 }}>
+      <div>
+        <label className="lbl" htmlFor={personId_}>
+          Person
+        </label>
+        <select
+          ref={firstFieldRef}
+          id={personId_}
+          className="field"
+          value={personId}
+          onChange={(e) => setPersonId(e.target.value)}
+        >
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="row wrap" style={{ gap: 12 }}>
         <div style={{ width: 110 }}>
           <label className="lbl" htmlFor={yearId}>
             Year
@@ -241,7 +331,7 @@ function EventForm({ personId, onSave, onDone }: EventFormProps) {
       </div>
       <div className="row">
         <button type="button" className="btn btn--primary btn--sm" onClick={submit}>
-          Save event
+          {submitLabel}
         </button>
         <button type="button" className="btn btn--sm" onClick={onDone}>
           Cancel

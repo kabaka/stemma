@@ -219,13 +219,83 @@ export function layoutFromGraph(record: FamilyRecord): FamilyRecord {
   };
 }
 
+const SAB_VALUES = new Set(['m', 'f', 'u']);
+const GENDER_VALUES = new Set(['man', 'woman', 'nb']);
+const PROV_VALUES = new Set(['self', 'record', 'death']);
+const EVENT_TYPES = new Set([
+  'immunization',
+  'visit',
+  'lab',
+  'diagnosis',
+  'medication',
+  'screening',
+  'procedure',
+  'genetic',
+]);
+
+const isNumOrNull = (v: unknown): boolean => v === null || typeof v === 'number';
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((s) => typeof s === 'string');
+
+/** Deep shape check for one person, including its condition entries. */
+function isValidPerson(p: unknown): p is Person {
+  if (!p || typeof p !== 'object') return false;
+  const person = p as Record<string, unknown>;
+  if (
+    typeof person.id !== 'string' ||
+    typeof person.name !== 'string' ||
+    !SAB_VALUES.has(person.sab as string) ||
+    !GENDER_VALUES.has(person.gender as string) ||
+    typeof person.dead !== 'boolean' ||
+    !isNumOrNull(person.birth) ||
+    !isNumOrNull(person.death) ||
+    !Array.isArray(person.conds)
+  ) {
+    return false;
+  }
+  return person.conds.every(
+    (c) =>
+      c != null &&
+      typeof c === 'object' &&
+      typeof (c as Record<string, unknown>).id === 'string' &&
+      isNumOrNull((c as Record<string, unknown>).onset) &&
+      PROV_VALUES.has((c as Record<string, unknown>).prov as string),
+  );
+}
+
+function isValidUnion(u: unknown): u is Union {
+  if (!u || typeof u !== 'object') return false;
+  const union = u as Record<string, unknown>;
+  return isStringArray(union.parents) && isStringArray(union.children);
+}
+
+function isValidEvent(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const ev = e as Record<string, unknown>;
+  return (
+    typeof ev.id === 'string' &&
+    typeof ev.person === 'string' &&
+    typeof ev.year === 'number' &&
+    EVENT_TYPES.has(ev.type as string) &&
+    typeof ev.title === 'string' &&
+    typeof ev.detail === 'string'
+  );
+}
+
 /**
- * Minimal structural guard for a {@link FamilyRecord}. Verifies the four collections have
- * the right shape and that the record has a resolvable proband. Used at two boundaries
- * where a record enters state from outside the trusted mutation path: `localStorage`
- * hydration (a corrupt or schema-outdated blob) and `replaceRecord` (an imported or
- * otherwise externally-built record). The durable asset "must outlive the app," so both
- * paths validate rather than trust the incoming shape.
+ * Structural guard for a {@link FamilyRecord}. Verifies the four collections, that the
+ * record has a resolvable proband, and — critically — that every nested person, union, and
+ * timeline event is well-typed. Used at the boundaries where a record enters state from
+ * outside the trusted mutation path: `localStorage` hydration (a corrupt or schema-outdated
+ * blob), `replaceRecord`, and the native-backup importer (`src/import/native.ts`), which
+ * accepts an arbitrary user-supplied JSON file. The durable asset "must outlive the app,"
+ * so these paths validate rather than trust the incoming shape.
+ *
+ * The per-field checks are not cosmetic: downstream renderers interpolate `birth`/`death`/
+ * `name` into an SVG string, so a hostile backup that smuggled a non-number `birth` through
+ * a shallow guard could otherwise reach a `dangerouslySetInnerHTML` sink. Optional layout
+ * hints (`gen`/`x`) and display extras (`pronouns`/`organs`) are intentionally not required
+ * — they are recomputed or defaulted — keeping older/hand-built backups loadable.
  */
 export function isValidRecord(r: unknown): r is FamilyRecord {
   if (!r || typeof r !== 'object') return false;
@@ -235,6 +305,9 @@ export function isValidRecord(r: unknown): r is FamilyRecord {
     Array.isArray(rec.unions) &&
     Array.isArray(rec.timeline) &&
     typeof rec.probandId === 'string' &&
-    rec.people.some((p) => (p as Person | undefined)?.id === rec.probandId)
+    rec.people.every(isValidPerson) &&
+    rec.unions.every(isValidUnion) &&
+    rec.timeline.every(isValidEvent) &&
+    rec.people.some((p) => p.id === rec.probandId)
   );
 }

@@ -1,11 +1,29 @@
 /** Derived-state hooks shared across views. Keep computation in the domain layer;
  * these just memoise it against the current store. */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { CURRENT_YEAR, useStore } from '@/store/useStore';
 import { buildCatalog, type Catalog } from '@/domain/catalog';
 import { detectPatterns, familyFindings, relationMap, type PatternFlag } from '@/domain/patterns';
 import { calculatorsFor, screeningsFor } from '@/domain/screening';
 import type { RelationInfo } from '@/domain/graph';
+
+/**
+ * Focus management for a disclosure (an inline panel or form that mounts on demand):
+ * move focus into the panel on open, and hand it back to whatever triggered the open
+ * on close, so keyboard/screen-reader focus is never silently dropped to `<body>`.
+ * Mirrors the pattern in `PersonDrawer`; return the ref and spread it onto the element
+ * that should receive focus (typically the first field). WCAG 2.4.3.
+ */
+export function useDisclosureFocus<T extends HTMLElement>(): RefObject<T> {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const trigger = document.activeElement;
+    const triggerEl = trigger instanceof HTMLElement ? trigger : null;
+    ref.current?.focus();
+    return () => triggerEl?.focus();
+  }, []);
+  return ref;
+}
 
 /** The merged catalog (curated + long-tail extensions). */
 export function useCatalog(): Catalog {

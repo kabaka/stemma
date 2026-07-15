@@ -198,18 +198,24 @@ prototype features dropped or left half-wired during the port, ranked. The engin
 kinship model came over faithfully; these are the real omissions, concentrated in what the app
 _emits_ and _edits_.
 
-- **[High] Printable clinical reports + a print stylesheet** (Phase 2, "bring to your appointment").
-  Restore the three one-pagers the prototype printed — a 3-generation NSGC pedigree, a
-  family-history red-flag summary, and an IPS-style personal-health summary — behind a real
-  `@media print` stylesheet. Today's lone `window.print()` prints the dark app chrome. Each sheet
-  must restate the clinical boundary (guardrail #3).
-- **[High] Native lossless backup + restore** (Phase 3 / no-lock-in). Export the complete record
-  (conditions, onset/provenance, timeline, organs, identity) to a versioned JSON and re-import it.
-  `replaceRecord` already validates and swaps a whole record, so restore is half-built; GEDCOM
-  (structural-only) and FHIR/Phenopacket (lossy) don't cover it. Guardrail #5.
-- **[High] Wire Timeline event editing into the UI.** `updateEvent` exists in the store but no view
-  uses it; add an edit affordance, plus a person picker in the event form so an event can be logged
-  to (or reassigned to) any relative rather than only the currently-viewed person.
+- ✅ **[High] Printable clinical reports + a print stylesheet** (Phase 2, "bring to your
+  appointment"). The three one-pagers the prototype printed are restored — a 3-generation NSGC
+  pedigree, a family-history red-flag summary, and an IPS-style personal-health summary — behind a
+  real `@media print` stylesheet that hides the dark app chrome and renders black-on-white, one
+  sheet per page (`src/ui/components/PrintReports.tsx`, print block in `src/styles/components.css`).
+  Each sheet restates the clinical boundary as a first-class bordered block (guardrail #3), reads
+  only engine outputs (guardrail #1), and repeats the "screening keys off organs, not gender" line
+  (guardrail #4).
+- ✅ **[High] Native lossless backup + restore** (Phase 3 / no-lock-in). The complete record
+  (conditions, onset/provenance, timeline, organs, identity) plus long-tail catalog extensions now
+  serialise to a versioned JSON envelope (`src/export/native.ts`) and re-import through a validating
+  parser (`src/import/native.ts`) that feeds the existing `replaceRecord`. Download + restore live
+  in the Reports view. GEDCOM (structural-only) and FHIR/Phenopacket (lossy) don't cover it;
+  this round-trips with no loss. Guardrail #5.
+- ✅ **[High] Wire Timeline event editing into the UI.** Each event now has an inline **Edit**
+  affordance backed by the store's `updateEvent`, and the event form carries a person picker so an
+  event can be logged to — or reassigned to — any relative rather than only the currently-viewed
+  person (`src/ui/views/TimelineView.tsx`).
 - **[Med] Restore dropped read surfaces.** Overview "Recent activity" (3 newest proband events);
   the pedigree category-breakdown string ("N relatives · 2× X, 1× Y"); the drawer condition card's
   inheritance-pattern line.

@@ -141,6 +141,8 @@ function glyph(
     `font-family="sans-serif" font-weight="600">${esc(p.name)}</text>`;
   out +=
     `<text x="${cx}" y="${cy + NODE + 27}" font-size="8" fill="#777" text-anchor="middle" ` +
-    `font-family="monospace">${years}${sabDiff ? `  ${sabLabel(sab)}` : ''}</text>`;
+    // esc() the years like p.name above: birth/death are normally numbers, but a restored
+    // backup could smuggle a string here, and this text is injected via innerHTML downstream.
+    `font-family="monospace">${esc(years)}${sabDiff ? `  ${sabLabel(sab)}` : ''}</text>`;
   return out;
 }

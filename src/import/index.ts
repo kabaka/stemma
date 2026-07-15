@@ -6,6 +6,10 @@
  *
  * - {@link parseGedcom} — GEDCOM 5.5.1 text → structural individuals + families
  * - {@link buildRecordFromGedcom} — those + a chosen proband → a loadable `FamilyRecord`
+ * - {@link parseNativeBackup} — a Stemma native backup envelope → record + extensions
  */
 export { parseGedcom, buildRecordFromGedcom } from './gedcom';
 export type { GedcomIndividual, GedcomFamily, ParsedGedcom } from './gedcom';
+
+export { parseNativeBackup } from './native';
+export type { NativeRestore } from './native';

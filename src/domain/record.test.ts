@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
 import type { FamilyRecord, Person } from './types';
-import { deriveGenerations, layoutFromGraph, linkRelative, removePerson } from './record';
+import {
+  deriveGenerations,
+  isValidRecord,
+  layoutFromGraph,
+  linkRelative,
+  removePerson,
+} from './record';
 
 /** Minimal fixture for a brand-new relative; linkRelative overwrites gen/x per relation. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
@@ -220,5 +226,61 @@ describe('layoutFromGraph', () => {
     const laid = layoutFromGraph(record);
     expect(record).toEqual(snapshot); // input untouched
     expect(laid.people[0]).toMatchObject({ id: 'a', name: 'A', birth: 1950, isProband: true });
+  });
+});
+
+describe('isValidRecord — deep validation', () => {
+  const base = (): FamilyRecord => ({
+    people: [mkPerson('a', { isProband: true })],
+    unions: [],
+    timeline: [],
+    probandId: 'a',
+  });
+
+  it('accepts a well-formed record (and the seed)', () => {
+    expect(isValidRecord(base())).toBe(true);
+    expect(isValidRecord(seedRecord())).toBe(true);
+  });
+
+  it('rejects non-objects and missing collections', () => {
+    expect(isValidRecord(null)).toBe(false);
+    expect(isValidRecord({ people: [], unions: [], timeline: [] })).toBe(false); // no proband
+    expect(isValidRecord({ ...base(), people: 'nope' })).toBe(false);
+  });
+
+  it('rejects a record whose proband id resolves to nobody', () => {
+    expect(isValidRecord({ ...base(), probandId: 'ghost' })).toBe(false);
+  });
+
+  it('rejects a person with a non-number birth (SVG-injection / type-confusion guard)', () => {
+    const rec = base();
+    (rec.people[0] as unknown as Record<string, unknown>).birth = '<script>evil</script>';
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a person with an out-of-enum sab or gender', () => {
+    const badSab = base();
+    (badSab.people[0] as unknown as Record<string, unknown>).sab = 'x';
+    expect(isValidRecord(badSab)).toBe(false);
+    const badGender = base();
+    (badGender.people[0] as unknown as Record<string, unknown>).gender = 'other';
+    expect(isValidRecord(badGender)).toBe(false);
+  });
+
+  it('rejects a malformed condition entry (bad prov / non-string id)', () => {
+    const rec = base();
+    rec.people[0].conds = [{ id: 'brca', onset: null, prov: 'hearsay' as never }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a malformed union or timeline event', () => {
+    const badUnion = base();
+    (badUnion.unions as unknown[]) = [{ parents: [1, 2], children: [] }];
+    expect(isValidRecord(badUnion)).toBe(false);
+    const badEvent = base();
+    (badEvent.timeline as unknown[]) = [
+      { id: 'e', person: 'a', year: 2020, type: 'not-a-type', title: 't', detail: '' },
+    ];
+    expect(isValidRecord(badEvent)).toBe(false);
   });
 });

@@ -756,3 +756,162 @@ textarea.field {
     padding: 20px 16px 50px;
   }
 }
+
+/* ---- Printable clinical one-pagers (GAP-ANALYSIS H1) ----
+   The three sheets live in a sibling of `.app`, hidden on screen. In print we drop the
+   dark app chrome entirely and render these black-on-white, one sheet per page. Every
+   sheet ends with the clinical boundary as a first-class element (guardrail #3). */
+.print-reports {
+  display: none;
+}
+
+@media print {
+  /* Hand-to-your-clinician output: paper, not the dark app. */
+  .app {
+    display: none !important;
+  }
+  .print-reports {
+    display: block;
+    color: #111;
+    background: #fff;
+    font-family: var(--font-sans);
+  }
+  .print-sheet {
+    break-after: page;
+    page-break-after: always;
+    padding: 8mm 4mm;
+  }
+  .print-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .print-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #111;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .print-brand {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .print-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 2px 0;
+  }
+  .print-subtitle {
+    font-size: 12px;
+    color: #444;
+  }
+  .print-generated {
+    font-size: 11px;
+    color: #555;
+    white-space: nowrap;
+  }
+  .print-subhead {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 16px 0 6px;
+    border-bottom: 1px solid #bbb;
+    padding-bottom: 3px;
+  }
+  .print-note,
+  .print-empty {
+    font-size: 11.5px;
+    color: #333;
+    line-height: 1.5;
+    margin: 6px 0;
+  }
+  .print-pedigree {
+    text-align: center;
+    margin: 8px 0;
+  }
+  .print-pedigree svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .print-flags {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .print-flag {
+    border: 1px solid #999;
+    border-left: 4px solid #111;
+    border-radius: 4px;
+    padding: 8px 10px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-flag-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .print-flag-title {
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .print-flag-sev {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .print-flag-crit,
+  .print-flag-rel,
+  .print-flag-rec {
+    font-size: 11.5px;
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+  .print-flag-rec {
+    color: #333;
+  }
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin: 4px 0 2px;
+  }
+  .print-table th,
+  .print-table td {
+    text-align: left;
+    padding: 4px 6px;
+    border-bottom: 1px solid #ccc;
+    vertical-align: top;
+  }
+  .print-table th {
+    border-bottom: 1px solid #111;
+    font-weight: 700;
+  }
+  .print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-boundary {
+    margin-top: 16px;
+    border: 1px solid #111;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: #111;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}

@@ -1,7 +1,18 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useAsOfYear, useCatalog } from '../hooks';
-import { buildFhirBundle, buildGedcom, buildPedigreeSvg, buildPhenopacket } from '@/export';
+import {
+  buildFhirBundle,
+  buildGedcom,
+  buildNativeBackup,
+  buildPedigreeSvg,
+  buildPhenopacket,
+} from '@/export';
+import { NativeRestore } from '../components/NativeRestore';
+import type { Condition, FamilyRecord } from '@/domain/types';
+
+const CONFIRM_RESTORE =
+  'Restore this backup? It replaces your current record, timeline, and custom conditions.';
 
 type Format = 'fhir' | 'phenopacket' | 'gedcom' | 'svg';
 
@@ -64,10 +75,27 @@ function download(filename: string, text: string, mime: string) {
 /** Export the record to open, no-lock-in standards. Everything is generated client-side. */
 export function ReportsView() {
   const record = useStore((s) => s.record);
+  const extensions = useStore((s) => s.extensions);
   const palette = useStore((s) => s.palette);
+  const replaceRecord = useStore((s) => s.replaceRecord);
   const catalog = useCatalog();
   const asOfYear = useAsOfYear();
   const [preview, setPreview] = useState<{ format: Format; text: string } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const downloadBackup = (): void => {
+    // The generation timestamp is injected here (the sanctioned wall-clock boundary) so the
+    // serialiser stays pure. Extensions ride along so the long-tail catalog round-trips too.
+    const text = buildNativeBackup(record, extensions, { now: new Date().toISOString() });
+    download('stemma-backup.json', text, 'application/json');
+  };
+
+  const handleRestore = (restored: FamilyRecord, restoredExt: Condition[]): void => {
+    if (window.confirm(CONFIRM_RESTORE)) {
+      replaceRecord(restored, restoredExt);
+      setRestoring(false);
+    }
+  };
 
   const render = (format: Format): string => {
     // The document's generation time and as-of year are injected here (the sanctioned
@@ -89,8 +117,13 @@ export function ReportsView() {
     <div className="scroll">
       <div className="page-head">
         <h1 className="page-title">Reports &amp; Export</h1>
-        <button type="button" className="btn btn--sm" onClick={() => window.print()}>
-          Print summary
+        <button
+          type="button"
+          className="btn btn--sm"
+          onClick={() => window.print()}
+          title="Print three clinician-ready sheets: pedigree, red-flag summary, and personal health summary"
+        >
+          Print clinical sheets
         </button>
       </div>
       <p className="lede">
@@ -98,6 +131,41 @@ export function ReportsView() {
         standard, so the data outlives the app. Nothing is uploaded.
       </p>
 
+      <section style={{ marginBottom: 24 }}>
+        <h2 className="section-label">Backup &amp; restore</h2>
+        <div className="card">
+          <h3 style={{ fontWeight: 600, fontSize: 14 }}>Full-record backup (Stemma JSON)</h3>
+          <div className="mono-dim" style={{ margin: '3px 0 9px' }}>
+            Lossless · versioned
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+            The complete record — everyone, their conditions with onset and provenance, the
+            timeline, organ inventories, identity, and any custom conditions. Unlike the standards
+            below, this round-trips with no loss, so you can move the whole record between browsers
+            or keep an offline copy. Restoring replaces your current record.
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button type="button" className="btn btn--primary btn--sm" onClick={downloadBackup}>
+              Download backup
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm"
+              aria-expanded={restoring}
+              onClick={() => setRestoring((v) => !v)}
+            >
+              {restoring ? 'Cancel restore' : 'Restore from backup…'}
+            </button>
+          </div>
+        </div>
+        {restoring && (
+          <div style={{ marginTop: 12 }}>
+            <NativeRestore onRestore={handleRestore} onCancel={() => setRestoring(false)} />
+          </div>
+        )}
+      </section>
+
+      <h2 className="section-label">Standards export</h2>
       <div
         style={{
           display: 'grid',

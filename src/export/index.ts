@@ -8,6 +8,7 @@
  * - {@link buildPhenopacket} — GA4GH Phenopacket v2 (geneticist / researcher)
  * - {@link buildGedcom} — GEDCOM 5.5.1 (genealogy)
  * - {@link buildPedigreeSvg} — gender-inclusive pedigree drawing
+ * - {@link buildNativeBackup} — lossless full-record backup (no-lock-in escape hatch)
  */
 export { buildFhirBundle } from './fhir';
 export type {
@@ -29,3 +30,6 @@ export { buildGedcom } from './gedcom';
 
 export { buildPedigreeSvg } from './pedigree-svg';
 export type { PedigreeSvgOptions } from './pedigree-svg';
+
+export { buildNativeBackup, NATIVE_BACKUP_KIND, NATIVE_BACKUP_VERSION } from './native';
+export type { NativeBackup, NativeBackupOptions } from './native';
