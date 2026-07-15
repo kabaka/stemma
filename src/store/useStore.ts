@@ -21,6 +21,7 @@ import type {
 import type { Palette } from '@/data/categories';
 import { emptyRecord, seedRecord } from '@/data/seed';
 import { CONDITIONS } from '@/data/conditions';
+import { sanitizeExtensions } from '@/domain/catalog';
 import { organsOf } from '@/domain/person';
 import { isValidRecord, linkRelative, removePerson, type Relation } from '@/domain/record';
 
@@ -299,11 +300,17 @@ export const useStore = create<Store>()(
 
       replaceRecord: (record, extensions) => {
         // The first real callers of this action hand it externally-built records (GEDCOM
-        // import, and future FHIR-pull). Validate at this boundary — the same guard the
-        // persist layer applies at hydration — so a malformed record can never overwrite
-        // good state; an invalid one is ignored rather than swapped in.
+        // import, native-backup restore, and future FHIR-pull). Validate at this boundary —
+        // the same guard the persist layer applies at hydration — so a malformed record can
+        // never overwrite good state; an invalid one is ignored rather than swapped in. The
+        // extensions are sanitised here too (not just trusted from the caller) so a future
+        // producer can't reintroduce the shadow-a-curated-condition / unknown-category risk.
         if (!isValidRecord(record)) return;
-        set({ record: cloneRecord(record), extensions: extensions ?? [], ...recordUi(record) });
+        set({
+          record: cloneRecord(record),
+          extensions: sanitizeExtensions(extensions ?? []),
+          ...recordUi(record),
+        });
       },
     }),
     {

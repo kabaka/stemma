@@ -38,13 +38,13 @@ guardrail on that held throughout.
 
 ## Real gaps, ranked
 
-### High
+### High — ✅ all resolved (branch `claude/high-priority-gaps-x1q259`)
 
-| # | Gap | Evidence | Guardrail |
-| --- | --- | --- | --- |
-| **H1** | **All three printable clinical one-pagers are gone, and there is no `@media print` CSS at all.** The prototype printed a 3-generation NSGC pedigree, a family-history red-flag summary, and an IPS-style personal-health summary. The current "Print summary" button prints the on-screen dark app chrome, so it is non-functional for its "hand it to your clinician" purpose. | prototype L26–35, L700–783, L1679–1683; `src/ui/views/ReportsView.tsx:92` | #3 (per-report boundary footers dropped) |
-| **H2** | **Native lossless full-record backup export dropped.** No way to export the complete graph (conditions + onset/provenance + timeline + organs + identity) to a file and restore it. GEDCOM is structural-only; FHIR/Phenopacket are lossy clinical projections. Restore is half-wired: `replaceRecord` exists but there is no native-JSON importer. | prototype "Lineage backup (native)" L1655; `src/ui/views/ReportsView.tsx:17–50`; `src/store/useStore.ts` `replaceRecord` | #5 (no lock-in / record outlives the app) |
-| **H3** | **Timeline "Edit event" is missing from the UI.** The `updateEvent` store action exists but is wired to no view, so correcting a typo or wrong year requires delete + full re-entry. | `updateEvent` unused across `src/ui`; prototype L465, L1391, L1396 | — |
+| # | Gap | Evidence | Guardrail | Status |
+| --- | --- | --- | --- | --- |
+| **H1** | **All three printable clinical one-pagers are gone, and there is no `@media print` CSS at all.** The prototype printed a 3-generation NSGC pedigree, a family-history red-flag summary, and an IPS-style personal-health summary. The current "Print summary" button prints the on-screen dark app chrome, so it is non-functional for its "hand it to your clinician" purpose. | prototype L26–35, L700–783, L1679–1683; `src/ui/views/ReportsView.tsx:92` | #3 (per-report boundary footers dropped) | ✅ `src/ui/components/PrintReports.tsx` + `@media print` block in `src/styles/components.css`; all three sheets restored, each with a first-class boundary footer (#3) and the organs-not-gender line (#4), reading only engine outputs (#1). |
+| **H2** | **Native lossless full-record backup export dropped.** No way to export the complete graph (conditions + onset/provenance + timeline + organs + identity) to a file and restore it. GEDCOM is structural-only; FHIR/Phenopacket are lossy clinical projections. Restore is half-wired: `replaceRecord` exists but there is no native-JSON importer. | prototype "Lineage backup (native)" L1655; `src/ui/views/ReportsView.tsx:17–50`; `src/store/useStore.ts` `replaceRecord` | #5 (no lock-in / record outlives the app) | ✅ `src/export/native.ts` (versioned envelope) + `src/import/native.ts` (validating restore) wired into Reports; feeds the existing `replaceRecord`. The restore path deep-validates the record and refuses to let an extension shadow a curated condition or smuggle an unknown category. |
+| **H3** | **Timeline "Edit event" is missing from the UI.** The `updateEvent` store action exists but is wired to no view, so correcting a typo or wrong year requires delete + full re-entry. | `updateEvent` unused across `src/ui`; prototype L465, L1391, L1396 | — | ✅ Inline **Edit** on every event (`updateEvent`), plus a person picker so an event can be logged to — or reassigned to — any relative (`src/ui/views/TimelineView.tsx`). |
 
 ### Medium
 
@@ -71,9 +71,13 @@ Small individually, but this is a safety-first product, so they are called out t
 
 - **#3 (clinical boundary is a first-class element, not a footer)** — the Patterns view demoted its
   boundary from a highlighted callout box to lede body text; the per-report boundary footers
-  vanished with the printable reports (H1).
+  vanished with the printable reports (H1). *Partially re-asserted:* H1 restored a first-class,
+  bordered boundary block on every printable sheet. The on-screen Patterns-view callout is still
+  the open Med item.
 - **#4 (screening keys off organs, not gender)** — the drawer's explicit
   "Screening keys off organs present, not gender." sentence was dropped. (prototype L268)
+  *Partially re-asserted:* the printable personal-health summary (H1) states it; the on-screen
+  drawer line is still the open Med item.
 
 ## Behavioral change — signed off (keep, with an accuracy fix)
 

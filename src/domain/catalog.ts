@@ -31,6 +31,46 @@ export function fallbackCondition(id: string): Condition {
   return { id, name: id, cat: 'other', base: 0, pattern: '—' };
 }
 
+const VALID_CATEGORIES = new Set<string>(Object.keys(CATEGORY_LABELS));
+const CURATED_IDS = new Set(CONDITIONS.map((c) => c.id));
+
+/** Whether `c` is a well-formed long-tail {@link Condition} with a real category. */
+function isConditionLike(c: unknown): c is Condition {
+  if (!c || typeof c !== 'object') return false;
+  const cond = c as Partial<Condition>;
+  return (
+    typeof cond.id === 'string' &&
+    typeof cond.name === 'string' &&
+    typeof cond.cat === 'string' &&
+    VALID_CATEGORIES.has(cond.cat) &&
+    typeof cond.base === 'number' &&
+    typeof cond.pattern === 'string'
+  );
+}
+
+/**
+ * Sanitise a set of long-tail catalog extensions from an untrusted source (a restored
+ * backup, a future FHIR-pull). Keeps only well-formed conditions with a real category,
+ * drops any id that collides with a curated condition (an extension must never shadow
+ * curated clinical metadata the engine reads — the same invariant `registerCondition`
+ * enforces), and dedupes by id. Any dropped entry's id resolves through the catalog's
+ * safe {@link fallbackCondition} (`'other'`) instead. Non-array input yields `[]`.
+ *
+ * The single guard reused at every boundary that admits externally-sourced extensions,
+ * so a new producer can't reintroduce the shadow/crash risk by forgetting to filter.
+ */
+export function sanitizeExtensions(input: unknown): Condition[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: Condition[] = [];
+  for (const c of input) {
+    if (!isConditionLike(c) || CURATED_IDS.has(c.id) || seen.has(c.id)) continue;
+    seen.add(c.id);
+    out.push(c);
+  }
+  return out;
+}
+
 /**
  * Build a catalog. `common` is the ordered set of ids shown when the search box is
  * empty. `categoryLabels` maps category keys to display names.

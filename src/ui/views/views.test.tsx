@@ -7,6 +7,7 @@ import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
 import { ReportsView } from './ReportsView';
+import { PrintReports } from '../components/PrintReports';
 import { GedcomImport } from '../components/GedcomImport';
 
 // These views are asserted against the example family; the app's real default is empty.
@@ -74,6 +75,56 @@ describe('TimelineView', () => {
     render(<TimelineView />);
     // Placeholder-only control (no visible text label) — must still resolve a name.
     expect(screen.getByRole('combobox', { name: /select person/i })).toBeInTheDocument();
+  });
+
+  it('edits an existing event in place through updateEvent', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    // Open the inline editor for a seed event.
+    await user.click(screen.getByRole('button', { name: /edit started levothyroxine/i }));
+
+    const titleField = screen.getByLabelText(/^title$/i) as HTMLInputElement;
+    await user.clear(titleField);
+    await user.type(titleField, 'Adjusted levothyroxine dose');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(screen.getByText(/adjusted levothyroxine dose/i)).toBeInTheDocument();
+    expect(screen.queryByText(/started levothyroxine/i)).not.toBeInTheDocument();
+    // Persisted, not just local UI.
+    expect(
+      useStore.getState().record.timeline.some((e) => e.title === 'Adjusted levothyroxine dose'),
+    ).toBe(true);
+  });
+
+  it('moves focus into the edit form and marks the Edit trigger as expanded', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    const editBtn = screen.getByRole('button', { name: /edit started levothyroxine/i });
+    expect(editBtn).toHaveAttribute('aria-expanded', 'false');
+    await user.click(editBtn);
+    // Focus lands on the form's first field so keyboard/SR users know it opened (WCAG 2.4.3).
+    expect(screen.getByLabelText(/^person$/i)).toHaveFocus();
+  });
+
+  it('logs a new event to a chosen relative via the person picker', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    // The add form exposes a Person picker (not just the currently-viewed person).
+    const personPicker = screen.getByRole('combobox', { name: /^person$/i });
+    const options = within(personPicker).getAllByRole('option') as HTMLOptionElement[];
+    expect(options.length).toBeGreaterThan(1);
+    // Attach to some relative other than the proband.
+    const relative = options.find((o) => !/\(you\)/i.test(o.textContent ?? ''))!;
+    await user.selectOptions(personPicker, relative.value);
+
+    await user.type(screen.getByLabelText(/^title$/i), 'New relative event');
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore.getState().record.timeline.find((e) => e.title === 'New relative event');
+    expect(saved).toBeTruthy();
+    expect(saved!.person).toBe(relative.value);
   });
 });
 
@@ -720,5 +771,57 @@ describe('ReportsView', () => {
     const pre = document.querySelector('pre');
     expect(pre).toBeTruthy();
     expect(pre!.textContent).toContain('0 HEAD');
+  });
+
+  it('downloads a lossless native backup as JSON (H2)', async () => {
+    const user = userEvent.setup();
+    render(<ReportsView />);
+    await user.click(screen.getByRole('button', { name: /download backup/i }));
+
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].download).toBe('stemma-backup.json');
+  });
+
+  it('reveals the restore panel on demand and focuses its file input (H2)', async () => {
+    const user = userEvent.setup();
+    render(<ReportsView />);
+    expect(screen.queryByLabelText(/stemma backup file/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /restore from backup/i }));
+    const fileInput = screen.getByLabelText(/stemma backup file/i);
+    expect(fileInput).toBeInTheDocument();
+    // Focus is moved into the panel on open (WCAG 2.4.3).
+    expect(fileInput).toHaveFocus();
+  });
+
+  it('exposes the backup card title as a navigable heading', () => {
+    render(<ReportsView />);
+    expect(screen.getByRole('heading', { name: /full-record backup/i })).toBeInTheDocument();
+  });
+});
+
+describe('PrintReports', () => {
+  it('renders three clinical sheets, each restating the clinical boundary (H1, guardrail #3)', () => {
+    render(<PrintReports />);
+    // The three one-pagers.
+    expect(screen.getByRole('heading', { name: /family pedigree/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /family-history red-flag summary/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /personal health summary/i })).toBeInTheDocument();
+    // Every sheet carries the boundary as a first-class element (one per sheet).
+    const boundaries = screen.getAllByText(/not a diagnostic device/i);
+    expect(boundaries).toHaveLength(3);
+  });
+
+  it('restores the organ-vs-gender screening guardrail copy (#4)', () => {
+    render(<PrintReports />);
+    expect(screen.getByText(/screening keys off organs present, not gender/i)).toBeInTheDocument();
+  });
+
+  it('roots the printed document with a single h1 so the outline is well-formed', () => {
+    render(<PrintReports />);
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]).toHaveAccessibleName(/stemma clinical print reports/i);
   });
 });
