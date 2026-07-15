@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CONDITIONS, COMMON_CONDITIONS } from '@/data/conditions';
 import { CATEGORY_LABELS } from '@/data/categories';
-import { createCatalog, fallbackCondition } from './catalog';
+import { createCatalog, fallbackCondition, sanitizeExtensions } from './catalog';
+import type { Condition } from './types';
 
 const catalog = createCatalog([...CONDITIONS], [...COMMON_CONDITIONS], CATEGORY_LABELS);
 
@@ -97,5 +98,38 @@ describe('catalog search', () => {
 describe('fallbackCondition', () => {
   it('produces a generic stand-in', () => {
     expect(fallbackCondition('X').name).toBe('X');
+  });
+});
+
+describe('sanitizeExtensions', () => {
+  const good: Condition = { id: 'x1', name: 'Long tail', cat: 'other', base: 0.1, pattern: '—' };
+
+  it('keeps well-formed extensions', () => {
+    expect(sanitizeExtensions([good])).toEqual([good]);
+  });
+
+  it('returns [] for non-array input', () => {
+    expect(sanitizeExtensions(undefined)).toEqual([]);
+    expect(sanitizeExtensions('nope')).toEqual([]);
+  });
+
+  it('drops malformed shapes and unknown categories', () => {
+    expect(sanitizeExtensions([{ id: 'x' }])).toEqual([]);
+    expect(
+      sanitizeExtensions([{ id: 'x', name: 'n', cat: 'bogus', base: 1, pattern: 'p' }]),
+    ).toEqual([]);
+  });
+
+  it('never lets an extension shadow a curated condition', () => {
+    const curatedId = CONDITIONS[0].id;
+    expect(
+      sanitizeExtensions([{ id: curatedId, name: 'Fake', cat: 'other', base: 9, pattern: 'x' }]),
+    ).toEqual([]);
+  });
+
+  it('dedupes by id (first wins)', () => {
+    const out = sanitizeExtensions([good, { ...good, name: 'Dup' }]);
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe('Long tail');
   });
 });
