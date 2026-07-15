@@ -147,6 +147,11 @@ export function PersonDrawer({
               </button>
             ))}
           </div>
+          {/* Guardrail #4: screening is keyed off the organ inventory, never off gender —
+              stated explicitly here so the axis separation is visible at the point of edit. */}
+          <p className="mono-dim" style={{ marginTop: 8, lineHeight: 1.4 }}>
+            Screening keys off organs present, not gender.
+          </p>
         </div>
 
         <ConditionPicker personId={person.id} />

@@ -46,13 +46,13 @@ guardrail on that held throughout.
 | **H2** | **Native lossless full-record backup export dropped.** No way to export the complete graph (conditions + onset/provenance + timeline + organs + identity) to a file and restore it. GEDCOM is structural-only; FHIR/Phenopacket are lossy clinical projections. Restore is half-wired: `replaceRecord` exists but there is no native-JSON importer. | prototype "Lineage backup (native)" L1655; `src/ui/views/ReportsView.tsx:17–50`; `src/store/useStore.ts` `replaceRecord` | #5 (no lock-in / record outlives the app) | ✅ `src/export/native.ts` (versioned envelope) + `src/import/native.ts` (validating restore) wired into Reports; feeds the existing `replaceRecord`. The restore path deep-validates the record and refuses to let an extension shadow a curated condition or smuggle an unknown category. |
 | **H3** | **Timeline "Edit event" is missing from the UI.** The `updateEvent` store action exists but is wired to no view, so correcting a typo or wrong year requires delete + full re-entry. | `updateEvent` unused across `src/ui`; prototype L465, L1391, L1396 | — | ✅ Inline **Edit** on every event (`updateEvent`), plus a person picker so an event can be logged to — or reassigned to — any relative (`src/ui/views/TimelineView.tsx`). |
 
-### Medium
+### Medium — ✅ all resolved (branch `claude/medium-priority-gaps-guardrails-yclre7`)
 
-- **M1 — Overview "Recent activity" dropped** (the 3 newest proband timeline events). Confirmed by two audits. (prototype L141–152, L1600; absent in `OverviewView.tsx`)
-- **M2 — Pedigree category-breakdown string gone** — "N relatives · 2× Breast cancer, 1× Colorectal", the payoff of category-highlight mode. (prototype L1492–1499; absent in `PedigreeHighlight.tsx`)
-- **M3 — Drawer condition cards no longer show the inheritance pattern** ("Autosomal dominant", etc.); the data is on the `Condition` type, just not rendered. (prototype L281; `ConditionPicker.tsx:83–104`)
-- **M4 — Timeline event form has no person picker** — events can only attach to the currently-viewed person (compounds H3). (prototype L650–653; `TimelineView.tsx:176`)
-- **M5 — Pedigree generation labels changed** from proband-relative (`YOU / ▲n / ▼n`) to absolute (`Gen 1/2/3`), losing the you-centric orientation and direction cues. (prototype L1467–1471; `PedigreeView.tsx:374–387`)
+- ✅ **M1 — Overview "Recent activity" restored** (the 3 newest proband timeline events, newest-year-first with a newest-added tiebreaker), as a real `<ul>`/`<li>` list. (prototype L141–152, L1600; `OverviewView.tsx`)
+- ✅ **M2 — Pedigree category-breakdown string restored** — "N people · Breast cancer (2), Colorectal cancer (1)", the payoff of category-highlight mode, rendered in a polite `role="status"` region. The count is deliberately a trailing `(n)`, **not** the prototype's `n×` prefix, and reads "people" not "relatives" (it includes the proband, matching the highlight chip's count) — both to avoid reading as a "2× the risk" multiplier (guardrail #1). (prototype L1492–1499; `PedigreeView.tsx`)
+- ✅ **M3 — Drawer condition cards show the inheritance pattern** again ("Autoimmune / polygenic", etc.), labelled for screen readers; the meaningless `—` placeholder that long-tail vocabulary conditions carry is omitted. (prototype L281; `ConditionPicker.tsx`)
+- ✅ **M4 — Timeline event form has a person picker** — resolved with H3; events can be logged to, or reassigned to, any relative. (prototype L650–653; `TimelineView.tsx`)
+- ✅ **M5 — Pedigree generation labels restored to proband-relative** (`YOU / ▲n / ▼n`) from absolute (`Gen 1/2/3`), recovering the you-centric orientation and direction cues; the same "N generations above/below you" cue is folded into each node's accessible name so screen-reader users get the orientation the ▲/▼ glyphs give sighted users. (prototype L1467–1471; `PedigreeView.tsx`)
 
 ### Low / cosmetic
 
@@ -65,19 +65,21 @@ sort tiebreaker (newest-added-first) lost; pedigree selection-dimming (0.72 focu
 suppressed when SAB is unrecorded (intentional/documented); per-affected color dot in the findings
 table.
 
-## Guardrail erosions
+## Guardrail erosions — ✅ all resolved (branch `claude/medium-priority-gaps-guardrails-yclre7`)
 
-Small individually, but this is a safety-first product, so they are called out together:
+Small individually, but this is a safety-first product, so they were called out together:
 
-- **#3 (clinical boundary is a first-class element, not a footer)** — the Patterns view demoted its
-  boundary from a highlighted callout box to lede body text; the per-report boundary footers
-  vanished with the printable reports (H1). *Partially re-asserted:* H1 restored a first-class,
-  bordered boundary block on every printable sheet. The on-screen Patterns-view callout is still
-  the open Med item.
-- **#4 (screening keys off organs, not gender)** — the drawer's explicit
-  "Screening keys off organs present, not gender." sentence was dropped. (prototype L268)
-  *Partially re-asserted:* the printable personal-health summary (H1) states it; the on-screen
-  drawer line is still the open Med item.
+- ✅ **#3 (clinical boundary is a first-class element, not a footer)** — the Patterns view had
+  demoted its boundary from a highlighted callout box to lede body text; the per-report boundary
+  footers vanished with the printable reports (H1). *Fully re-asserted:* H1 restored a first-class,
+  bordered boundary block on every printable sheet, and a shared `ClinicalBoundary` component (a
+  bordered `role="note"` callout, `.clinical-boundary`) now heads **every** on-screen analysis
+  surface — Overview, Patterns, and Pedigree — reading pattern-and-criterion language only, never a
+  number (guardrail #1).
+- ✅ **#4 (screening keys off organs, not gender)** — the drawer's explicit "Screening keys off
+  organs present, not gender." sentence had been dropped (prototype L268). *Fully re-asserted:* the
+  printable personal-health summary (H1) states it, and the on-screen drawer restates it at the
+  point of organ-inventory editing.
 
 ## Behavioral change — signed off (keep, with an accuracy fix)
 
