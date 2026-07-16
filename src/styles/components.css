@@ -199,6 +199,40 @@
   padding: 0;
 }
 
+/* ---- Data tables (screen) ---- */
+/* A plain read surface for recorded values (e.g. the lab trend) — inherits the .card
+   panel/border and never colour-codes a row or cell: interpreting a value against its
+   range is a clinician's job, not this table's (guardrail #1). Distinct from
+   `.print-table`, which only exists inside the `@media print` sheet. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td {
+  /* Defensive (WCAG 1.4.10): the table's card wrapper clips overflow, so an unusually
+     long user-entered value (e.g. a long `unit` string) breaks onto a new line instead
+     of being silently cut off. */
+  word-break: break-word;
+}
+.data-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
 /* ---- Clinical boundary ---- */
 /* The non-negotiable "not a diagnostic device" statement rendered as a first-class,
    bordered callout (guardrail #3) — never demoted to footer or lede body text. The

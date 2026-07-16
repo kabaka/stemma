@@ -232,11 +232,78 @@ const EVENT_TYPES = new Set([
   'screening',
   'procedure',
   'genetic',
+  'allergy',
+  'vital',
 ]);
+const SEVERITY_VALUES = new Set(['mild', 'moderate', 'severe']);
 
 const isNumOrNull = (v: unknown): boolean => v === null || typeof v === 'number';
+const isNumOrAbsent = (v: unknown): boolean => v === undefined || typeof v === 'number';
+const isStrOrAbsent = (v: unknown): boolean => v === undefined || typeof v === 'string';
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((s) => typeof s === 'string');
+
+/**
+ * Optional-safe shape check for a {@link import('./types').Measurement}: `undefined`
+ * passes (a legacy flat event has none); if present it must carry a numeric `value` and a
+ * string `unit`, with `refLow`/`refHigh` each a number or absent. No range interpretation —
+ * the reference bounds are user-transcribed data, not a shipped "normal" band (guardrail #1).
+ */
+function isValidMeasurement(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!v || typeof v !== 'object') return false;
+  const m = v as Record<string, unknown>;
+  return (
+    typeof m.value === 'number' &&
+    typeof m.unit === 'string' &&
+    isNumOrAbsent(m.refLow) &&
+    isNumOrAbsent(m.refHigh)
+  );
+}
+
+/** Optional-safe shape check for a {@link import('./types').MedicationInfo}. */
+function isValidMed(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!v || typeof v !== 'object') return false;
+  const m = v as Record<string, unknown>;
+  return typeof m.ongoing === 'boolean' && isStrOrAbsent(m.dose) && isNumOrAbsent(m.stopYear);
+}
+
+/** Optional-safe shape check for an {@link import('./types').AllergyInfo}. */
+function isValidAllergy(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!v || typeof v !== 'object') return false;
+  const a = v as Record<string, unknown>;
+  return (
+    typeof a.substance === 'string' &&
+    isStrOrAbsent(a.reaction) &&
+    (a.severity === undefined || SEVERITY_VALUES.has(a.severity as string))
+  );
+}
+
+/** Optional-safe shape check for an {@link import('./types').ImmunizationInfo}. */
+function isValidImmunization(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!v || typeof v !== 'object') return false;
+  const i = v as Record<string, unknown>;
+  return isStrOrAbsent(i.vaccine) && isStrOrAbsent(i.doseLabel);
+}
+
+/** Optional-safe shape check for an {@link import('./types').AttachmentRef} array. */
+function isValidAttachments(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!Array.isArray(v)) return false;
+  return v.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const a = item as Record<string, unknown>;
+    return (
+      typeof a.id === 'string' &&
+      typeof a.name === 'string' &&
+      isStrOrAbsent(a.note) &&
+      isStrOrAbsent(a.mediaType)
+    );
+  });
+}
 
 /** Deep shape check for one person, including its condition entries. */
 function isValidPerson(p: unknown): p is Person {
@@ -299,7 +366,17 @@ function isValidEvent(e: unknown): boolean {
     typeof ev.year === 'number' &&
     EVENT_TYPES.has(ev.type as string) &&
     typeof ev.title === 'string' &&
-    typeof ev.detail === 'string'
+    typeof ev.detail === 'string' &&
+    // Optional structured payloads: absent on a legacy flat event, but if present must be
+    // well-formed. Downstream timeline views (currentMedications, labSeries) read these
+    // directly, and this boundary guards native-backup restore + localStorage hydration.
+    isStrOrAbsent(ev.screeningId) &&
+    isValidMed(ev.med) &&
+    isValidMeasurement(ev.lab) &&
+    isValidMeasurement(ev.vital) &&
+    isValidAllergy(ev.allergy) &&
+    isValidImmunization(ev.immunization) &&
+    isValidAttachments(ev.attachments)
   );
 }
 

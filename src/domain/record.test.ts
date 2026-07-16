@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
-import type { FamilyRecord, Person } from './types';
+import type { FamilyRecord, Person, TimelineEvent } from './types';
 import {
   deriveGenerations,
   isValidRecord,
@@ -352,5 +352,150 @@ describe('isValidRecord — union referential integrity (Defect 5)', () => {
       { parents: ['a', 'b'], children: [] }, // childless union (partners with no kids yet)
     ];
     expect(isValidRecord(rec)).toBe(true);
+  });
+});
+
+describe('isValidRecord — timeline event structured payloads (med/lab/vital/allergy/immunization/attachments)', () => {
+  const base = (): FamilyRecord => ({
+    people: [mkPerson('a', { isProband: true })],
+    unions: [],
+    timeline: [],
+    probandId: 'a',
+  });
+
+  const baseEvent = (overrides: Partial<TimelineEvent> = {}): TimelineEvent => ({
+    id: 'e1',
+    person: 'a',
+    year: 2020,
+    type: 'medication',
+    title: 'Started X',
+    detail: '',
+    ...overrides,
+  });
+
+  const withEvent = (event: TimelineEvent): FamilyRecord => {
+    const rec = base();
+    rec.timeline = [event];
+    return rec;
+  };
+
+  it('REGRESSION: a legacy flat event ({id,person,year,type,title,detail}, no new fields) still validates', () => {
+    const legacy: TimelineEvent = {
+      id: 'legacy-1',
+      person: 'a',
+      year: 2016,
+      type: 'medication',
+      title: 'Started Levothyroxine',
+      detail: '50 mcg daily',
+    };
+    expect(isValidRecord(withEvent(legacy))).toBe(true);
+  });
+
+  it('accepts a full record carrying an event for every new field, each well-formed', () => {
+    const rec = base();
+    rec.timeline = [
+      baseEvent({ id: 'e-med', type: 'medication', med: { dose: '10mg', ongoing: true } }),
+      baseEvent({
+        id: 'e-lab',
+        type: 'lab',
+        title: 'LDL',
+        lab: { value: 130, unit: 'mg/dL', refLow: 0, refHigh: 100 },
+      }),
+      baseEvent({
+        id: 'e-vital',
+        type: 'vital',
+        title: 'Blood pressure',
+        vital: { value: 128, unit: 'mmHg' },
+      }),
+      baseEvent({
+        id: 'e-allergy',
+        type: 'allergy',
+        title: 'Penicillin allergy',
+        allergy: { substance: 'Penicillin', reaction: 'Hives', severity: 'severe' },
+      }),
+      baseEvent({
+        id: 'e-imm',
+        type: 'immunization',
+        title: 'Flu shot',
+        immunization: { vaccine: 'Influenza', doseLabel: '2024-25' },
+      }),
+      baseEvent({
+        id: 'e-att',
+        type: 'procedure',
+        title: 'Colonoscopy',
+        attachments: [
+          { id: 'att-1', name: 'report.pdf', note: 'Path report', mediaType: 'application/pdf' },
+        ],
+      }),
+      baseEvent({
+        id: 'e-screen',
+        type: 'screening',
+        title: 'Mammogram',
+        screeningId: 'mammogram',
+      }),
+    ];
+    expect(isValidRecord(rec)).toBe(true);
+  });
+
+  it('rejects an allergy with an out-of-enum severity', () => {
+    const rec = withEvent(
+      baseEvent({
+        type: 'allergy',
+        allergy: { substance: 'Peanuts', severity: 'critical' as never },
+      }),
+    );
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a lab Measurement with a non-number value', () => {
+    const rec = withEvent(baseEvent({ type: 'lab', lab: { value: '5.4' as never, unit: '%' } }));
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a medication payload missing the required ongoing flag', () => {
+    const rec = withEvent(baseEvent({ type: 'medication', med: { dose: '10mg' } as never }));
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a non-array attachments field', () => {
+    const rec = withEvent(baseEvent({ attachments: 'file.pdf' as never }));
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects an attachment missing its name or its id', () => {
+    expect(isValidRecord(withEvent(baseEvent({ attachments: [{ id: 'a1' } as never] })))).toBe(
+      false,
+    );
+    expect(isValidRecord(withEvent(baseEvent({ attachments: [{ name: 'x' } as never] })))).toBe(
+      false,
+    );
+  });
+
+  it('rejects a non-string screeningId', () => {
+    const rec = withEvent(baseEvent({ type: 'screening', screeningId: 123 as never }));
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('accepts a well-formed value for each new optional field individually', () => {
+    expect(
+      isValidRecord(
+        withEvent(baseEvent({ type: 'medication', med: { ongoing: false, stopYear: 2022 } })),
+      ),
+    ).toBe(true);
+    expect(
+      isValidRecord(withEvent(baseEvent({ type: 'lab', lab: { value: 100, unit: 'mg/dL' } }))),
+    ).toBe(true);
+    expect(
+      isValidRecord(withEvent(baseEvent({ type: 'vital', vital: { value: 72, unit: 'bpm' } }))),
+    ).toBe(true);
+    expect(
+      isValidRecord(withEvent(baseEvent({ type: 'allergy', allergy: { substance: 'Latex' } }))),
+    ).toBe(true);
+    expect(isValidRecord(withEvent(baseEvent({ type: 'immunization', immunization: {} })))).toBe(
+      true,
+    );
+    expect(
+      isValidRecord(withEvent(baseEvent({ attachments: [{ id: 'a1', name: 'x.pdf' }] }))),
+    ).toBe(true);
   });
 });
