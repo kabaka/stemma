@@ -757,12 +757,18 @@ textarea.field {
   border-radius: 2px;
   flex: none;
 }
+.pedigree-hl-count,
+.pedigree-hl-row[aria-pressed='true'] .mono-dim {
+  /* Inherit from the surrounding control (text-dim normally, accent when active) instead
+     of a hardcoded tone, which fell to ~3.77:1 against the pressed background. Shared
+     with the row's `.mono-dim` category span, which has the identical problem: its own
+     `color: var(--text-faint)` (higher specificity than the row's inherited --accent)
+     was still winning there too. */
+  color: currentColor;
+}
 .pedigree-hl-count {
   font-family: var(--font-mono);
   font-size: 9px;
-  /* Inherit from the surrounding control (text-dim normally, accent when active) instead
-     of a hardcoded tone, which fell to ~3.77:1 against the pressed background. */
-  color: currentColor;
 }
 /* The single chip standing in for the active highlight; clicking it clears the filter. */
 .pedigree-hl-active {

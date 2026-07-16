@@ -728,9 +728,13 @@ function nodeLabel(
   if (ids.length === 0) {
     parts.push('unaffected');
   } else {
-    const names = ids.map((id, i) => {
+    // Every condition's category is folded in here, not just the first (i === 0 used to
+    // gate this) — an active highlight can match on any one of a person's conditions, and
+    // silently dropping the category for everything past the first would leave a screen
+    // reader user unable to tell why a match on their second/third condition lit up.
+    const names = ids.map((id) => {
       const meta = catalog.get(id);
-      return i === 0 ? `${meta.name} (${CATEGORIES[meta.cat].label.toLowerCase()})` : meta.name;
+      return `${meta.name} (${CATEGORIES[meta.cat].label.toLowerCase()})`;
     });
     parts.push(`affected: ${names.join(', ')}`);
   }
@@ -804,10 +808,13 @@ const PedigreeNode = memo(function PedigreeNode({
   const extraConditions = ids.length - dots.length;
   const dimmed = hlActive && !matches;
   const label = nodeLabel(person, catalog, hlActive, matches, proband, probandGen);
-  // Hover/focus title cues so category is never colour-only at the glyph itself (WCAG
+  // Hover-only title cues so category is never colour-only at the glyph itself (WCAG
   // 1.4.1) — a supplementary channel alongside the always-visible footer legend and the
   // full accessible name above; the node is too small (44px) for permanent visible text
-  // without real clutter, which is the opposite of this pass's goal.
+  // without real clutter, which is the opposite of this pass's goal. "Hover-only", not
+  // "hover/focus": the spans carrying `title` below are aria-hidden with no tabindex, so
+  // they're never in the focus order and a native title tooltip cannot appear on keyboard
+  // focus — only a mouse hover (or touch long-press) reaches it.
   const fillTitle = affected ? CATEGORIES[catalog.get(ids[0]).cat].label : undefined;
   const dotsTitle =
     dots.length > 0

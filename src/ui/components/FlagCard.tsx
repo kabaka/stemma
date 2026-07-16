@@ -12,6 +12,7 @@ export function FlagCard({ flag }: { flag: PatternFlag }) {
       <div className="flag__head">
         <div className="row">
           <span
+            aria-hidden="true"
             style={{ width: 9, height: 9, borderRadius: 2, background: meta.color, flex: 'none' }}
           />
           <span className="flag__title">{flag.title}</span>

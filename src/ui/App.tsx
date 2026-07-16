@@ -18,15 +18,21 @@ export function App() {
   // Move focus to the new view's own <h1> (every view's `.page-title` carries
   // `tabIndex={-1}` for exactly this) on every navigation, mirroring the ref+focus
   // discipline PedigreeView already uses for its own internal transitions (WCAG 2.4.3).
-  // Skipped on the very first render so initial page load doesn't steal focus from
-  // wherever the browser naturally placed it.
-  const isFirstView = useRef(true);
+  //
+  // Tracks the previous `view` rather than a "first render" boolean latch: React 18
+  // StrictMode (dev only) mounts, cleanup-unmounts, and remounts every component once,
+  // which would flip a boolean latch to false during that first throwaway mount — so the
+  // real mount that immediately follows (still the *same* initial `view`) would find the
+  // latch already false and wrongly steal focus to <h1> on first page load. Comparing
+  // against the previous view is immune: prevView.current === view on both the throwaway
+  // and the real mount (nothing to focus either time), and only a genuine navigation ever
+  // makes them differ.
+  const prevView = useRef(view);
   useEffect(() => {
-    if (isFirstView.current) {
-      isFirstView.current = false;
-      return;
+    if (prevView.current !== view) {
+      mainRef.current?.querySelector<HTMLElement>('.page-title')?.focus();
     }
-    mainRef.current?.querySelector<HTMLElement>('.page-title')?.focus();
+    prevView.current = view;
   }, [view]);
 
   return (

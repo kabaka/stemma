@@ -133,33 +133,36 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const deathId = useId();
   const searchId = useId();
 
-  // Move focus into the dialog on open, and hand it back to whatever triggered it on
-  // close — same discipline as PersonDrawer.
+  // Move focus into the dialog on open, capture+hide `.app` behind it, and reverse both
+  // on close — ONE effect, not two. React runs effect cleanups in declaration order, so
+  // if inert-removal lived in a separate, later-declared effect, this effect's own
+  // cleanup would run FIRST on close and call `lastTriggerEl.focus()` while `.app` (and
+  // the trigger inside it) was still `inert` — focus on an inert element is a silent
+  // no-op per the HTML spec, so focus would fall through to <body> instead of back to the
+  // trigger. Confirmed in real Chromium; jsdom doesn't implement `inert`, so this ordering
+  // bug is invisible to a component test rendering PersonForm in isolation.
+  //
+  // This is also a true blocking modal (unlike the drawer, which leaves the rest of the
+  // page reachable) — the backdrop already blocks pointer interaction with the app behind
+  // it, but without `inert`/`aria-hidden`, a screen-reader virtual cursor could still
+  // read/reach into the sidebar and the view underneath. `inert` removes it from both
+  // focus and the accessibility tree; `aria-hidden` is the fallback for the (now
+  // vanishingly rare) AT that doesn't yet honour `inert`. `.app` is the app shell's own
+  // root — see App.tsx — and is absent in component tests that render PersonForm in
+  // isolation, so that part is a no-op there too.
   useEffect(() => {
     const active = document.activeElement;
     lastTriggerEl = active instanceof HTMLElement || active instanceof SVGElement ? active : null;
-    dialogRef.current?.focus();
-    return () => {
-      lastTriggerEl?.focus();
-      lastTriggerEl = null;
-    };
-  }, []);
-
-  // This is a true blocking modal (unlike the drawer, which leaves the rest of the page
-  // reachable) — the backdrop already blocks pointer interaction with the app behind it,
-  // but without this, a screen-reader virtual cursor could still read/reach into the
-  // sidebar and the view underneath. `inert` removes it from both focus and the
-  // accessibility tree; `aria-hidden` is the fallback for the (now vanishingly rare) AT
-  // that doesn't yet honour `inert`. `.app` is the app shell's own root — see App.tsx —
-  // and is absent in component tests that render PersonForm in isolation, so this is a
-  // no-op there.
-  useEffect(() => {
     const appRoot = document.querySelector<HTMLElement>('.app');
     appRoot?.setAttribute('inert', '');
     appRoot?.setAttribute('aria-hidden', 'true');
+    dialogRef.current?.focus();
     return () => {
+      // `.app` must stop being inert BEFORE lastTriggerEl.focus() below — see the note above.
       appRoot?.removeAttribute('inert');
       appRoot?.removeAttribute('aria-hidden');
+      lastTriggerEl?.focus();
+      lastTriggerEl = null;
     };
   }, []);
 
