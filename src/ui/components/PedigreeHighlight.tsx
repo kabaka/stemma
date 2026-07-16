@@ -16,7 +16,7 @@ interface ChipData {
   count: number;
 }
 
-/** Conditions present in the family, one chip per id, sorted by prevalence (most
+/** Conditions present in the family, one entry per id, sorted by prevalence (most
  * affected people first, then name) — mirrors the prototype's `condChips`. */
 function conditionChipsFor(people: Person[], catalog: Catalog, palette: Palette): ChipData[] {
   const counts = new Map<string, number>();
@@ -34,7 +34,7 @@ function conditionChipsFor(people: Person[], catalog: Catalog, palette: Palette)
     }));
 }
 
-/** Categories present in the family, one chip per category — count is the number of
+/** Categories present in the family, one entry per category — count is the number of
  * people with *any* condition in that category (deduped per person), matching the
  * prototype's `catChips`. */
 function categoryChipsFor(people: Person[], catalog: Catalog, palette: Palette): ChipData[] {
@@ -56,18 +56,25 @@ function categoryChipsFor(people: Person[], catalog: Catalog, palette: Palette):
     }));
 }
 
-/** Accessible name for a highlight chip. The swatch is decorative and the count is a
+/** Accessible name for a highlight row/chip. The swatch is decorative and the count is a
  * separate trailing `<span>`, so without an explicit name the browser concatenates the
- * visible text with no separator ("Coronary heart disease4"). Spelling out the unit
- * also makes the number mean something to screen-reader users, not just announce "4". */
+ * visible text with no separator ("Coronary heart disease4"). Spelling out the unit also
+ * makes the number mean something to screen-reader users, not just announce "4". */
 function chipLabel(name: string, count: number): string {
   return `${name}, ${count} ${count === 1 ? 'person' : 'people'}`;
 }
 
 /**
  * The "Highlight" control row above the pedigree canvas: a Condition/Category mode
- * toggle, chips for what's present in the family (sorted by prevalence), a full-catalog
- * search popover, and a clear button. Purely local view state — the parent only needs
+ * toggle, a single popover trigger, and — when a highlight is active — one summary chip
+ * that doubles as the clear control.
+ *
+ * The previous version rendered one chip per condition present in the family inline in
+ * the pinned header, so a partially-completed history with many conditions wrapped the
+ * row to half the screen and crushed the tree. Here the header content is O(1) in the
+ * number of conditions: the present-in-family list (and the full-catalog search) moves
+ * into a bounded, scrollable popover, so the header height is constant no matter how many
+ * conditions have been recorded. Purely local view state — the parent still only needs
  * `mode` + `activeId` to dim non-matching nodes.
  */
 export function HighlightBar({
@@ -101,29 +108,63 @@ export function HighlightBar({
         : categoryChipsFor(people, catalog, palette),
     [mode, people, catalog, palette],
   );
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchToggleRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const condModeRef = useRef<HTMLButtonElement>(null);
   const catModeRef = useRef<HTMLButtonElement>(null);
+  const popoverWrapRef = useRef<HTMLDivElement>(null);
 
-  // Category mode has no search popover — close it if the mode changes out from under it.
+  // Switching mode swaps the popover's contents and clears the active highlight in the
+  // parent (see PedigreeView's `setHlMode`), so close it on any mode flip.
   useEffect(() => {
-    if (mode !== 'cond') setSearchOpen(false);
+    setOpen(false);
   }, [mode]);
 
-  const closeSearch = (): void => {
-    setSearchOpen(false);
-    searchToggleRef.current?.focus();
+  // Dismiss on an outside pointer-down (a click on the tree, elsewhere in the header, …).
+  // Deliberately does NOT pull focus back to the trigger — the user is interacting
+  // somewhere else on purpose. The keyboard paths below (Escape / select / clear) still
+  // return focus, since those leave the user *at* the control. The trigger sits inside
+  // this wrapper, so its own toggle click is not treated as "outside".
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (popoverWrapRef.current && !popoverWrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [open]);
+
+  const closePopover = (): void => {
+    setOpen(false);
+    triggerRef.current?.focus();
   };
 
-  // The clear button removes itself the moment it's clicked (it only renders while
-  // `activeId != null`), which would otherwise drop focus to <body>. Move focus to the
+  // The clear control removes itself the moment it fires (it only renders while a
+  // highlight is active), which would otherwise drop focus to <body>. Move focus to the
   // still-present mode toggle first — the same "focus the fallback, then change state"
-  // order `closeSearch` above already uses.
+  // order the popover's own close paths use.
   const handleClear = (): void => {
     onClear();
     (mode === 'cond' ? condModeRef : catModeRef).current?.focus();
   };
+
+  const modeNoun = mode === 'cond' ? 'condition' : 'category';
+
+  // What's highlighted, for the inline summary chip. Resolved from the catalog/category
+  // metadata directly (not `chips`), so it still shows a name when the active id came
+  // from full-catalog search and isn't present in the family — `catalog.get` always
+  // resolves, falling back to a generic record for an unknown id.
+  const activeSummary = useMemo((): { name: string; color: string } | null => {
+    if (activeId == null) return null;
+    if (mode === 'cat') {
+      const key = activeId as CategoryKey;
+      return { name: CATEGORIES[key]?.label ?? activeId, color: categoryColor(key, palette) };
+    }
+    const meta = catalog.get(activeId);
+    return { name: meta.name, color: categoryColor(meta.cat, palette) };
+  }, [activeId, mode, catalog, palette]);
 
   return (
     <div
@@ -155,83 +196,117 @@ export function HighlightBar({
         </button>
       </div>
 
-      {chips.map((c) => (
+      <div ref={popoverWrapRef} style={{ position: 'relative' }}>
         <button
-          key={c.id}
+          ref={triggerRef}
           type="button"
-          className="chip pedigree-hl-chip"
-          aria-pressed={activeId === c.id}
-          aria-label={chipLabel(c.name, c.count)}
-          onClick={() => onToggleChip(c.id)}
+          className="chip"
+          style={{ borderStyle: 'dashed' }}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
         >
-          <span className="pedigree-hl-swatch" aria-hidden="true" style={{ background: c.color }} />
-          <span aria-hidden="true">{c.name}</span>
-          <span aria-hidden="true" className="pedigree-hl-count">
-            {c.count}
-          </span>
+          <span aria-hidden="true">⌕</span>{' '}
+          {activeSummary ? `Change ${modeNoun}…` : `Choose a ${modeNoun}…`}
         </button>
-      ))}
+        {open && (
+          <HighlightPopover
+            mode={mode}
+            chips={chips}
+            activeId={activeId}
+            catalog={catalog}
+            palette={palette}
+            onToggle={(id) => {
+              onToggleChip(id);
+              closePopover();
+            }}
+            onSelect={(id) => {
+              onHighlightCondition(id);
+              closePopover();
+            }}
+            onClose={closePopover}
+            onDismiss={() => setOpen(false)}
+          />
+        )}
+      </div>
 
-      {mode === 'cond' && (
-        <div style={{ position: 'relative' }}>
-          <button
-            ref={searchToggleRef}
-            type="button"
-            className="chip"
-            style={{ borderStyle: 'dashed' }}
-            aria-expanded={searchOpen}
-            onClick={() => setSearchOpen((v) => !v)}
-          >
-            <span aria-hidden="true">⌕</span> search all conditions
-          </button>
-          {searchOpen && (
-            <ConditionSearchPopover
-              catalog={catalog}
-              palette={palette}
-              onSelect={(id) => {
-                onHighlightCondition(id);
-                closeSearch();
-              }}
-              onClose={closeSearch}
-            />
-          )}
-        </div>
-      )}
-
-      {activeId != null && (
-        <button type="button" className="btn btn--sm" onClick={handleClear}>
-          ✕ clear
+      {activeSummary && (
+        <button
+          type="button"
+          className="chip pedigree-hl-active"
+          aria-label={`Clear highlight: ${activeSummary.name}`}
+          onClick={handleClear}
+        >
+          <span
+            className="pedigree-hl-swatch"
+            aria-hidden="true"
+            style={{ background: activeSummary.color }}
+          />
+          <span aria-hidden="true">{activeSummary.name}</span>
+          <span aria-hidden="true" className="pedigree-hl-active__x">
+            ✕
+          </span>
         </button>
       )}
     </div>
   );
 }
 
-/** Full-catalog condition search, for highlighting a condition that isn't already a
- * chip. Long-tail vocabulary search is out of scope here — the curated+extension
- * catalog is enough (`catalog.search`). */
-function ConditionSearchPopover({
+/**
+ * The bounded highlight picker: the conditions/categories present in the family (sorted
+ * by prevalence, with swatch + count) and — in condition mode — a full-catalog search for
+ * spotlighting something the family doesn't yet carry. Long-tail vocabulary search is out
+ * of scope here; the curated+extension catalog (`catalog.search`) is enough.
+ *
+ * Focus discipline mirrors the drawer/modal: focus moves in on open (the search box in
+ * condition mode, else the first present-in-family row, else the dialog itself when the
+ * list is empty), Escape or a keyboard Tab out of the popover closes it, and picking any
+ * row closes and returns focus to the trigger (via the parent's `closePopover`).
+ *
+ * `onClose` closes AND returns focus to the trigger (Escape / row-select); `onDismiss`
+ * only closes, leaving focus where the browser is moving it — used for a Tab-out, so a
+ * keyboard user tabbing forward past the last row isn't yanked back to the trigger.
+ */
+function HighlightPopover({
+  mode,
+  chips,
+  activeId,
   catalog,
   palette,
+  onToggle,
   onSelect,
   onClose,
+  onDismiss,
 }: {
+  mode: HlMode;
+  chips: ChipData[];
+  activeId: string | null;
   catalog: Catalog;
   palette: Palette;
+  onToggle: (id: string) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onDismiss: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const firstRowRef = useRef<HTMLButtonElement>(null);
   const inputId = useId();
 
-  // Move focus into the popover on open, matching the drawer's own focus discipline.
+  // Move focus into the popover on open. `mode` is fixed for this component's lifetime
+  // (a mode change closes the popover in the parent, unmounting this), so this runs once.
+  // The dialog root is the fallback focus target for the one state with nothing else to
+  // focus — Category mode with no categories recorded yet (no search box, no rows) — so
+  // focus is never silently stranded on the trigger.
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (mode === 'cond' && inputRef.current) inputRef.current.focus();
+    else if (firstRowRef.current) firstRowRef.current.focus();
+    else rootRef.current?.focus();
+  }, [mode]);
 
-  const results = catalog.search(query, undefined, 40);
   const trimmed = query.trim();
+  const results = mode === 'cond' && trimmed !== '' ? catalog.search(query, undefined, 40) : [];
   const statusMessage =
     trimmed === ''
       ? ''
@@ -239,76 +314,114 @@ function ConditionSearchPopover({
         ? 'No matching condition.'
         : `${results.length} result${results.length === 1 ? '' : 's'}`;
 
+  const noun = mode === 'cond' ? 'condition' : 'category';
+
   return (
     <div
+      ref={rootRef}
       className="pedigree-hl-search-popover"
+      role="dialog"
+      aria-label={`Highlight a ${noun}`}
+      tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
           onClose();
         }
       }}
+      onBlur={(e) => {
+        // Close when focus leaves the popover subtree entirely (e.g. Tab past the last
+        // row). `relatedTarget` is the element gaining focus — null when focus leaves the
+        // window; a node still inside means focus merely moved between rows, so stay open.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onDismiss();
+      }}
     >
-      <label className="visually-hidden" htmlFor={inputId}>
-        Search all conditions
-      </label>
-      <input
-        id={inputId}
-        ref={inputRef}
-        className="field"
-        style={{ marginBottom: 8 }}
-        placeholder="Search 120+ conditions…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {/* A short summary announces via a live region on every keystroke. The results
-          list itself must NOT be inside a live region — role="status" on the ~40-button
-          list would re-read every visible name on each keystroke instead of just the
-          count. */}
-      <div role="status" className="visually-hidden">
-        {statusMessage}
+      <div className="overline" style={{ marginBottom: 7 }}>
+        In this family
       </div>
-      <div
-        style={{
-          maxHeight: 280,
-          overflow: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 4,
-        }}
-      >
-        {results.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            className="btn btn--sm"
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            aria-label={`${r.name}, ${r.categoryLabel}`}
-            onClick={() => onSelect(r.id)}
-          >
-            <span className="row" aria-hidden="true" style={{ gap: 8 }}>
+      {chips.length > 0 ? (
+        <div className="pedigree-hl-list">
+          {chips.map((c, i) => (
+            <button
+              key={c.id}
+              ref={i === 0 ? firstRowRef : undefined}
+              type="button"
+              className="pedigree-hl-row"
+              aria-pressed={activeId === c.id}
+              aria-label={chipLabel(c.name, c.count)}
+              onClick={() => onToggle(c.id)}
+            >
               <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 2,
-                  background: categoryColor(r.cat, palette),
-                  flex: 'none',
-                }}
+                className="pedigree-hl-swatch"
+                aria-hidden="true"
+                style={{ background: c.color }}
               />
-              {r.name}
-            </span>
-            <span aria-hidden="true" className="mono-dim">
-              {r.categoryLabel}
-            </span>
-          </button>
-        ))}
-        {trimmed !== '' && results.length === 0 && (
-          <div className="mono-dim" style={{ padding: '8px 4px', fontStyle: 'italic' }}>
-            No matching condition.
+              <span aria-hidden="true" className="pedigree-hl-row__name">
+                {c.name}
+              </span>
+              <span aria-hidden="true" className="pedigree-hl-count">
+                {c.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mono-dim" style={{ padding: '2px 2px 4px' }}>
+          No {noun === 'condition' ? 'conditions' : 'categories'} recorded yet.
+        </div>
+      )}
+
+      {mode === 'cond' && (
+        <div className="pedigree-hl-search">
+          <label className="visually-hidden" htmlFor={inputId}>
+            Search all conditions
+          </label>
+          <input
+            id={inputId}
+            ref={inputRef}
+            className="field"
+            placeholder="Search 120+ conditions…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {/* A short summary announces via a live region on every keystroke. The results
+              list itself must NOT be inside a live region — role="status" on the ~40-row
+              list would re-read every visible name on each keystroke instead of the count. */}
+          <div role="status" className="visually-hidden">
+            {statusMessage}
           </div>
-        )}
-      </div>
+          {trimmed !== '' && (
+            <div className="pedigree-hl-list pedigree-hl-list--results">
+              {results.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="pedigree-hl-row"
+                  aria-label={`${r.name}, ${r.categoryLabel}`}
+                  onClick={() => onSelect(r.id)}
+                >
+                  <span
+                    className="pedigree-hl-swatch"
+                    aria-hidden="true"
+                    style={{ background: categoryColor(r.cat, palette) }}
+                  />
+                  <span aria-hidden="true" className="pedigree-hl-row__name">
+                    {r.name}
+                  </span>
+                  <span aria-hidden="true" className="mono-dim">
+                    {r.categoryLabel}
+                  </span>
+                </button>
+              ))}
+              {results.length === 0 && (
+                <div className="mono-dim" style={{ padding: '8px 4px', fontStyle: 'italic' }}>
+                  No matching condition.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

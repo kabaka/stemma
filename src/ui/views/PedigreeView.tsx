@@ -328,11 +328,18 @@ export function PedigreeView() {
           )}
         </div>
         <ClinicalBoundary />
-        <p className="lede">
-          2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary; sex
-          assigned at birth is noted when it differs. Filled = affected, coloured by condition
-          category; diagonal = deceased. Click any relative to view or edit their record.
-        </p>
+        {/* The notation key is reference material a frequent user already knows, so it sits
+            in a disclosure collapsed by default rather than as a permanent paragraph —
+            one small toggle instead of three lines of chrome, still one click away for
+            anyone learning to read the chart. */}
+        <details className="pedigree-guide">
+          <summary className="pedigree-guide__toggle">How to read this pedigree</summary>
+          <p className="pedigree-guide__text">
+            2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary; sex
+            assigned at birth is noted when it differs. Filled = affected, coloured by condition
+            category; diagonal = deceased. Click any relative to view or edit their record.
+          </p>
+        </details>
 
         {importing && (
           <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
