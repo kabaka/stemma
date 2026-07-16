@@ -25,11 +25,12 @@ import { CONDITIONS } from '@/data/conditions';
 import { sanitizeExtensions } from '@/domain/catalog';
 import { organsOf } from '@/domain/person';
 import { isValidRecord, linkRelative, removePerson, type Relation } from '@/domain/record';
+import { useHistoryStore } from './useHistoryStore';
 
 /** The current calendar year, used as the "as of" date for age math. */
 export const CURRENT_YEAR = new Date().getFullYear();
 
-export type View = 'overview' | 'tree' | 'patterns' | 'timeline' | 'reports';
+export type View = 'overview' | 'tree' | 'patterns' | 'timeline' | 'reports' | 'history';
 
 export type { Relation };
 
@@ -98,7 +99,7 @@ interface Actions {
   resetRecord: () => void;
   /** Opt-in: load the fictional example family (for exploring the app). */
   loadSample: () => void;
-  replaceRecord: (record: FamilyRecord, extensions?: Condition[]) => void;
+  replaceRecord: (record: FamilyRecord, extensions?: Condition[], label?: string) => void;
 }
 
 export type Store = PersistedState & UiState & Actions;
@@ -152,6 +153,26 @@ function reconcileVantage(
 }
 
 const cloneRecord = (r: FamilyRecord): FamilyRecord => structuredClone(r);
+
+/**
+ * Commit a history-worthy record change: append a snapshot to the separate edit-history store,
+ * then apply the record (plus any transient extras) to this store. This is the SOLE wall-clock
+ * boundary for history — `Date.now()` is read here and nowhere in the pure diff/history domain.
+ * A stored snapshot is deep-cloned so the history and the live record never share references.
+ *
+ * Non-changes must never record: every action keeps its existing no-op early-returns BEFORE
+ * calling `commit`, so a refused edit (proband delete, third-parent cap, no-matching-union,
+ * invalid replaceRecord) leaves the log untouched.
+ */
+function commit(
+  set: (partial: Partial<Store>) => void,
+  next: FamilyRecord,
+  label: string,
+  extra?: Partial<Store>,
+): void {
+  useHistoryStore.getState().push({ ts: Date.now(), label, record: cloneRecord(next) });
+  set({ record: next, ...extra });
+}
 
 /** Coerce a persisted blob (any version) into a valid PersistedState, or reset to seed. */
 function migratePersisted(persisted: unknown): PersistedState {
@@ -211,7 +232,7 @@ export const useStore = create<Store>()(
         // two-parent cap refusing a third parent. Report it as '' so callers don't select
         // a person that was never added.
         if (next === record) return '';
-        set({ record: next });
+        commit(set, next, `Added relative: ${person.name}`);
         return id;
       },
 
@@ -234,7 +255,7 @@ export const useStore = create<Store>()(
         person.conds = input.condIds.map(
           (cid): ConditionEntry => prevById.get(cid) ?? { id: cid, onset: null, prov: 'self' },
         );
-        set({ record });
+        commit(set, record, `Edited: ${person.name}`);
       },
 
       updateUnion: (parents, patch) => {
@@ -247,15 +268,16 @@ export const useStore = create<Store>()(
         const next = cloneRecord(record);
         const union = next.unions.find(matches);
         if (union) Object.assign(union, patch);
-        set({ record: next });
+        commit(set, next, 'Updated family union');
       },
 
       deletePerson: (id) => {
         const state = get();
+        // Capture the name BEFORE removal so the history label survives the delete.
+        const name = state.record.people.find((p) => p.id === id)?.name ?? '';
         const next = removePerson(state.record, id);
         if (next === state.record) return; // proband delete is a no-op
-        set({
-          record: next,
+        commit(set, next, `Deleted: ${name}`, {
           selectedId: null,
           riskRoot: state.riskRoot === id ? next.probandId : state.riskRoot,
           tlPerson: state.tlPerson === id ? next.probandId : state.tlPerson,
@@ -266,19 +288,20 @@ export const useStore = create<Store>()(
         const record = cloneRecord(get().record);
         const person = record.people.find((p) => p.id === personId);
         if (!person) return;
-        if (person.conds.some((c) => c.id === condId)) {
+        const removing = person.conds.some((c) => c.id === condId);
+        if (removing) {
           person.conds = person.conds.filter((c) => c.id !== condId);
         } else {
           person.conds.push({ id: condId, onset: null, prov: 'self' });
         }
-        set({ record });
+        commit(set, record, `${removing ? 'Removed' : 'Added'} condition on ${person.name}`);
       },
 
       setConditionField: (personId, condId, field, value) => {
         const record = cloneRecord(get().record);
         const person = record.people.find((p) => p.id === personId);
         const entry = person?.conds.find((c) => c.id === condId);
-        if (!entry) return;
+        if (!person || !entry) return;
         if (field === 'onset') {
           const n = Number.parseInt(value, 10);
           // Preserve a genuine onset of 0 (congenital / at-birth); only '' or a
@@ -287,7 +310,7 @@ export const useStore = create<Store>()(
         } else {
           entry.prov = value as Provenance;
         }
-        set({ record });
+        commit(set, record, `Edited condition on ${person.name}`);
       },
 
       toggleOrgan: (personId, organ) => {
@@ -296,7 +319,7 @@ export const useStore = create<Store>()(
         if (!person) return;
         const cur = organsOf(person);
         person.organs = cur.includes(organ) ? cur.filter((o) => o !== organ) : [...cur, organ];
-        set({ record });
+        commit(set, record, `Updated organs for ${person.name}`);
       },
 
       registerCondition: (condition) => {
@@ -312,7 +335,7 @@ export const useStore = create<Store>()(
       addEvent: (event) => {
         const record = cloneRecord(get().record);
         record.timeline.push({ ...event, id: newId() });
-        set({ record });
+        commit(set, record, `Added event: ${event.title}`);
       },
 
       updateEvent: (id, patch) => {
@@ -320,26 +343,32 @@ export const useStore = create<Store>()(
         const idx = record.timeline.findIndex((e) => e.id === id);
         if (idx === -1) return;
         record.timeline[idx] = { ...record.timeline[idx], ...patch };
-        set({ record });
+        commit(set, record, `Edited event: ${record.timeline[idx].title}`);
       },
 
       deleteEvent: (id) => {
+        // Not-found guard mirrors updateEvent's `if (idx === -1) return;` above — filter() always
+        // returns a fresh array even on no match, so without this a delete of an unknown id would
+        // record a spurious, content-identical "Deleted event" history entry.
+        if (!get().record.timeline.some((e) => e.id === id)) return;
         const record = cloneRecord(get().record);
         record.timeline = record.timeline.filter((e) => e.id !== id);
-        set({ record });
+        commit(set, record, 'Deleted event');
       },
 
       resetRecord: () => {
         const record = emptyRecord();
-        set({ record, extensions: [], ...recordUi(record) });
+        // Route through commit so the reset itself is recorded — history is NOT cleared, so the
+        // pre-reset state remains recoverable via the log.
+        commit(set, record, 'Reset to empty record', { extensions: [], ...recordUi(record) });
       },
 
       loadSample: () => {
         const record = seedRecord();
-        set({ record, extensions: [], ...recordUi(record) });
+        commit(set, record, 'Loaded sample family', { extensions: [], ...recordUi(record) });
       },
 
-      replaceRecord: (record, extensions) => {
+      replaceRecord: (record, extensions, label) => {
         // The first real callers of this action hand it externally-built records (GEDCOM
         // import, native-backup restore, and future FHIR-pull). Validate at this boundary —
         // the same guard the persist layer applies at hydration — so a malformed record can
@@ -347,8 +376,7 @@ export const useStore = create<Store>()(
         // extensions are sanitised here too (not just trusted from the caller) so a future
         // producer can't reintroduce the shadow-a-curated-condition / unknown-category risk.
         if (!isValidRecord(record)) return;
-        set({
-          record: cloneRecord(record),
+        commit(set, cloneRecord(record), label ?? 'Replaced record', {
           extensions: sanitizeExtensions(extensions ?? []),
           ...recordUi(record),
         });

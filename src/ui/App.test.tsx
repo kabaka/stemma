@@ -39,6 +39,7 @@ describe('App — navigation', () => {
       ['Family Patterns', 'patterns', /family patterns/i],
       ['My Timeline', 'timeline', /my health timeline/i],
       ['Reports & Export', 'reports', /reports & export/i],
+      ['History', 'history', /^history$/i],
       ['Family Pedigree', 'tree', /family pedigree/i],
       ['Overview', 'overview', /health overview/i],
     ];

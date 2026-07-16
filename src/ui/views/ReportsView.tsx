@@ -159,7 +159,8 @@ export function ReportsView() {
             here, next to the controls that write and read that storage. */}
         <p className="mono-dim" style={{ margin: '0 0 10px' }}>
           Stored unencrypted in this browser&rsquo;s local storage — readable by anyone with access
-          to this device or profile.
+          to this device or profile. Your edit history (Stemma → History) also keeps past snapshots
+          on this device until you clear it.
         </p>
         <div className="card">
           <h3 style={{ fontWeight: 600, fontSize: 14 }}>Full-record backup (Stemma JSON)</h3>
