@@ -171,8 +171,19 @@ accessibility, testing) — captured here so nothing is lost:
   same-side branches as referral *screening* thresholds, not "NCCN testing criteria met": Stemma
   flags breast cancer `< 50` (strict NCCN single-relative young-onset is `≤ 45`) and same-side `≥ 2`
   (strict NCCN is a `≥ 3` same-side aggregate) — both slightly more sensitive, erring toward safety.
-  Also model **Ashkenazi-Jewish ancestry** as an any-age BRCA testing indication (currently not
-  represented).
+  - ✅ **Pancreatic + male breast cancer** any-age NCCN indications added (audit-remediation cycle;
+    NCCN Breast/Ovarian/Pancreatic v2.2026, `medical-domain-expert`-reviewed). Male breast is keyed
+    on sex-assigned-at-birth, never gender (guardrail #4).
+  - **Ashkenazi-Jewish ancestry** as an any-age BRCA testing indication remains **deferred** — it
+    needs a new `Person.ancestry` data axis (schema + PersonForm UI + persistence + export), a
+    high-risk unit with its own Decision Record and `security-privacy-reviewer` pass; it is
+    deliberately **not** bolted onto the audit fixes (see [`AUDIT.md`](./AUDIT.md)).
+  - **Male-breast ICD dual-coding**: the catalog `brca` entry carries the female-specific `C50.919`;
+    a male-sab breast-cancer case should dual-code to the `C50.92x` family in FHIR/Phenopacket
+    exports. Catalog/export follow-up — the engine is unaffected (keys on id + sab).
+  - Optional refinement: gate the *pancreatic-only, unaffected-proband* referral to "discuss" unless
+    the pancreatic relative is first-degree (NCCN qualifies only first-degree there); the engine
+    currently errs toward referral, which is the safe direction for decision-support.
 - ✅ **Lynch spectrum broadened** (Phase 1). Ovarian and upper-urinary-tract (renal pelvis /
   ureter urothelial) cancers now count toward the Lynch-spectrum tally. Ovarian intentionally
   seeds both HBOC and Lynch (different genes/pathways — a genetics evaluation disambiguates), with
@@ -183,13 +194,13 @@ accessibility, testing) — captured here so nothing is lost:
   backend, not after — the sync→async shift is the real work, not the storage bytes.
 - **AI layer must consume the typed engine outputs** (`PatternFlag`/`FamilyFinding`), never
   re-derive from free text, to keep the "no number the engine didn't produce" guard enforceable.
-- **GitHub Actions** are pinned to major tags (`@v4`); pin to commit SHAs for stricter supply-chain
-  hygiene when the project hardens further.
-- **Hide background chrome from AT while a modal is open** (accessibility). The person add/edit
-  modal is `aria-modal="true"` with a focus trap, which covers Tab order, but the sidebar/other
-  view content isn't marked `inert`/`aria-hidden`, so a screen-reader user in browse mode can still
-  reach controls behind the backdrop. The clean fix is a portal + `inert` on siblings; it's a
-  cross-component change (App + views) deferred from the person-edit work.
+- ✅ **GitHub Actions pinned to commit SHAs** (audit-remediation cycle), with a `dependabot.yml`
+  for the npm + github-actions ecosystems and a build-time Content-Security-Policy on the shipped
+  `dist` (`connect-src` limited to self + the NLM vocabulary host).
+- ✅ **Background chrome hidden from AT while a modal is open** (audit-remediation cycle). The person
+  add/edit modal is now portalled to `document.body` with the app root marked `inert`/`aria-hidden`
+  while open, and focus is restored to the invoking control on close (the `inert` attribute is
+  removed before the focus call, so restoration isn't silently swallowed).
 
 ### Conversion-gap follow-ups
 
