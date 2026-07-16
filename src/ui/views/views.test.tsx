@@ -79,6 +79,26 @@ describe('PatternsView', () => {
     expect(boundary).toHaveTextContent(/never manufactures a risk number/i);
   });
 
+  it('keeps the boundary compact: core statement visible, elaboration in a collapsed disclosure (guardrail #3)', () => {
+    render(<PatternsView />);
+    const boundary = screen.getByRole('note', { name: /clinical boundary/i });
+    // The essential statement is always present as chrome, not tucked inside the disclosure.
+    expect(boundary).toHaveTextContent(/not a diagnostic device/i);
+    // The fuller elaboration lives in a <details> that is collapsed by default (the
+    // compactness win) but still in the DOM one interaction away — so the full
+    // "never manufactures a risk number" wording is reachable, never deleted.
+    const details = boundary.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute('open');
+    expect(details).toHaveTextContent(/never manufactures a risk number/i);
+    // The disclosure is toggled by a real <summary> control.
+    expect(
+      within(boundary)
+        .getByText(/why this matters/i)
+        .tagName.toLowerCase(),
+    ).toBe('summary');
+  });
+
   it('surfaces provenance visibly: a legend and per-flag sourcing summaries (not SR-only)', () => {
     render(<PatternsView />);
     // The provenance key is visible to everyone, not gated behind hover/aria.
@@ -241,10 +261,11 @@ describe('PedigreeView', () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
     // Linda's first recorded condition is t2d, not brca — naming only the first would
     // leave no clue why she lit up under a "Breast cancer" highlight.
-    const breastCancerChip = within(highlightRow).getByRole('button', { name: /^Breast cancer,/i });
-    await user.click(breastCancerChip);
+    const breastCancerRow = within(highlightRow).getByRole('button', { name: /^Breast cancer,/i });
+    await user.click(breastCancerRow);
 
     expect(
       screen.getByRole('button', {
@@ -253,19 +274,22 @@ describe('PedigreeView', () => {
     ).toBeInTheDocument();
   });
 
-  it('gives a highlight chip an accessible name that separates the condition from its count', () => {
+  it('gives a highlight row an accessible name that separates the condition from its count', async () => {
+    const user = userEvent.setup();
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
     // Seed data: cad (coronary heart disease) affects 4 people (Walter, Frank, Robert, Tom).
-    const chip = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
-    expect(chip).toHaveAccessibleName(/Coronary heart disease, 4 people/i);
+    const row = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
+    expect(row).toHaveAccessibleName(/Coronary heart disease, 4 people/i);
   });
 
   it('gives a search result an accessible name that separates the condition from its category', async () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
-    await user.click(within(highlightRow).getByRole('button', { name: /search all conditions/i }));
+    // The full-catalog search now lives inside the highlight popover, not behind its own chip.
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
     await user.type(screen.getByRole('textbox', { name: /search all conditions/i }), 'breast');
 
     expect(screen.getByRole('button', { name: /Breast cancer, Cancer/i })).toBeInTheDocument();
@@ -306,7 +330,8 @@ describe('PedigreeView', () => {
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
     await user.click(within(highlightRow).getByRole('button', { name: /^Category$/i }));
-    // Cancer is present in the seed family (e.g. breast cancer), so it has a chip.
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    // Cancer is present in the seed family (e.g. breast cancer), so it has a row.
     await user.click(within(highlightRow).getByRole('button', { name: /^Cancer,/i }));
     // "N people · Breast cancer (2), …" — a headcount, never an "N×" multiplier.
     expect(screen.getByText(/\d+ (person|people) · .*Breast cancer \(\d+\)/i)).toBeInTheDocument();
@@ -340,20 +365,25 @@ describe('PedigreeView', () => {
     expect(chart.parentElement).toHaveClass('pedigree-scroll');
   });
 
-  it('selecting a highlight chip dims non-matching nodes and offers a clear control', async () => {
+  it('selecting a highlight dims non-matching nodes and offers a clear control', async () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    // Nothing highlighted yet — no clear control in the header.
+    expect(
+      within(highlightRow).queryByRole('button', { name: /clear highlight/i }),
+    ).not.toBeInTheDocument();
+
     // Seed data: coronary heart disease (cad) is the most prevalent condition (Walter,
-    // Frank, Robert, Tom), so it's the first chip in Condition mode.
-    const chip = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
-    expect(chip).toHaveAttribute('aria-pressed', 'false');
-    expect(within(highlightRow).queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    // Frank, Robert, Tom), so it's the first row in the Condition popover.
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    const cadRow = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
+    expect(cadRow).toHaveAttribute('aria-pressed', 'false');
+    await user.click(cadRow); // selects the highlight and closes the popover
 
-    await user.click(chip);
-
-    expect(chip).toHaveAttribute('aria-pressed', 'true');
-    expect(within(highlightRow).getByRole('button', { name: /clear/i })).toBeInTheDocument();
+    // The header now shows one summary chip that doubles as the clear control.
+    const clearBtn = within(highlightRow).getByRole('button', { name: /clear highlight/i });
+    expect(clearBtn).toBeInTheDocument();
     // Robert has coronary heart disease (matches, fully saturated fill); Helen only has
     // BRCA (doesn't match). Only the coloured glyph fill mutes for a non-match — the
     // wrap itself (and so the name/years/border outside the button) is never dimmed,
@@ -364,10 +394,12 @@ describe('PedigreeView', () => {
     expect(helenBtn.querySelector('.pedigree-node__fill')).toHaveStyle({ opacity: '0.28' });
     expect(robertBtn.querySelector('.pedigree-node__fill')).toHaveStyle({ opacity: '1' });
 
-    // Clicking the same chip again toggles the highlight back off.
-    await user.click(chip);
-    expect(chip).toHaveAttribute('aria-pressed', 'false');
-    expect(within(highlightRow).queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    // Clicking the clear control toggles the highlight back off.
+    await user.click(clearBtn);
+    expect(
+      within(highlightRow).queryByRole('button', { name: /clear highlight/i }),
+    ).not.toBeInTheDocument();
+    expect(helenBtn.querySelector('.pedigree-node__fill')).toHaveStyle({ opacity: '1' });
   });
 
   it('switches to Category mode and highlights by category', async () => {
@@ -382,9 +414,12 @@ describe('PedigreeView', () => {
       'true',
     );
 
-    const cardiovascular = within(highlightRow).getByRole('button', { name: /cardiovascular/i });
-    await user.click(cardiovascular);
-    expect(cardiovascular).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    await user.click(within(highlightRow).getByRole('button', { name: /cardiovascular/i }));
+    // The header shows the active category as its clear chip.
+    expect(
+      within(highlightRow).getByRole('button', { name: /clear highlight: cardiovascular/i }),
+    ).toBeInTheDocument();
     // Robert's first condition (coronary heart disease) is cardiovascular; Helen's (BRCA)
     // is not, so her glyph fill mutes under the category filter too (see the dim-
     // treatment test above for why the assertion targets the fill, not the wrap).
@@ -400,9 +435,11 @@ describe('PedigreeView', () => {
     render(<PedigreeView />); // sample loaded via the outer beforeEach
 
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
-    const chip = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
-    await user.click(chip);
-    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    await user.click(within(highlightRow).getByRole('button', { name: /coronary heart disease/i }));
+    expect(
+      within(highlightRow).getByRole('button', { name: /clear highlight/i }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /reset to empty/i }));
     expect(useStore.getState().record.people).toHaveLength(1);
@@ -414,13 +451,11 @@ describe('PedigreeView', () => {
     const highlightRowAfter = screen.getByRole('group', {
       name: /highlight a condition or category/i,
     });
+    // The stale highlight is gone: no clear control, and the previously-dimmed node is
+    // back to full saturation.
     expect(
-      within(highlightRowAfter).queryByRole('button', { name: /clear/i }),
+      within(highlightRowAfter).queryByRole('button', { name: /clear highlight/i }),
     ).not.toBeInTheDocument();
-    const chipAfter = within(highlightRowAfter).getByRole('button', {
-      name: /coronary heart disease/i,
-    });
-    expect(chipAfter).toHaveAttribute('aria-pressed', 'false');
 
     const chart = screen.getByRole('group', { name: /family pedigree chart/i });
     const helenFill = within(chart)

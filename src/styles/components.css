@@ -200,29 +200,73 @@
 /* The non-negotiable "not a diagnostic device" statement rendered as a first-class,
    bordered callout (guardrail #3) — never demoted to footer or lede body text. The
    accent left border and panel fill lift it out of surrounding prose so it reads as a
-   standing disclaimer, not a sentence a reader can skim past. */
+   standing disclaimer, not a sentence a reader can skim past.
+
+   Compact by design: the core statement is a single line and the elaboration lives in a
+   collapsed <details> below it, so the callout no longer eats 15%+ of shorter screens.
+   No `max-width` cap (which used to force the sentence to wrap to three lines) — the bar
+   spans its content column and the summary stays on one line at normal widths. */
 .clinical-boundary {
   display: flex;
-  gap: 11px;
-  align-items: flex-start;
+  gap: 10px;
+  align-items: baseline;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 10px;
-  padding: 13px 16px;
-  margin: 0 0 24px;
-  max-width: 680px;
+  border-radius: 8px;
+  padding: 9px 13px;
+  margin: 0 0 16px;
 }
 .clinical-boundary__icon {
   color: var(--accent);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.4;
   flex: none;
 }
-.clinical-boundary__text {
+.clinical-boundary__body {
+  min-width: 0;
+}
+.clinical-boundary__summary {
   font-size: 12.5px;
   color: var(--text-dim);
+  line-height: 1.45;
+  margin: 0;
+}
+.clinical-boundary__summary b {
+  color: var(--text);
+}
+/* The disclosure toggle: small, accent-tinted, no default triangle marker (we keep it
+   understated as chrome, not a loud control). The full explanatory text only contributes
+   height when the reader opens it. */
+.clinical-boundary__details {
+  margin-top: 5px;
+}
+.clinical-boundary__toggle {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+  width: fit-content;
+}
+.clinical-boundary__toggle::-webkit-details-marker {
+  display: none;
+}
+.clinical-boundary__toggle::before {
+  content: '▸ ';
+}
+.clinical-boundary__details[open] .clinical-boundary__toggle::before {
+  content: '▾ ';
+}
+.clinical-boundary__text {
+  font-size: 12px;
+  color: var(--text-dim);
   line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 680px;
 }
 .clinical-boundary__text b {
   color: var(--text);
@@ -529,7 +573,15 @@ textarea.field {
   justify-content: center;
   padding: 0;
   border: none;
-  background: none;
+  /* Opaque, shape-following backing (clipped by the inline border-radius / diamond
+     rotate) so a connector line drawn centre-to-centre is occluded *inside* the symbol —
+     the standard has the symbol sit ON the line, not the line run through it. Mirrors the
+     SVG export, which paints every glyph (unaffected = solid white) over the segments for
+     the same effect. `--bg` matches the canvas, so an unaffected node still reads as an
+     empty outline. Distinct from `.pedigree-node__fill` above it, which carries the
+     affected category colour and is the only layer a highlight filter is allowed to dim —
+     this backing never dims, so lines stay hidden even under an active highlight. */
+  background: var(--bg);
   cursor: pointer;
   transition:
     filter 0.12s,
@@ -654,12 +706,10 @@ textarea.field {
   pointer-events: none;
 }
 
-/* Highlight / filter row (see PedigreeHighlight.tsx) */
-.pedigree-hl-chip {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
+/* Highlight / filter row (see PedigreeHighlight.tsx) — the header holds only a mode
+   toggle, one popover trigger, and (when active) one summary chip, so its height is
+   constant no matter how many conditions the family carries. The list of present
+   conditions and the full-catalog search live inside the bounded popover below. */
 .pedigree-hl-swatch {
   width: 8px;
   height: 8px;
@@ -669,9 +719,24 @@ textarea.field {
 .pedigree-hl-count {
   font-family: var(--font-mono);
   font-size: 9px;
-  /* Inherit from the chip button (text-dim normally, accent when aria-pressed) instead
-     of a hardcoded tone, which fell to ~3.77:1 against the pressed chip's background. */
+  /* Inherit from the surrounding control (text-dim normally, accent when active) instead
+     of a hardcoded tone, which fell to ~3.77:1 against the pressed background. */
   color: currentColor;
+}
+/* The single chip standing in for the active highlight; clicking it clears the filter. */
+.pedigree-hl-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pedigree-hl-active__x {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.pedigree-hl-active:hover .pedigree-hl-active__x {
+  color: var(--sev-referral);
 }
 .pedigree-hl-search-popover {
   position: absolute;
@@ -685,6 +750,56 @@ textarea.field {
   border-radius: 10px;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
   padding: 10px;
+}
+.pedigree-hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+.pedigree-hl-list--results {
+  max-height: 240px;
+}
+/* One selectable row in the popover: swatch + name + trailing count/category. */
+.pedigree-hl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pedigree-hl-row:hover {
+  background: var(--bg-hover);
+}
+.pedigree-hl-row[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: rgba(52, 226, 207, 0.12);
+  color: var(--accent);
+}
+.pedigree-hl-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Search box sits under the present-in-family list, set off by a hairline rule. */
+.pedigree-hl-search {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.pedigree-hl-search .field {
+  margin-bottom: 8px;
 }
 
 .pedigree-legend {
@@ -776,6 +891,8 @@ textarea.field {
 .seg-btn:focus-visible,
 .nav-item:focus-visible,
 .field:focus-visible,
+.clinical-boundary__toggle:focus-visible,
+.pedigree-hl-row:focus-visible,
 .pedigree-node:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
