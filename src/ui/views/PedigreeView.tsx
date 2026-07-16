@@ -1,7 +1,18 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
-import { computeLayout, segments } from '@/domain/graph';
+import { computeLayout, offsetParallel, segments } from '@/domain/graph';
 import { condIds, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
 import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
@@ -10,7 +21,15 @@ import { PersonForm, type PersonFormState } from '../components/PersonForm';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import type { Catalog } from '@/domain/catalog';
-import type { CategoryKey, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
+import type {
+  CategoryKey,
+  FamilyRecord,
+  Gender,
+  Person,
+  Sab,
+  TwinSet,
+  Union,
+} from '@/domain/types';
 import type { Palette } from '@/data/categories';
 
 /** Node glyph size, in px — natural (unscaled) size, matching the prototype's readable
@@ -21,9 +40,97 @@ import type { Palette } from '@/data/categories';
 const NODE = 44;
 
 /** `CSSProperties` doesn't type custom properties — this narrows the cast to exactly
- * the one variable the canvas sets. */
+ * the variables the canvas sets. `--pedigree-scale` mirrors the current zoom `scale` as
+ * an inherited custom property so a focus ring *inside* the scaled canvas (`.pedigree-
+ * node:focus-visible`, see components.css) can divide it back out with `calc()` and stay
+ * a constant on-screen width — a plain `outline-width` would otherwise shrink to ~0.6px
+ * at `SCALE_MIN`. */
 interface CanvasStyle extends CSSProperties {
   '--node-size': string;
+  '--pedigree-scale': number;
+}
+
+/** Gap (px, on-screen) between the two parallel tracks of a consanguineous union's
+ * doubled relationship line — small relative to the 44px node scale (`NODE`) so it
+ * reads as one thickened/doubled bar rather than two visibly separate lines. */
+const DOUBLE_LINE_GAP = 5;
+
+/** App-driven pan/zoom transform applied to `.pedigree-canvas` as a single
+ * `translate(x, y) scale(scale)` — transient view state, never persisted with the
+ * record. */
+interface ViewState {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+/** Never let zoom shrink so far the chart becomes unreadable, nor magnify past a
+ * modest ceiling — the design deliberately keeps nodes at their natural, readable
+ * size rather than treating zoom as a way to blow past it. */
+const SCALE_MIN = 0.3;
+const SCALE_MAX = 1.5;
+const clampScale = (s: number): number => Math.min(SCALE_MAX, Math.max(SCALE_MIN, s));
+
+/** Multiplicative step for the zoom in/out buttons and +/- keys (20% per press). */
+const ZOOM_STEP = 1.2;
+/** Wheel-to-zoom sensitivity for Ctrl/Cmd+wheel and trackpad pinch (which browsers report
+ * as a ctrlKey wheel event) — tuned so one notch of a typical mouse wheel (~100 deltaY)
+ * moves scale by roughly one `ZOOM_STEP`. */
+const WHEEL_ZOOM_K = 0.0022;
+/** Pixels panned per arrow-key press. */
+const PAN_STEP = 60;
+/** Duration of the eased transition on the Reset / Zoom to fit buttons; wheel/drag/keyboard
+ * panning and zooming stay unanimated (immediate follow). Skipped entirely (snap, no
+ * animation) under `prefers-reduced-motion` — see the `.pedigree-canvas--eased` CSS rule. */
+const EASE_MS = 220;
+
+/** Horizontal room left of the canvas's own x=0 reserved for the generation ▲/▼ labels
+ * (`.pedigree-gen-label`, absolutely positioned at `left: -58px` relative to the canvas),
+ * folded into the default view and the zoom-to-fit math so they're never panned or fitted
+ * off the left edge. */
+const LABEL_GUTTER = 64;
+
+/** The view on first load and after "Reset": natural (unscaled) size, with just enough
+ * left/top inset that the generation labels and the topmost node clear the viewport edge —
+ * matching the old canvas's fixed padding before pan/zoom replaced native scroll. */
+const DEFAULT_VIEW: ViewState = { x: LABEL_GUTTER, y: 24, scale: 1 };
+
+/** Zoom-to-fit view: `scale = min(viewportW/contentW, viewportH/contentH)`, clamped to
+ * never upscale past natural size (≤1) — per the design's "never scaled past readable
+ * size" rule — then the scaled content is centred in the viewport. Pure function of the
+ * measured viewport and canvas size, so it's also used for the automatic reset on record
+ * swap. Falls back to {@link DEFAULT_VIEW} when either dimension isn't known yet (nothing
+ * measured, or an empty canvas). */
+function computeFitView(vw: number, vh: number, cw: number, ch: number): ViewState {
+  const contentW = cw + LABEL_GUTTER;
+  if (vw <= 0 || vh <= 0 || contentW <= 0 || ch <= 0) return DEFAULT_VIEW;
+  const scale = clampScale(Math.min(vw / contentW, vh / ch, 1));
+  const x = LABEL_GUTTER * scale + (vw - contentW * scale) / 2;
+  const y = (vh - ch * scale) / 2;
+  return { x, y, scale };
+}
+
+/** Minimal nudge (never a re-centre) that brings a node's on-screen position within the
+ * viewport plus a small margin — used when a selection lands off-screen (e.g. a keyboard
+ * user tabs to a node that's currently panned out of view), so they aren't left editing a
+ * relative they can't see. Pure; returns `v` unchanged when the node is already visible. */
+const NUDGE_MARGIN = 12;
+function nudgeIntoView(
+  v: ViewState,
+  node: { x: number; cy: number },
+  vw: number,
+  vh: number,
+): ViewState {
+  const half = (NODE / 2) * v.scale + NUDGE_MARGIN;
+  const sx = v.x + node.x * v.scale;
+  const sy = v.y + node.cy * v.scale;
+  let dx = 0;
+  let dy = 0;
+  if (sx - half < 0) dx = -(sx - half);
+  else if (sx + half > vw) dx = vw - (sx + half);
+  if (sy - half < 0) dy = -(sy - half);
+  else if (sy + half > vh) dy = vh - (sy + half);
+  return dx === 0 && dy === 0 ? v : { ...v, x: v.x + dx, y: v.y + dy };
 }
 
 const CONFIRM_LOAD_SAMPLE = 'Load the example family? This replaces your current record.';
@@ -191,6 +298,209 @@ export function PedigreeView() {
   // somehow isn't found, so the labels never crash on a malformed record.
   const probandGen = record.people.find((p) => p.id === record.probandId)?.gen ?? minGen;
 
+  // Text alternative for the doubled-line/twin-diagonal notation (see `nodeLabel` and
+  // `PersonPedigreeNotes`) — built once per unions/people change and handed to every
+  // node, rather than each node re-scanning `record.unions` itself.
+  const peopleById = useMemo(() => new Map(record.people.map((p) => [p.id, p])), [record.people]);
+  const pedigreeNotes = useMemo(
+    () => buildPedigreeNotes(record.unions, peopleById),
+    [record.unions, peopleById],
+  );
+
+  // ---- Pan / zoom ----
+  // Transient view state — deliberately not persisted with the record (see ViewState).
+  // `scrollRef` is the fixed-size, overflow:hidden viewport (`.pedigree-scroll`); the
+  // transform below is applied to `.pedigree-canvas` inside it, so nodes and the SVG
+  // connector overlay pan/zoom atomically in one coordinate space.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
+  // Whether the *next* render should snap to an eased transition (Reset / Zoom to fit
+  // buttons only — wheel/drag/keyboard panning stay unanimated so they track the input
+  // 1:1). Cleared by a timeout matching `EASE_MS`; `prefers-reduced-motion` disables the
+  // CSS transition entirely regardless (see `.pedigree-canvas--eased`).
+  const [easing, setEasing] = useState(false);
+  const easeTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (easeTimer.current != null) window.clearTimeout(easeTimer.current);
+    },
+    [],
+  );
+  const applyEasedView = (next: ViewState): void => {
+    setEasing(true);
+    setView(next);
+    if (easeTimer.current != null) window.clearTimeout(easeTimer.current);
+    easeTimer.current = window.setTimeout(() => setEasing(false), EASE_MS);
+  };
+
+  // Record swaps (load sample / reset / import) reset the view exactly like they reset
+  // `activeId` et al. in `swapRecord` below — flagged here, applied by the effect after
+  // the swapped record's own `cw`/`ch` have been recomputed (so the fit math below sees
+  // the *new* layout, not the one being replaced). Also true on mount, so first paint
+  // gets a sensible fit rather than an arbitrary 1:1 view for a large imported tree.
+  const needsViewReset = useRef(true);
+  useEffect(() => {
+    if (!needsViewReset.current) return;
+    const el = scrollRef.current;
+    if (!el) return; // empty-state: no canvas mounted yet, nothing to fit against
+    setView(computeFitView(el.clientWidth, el.clientHeight, cw, ch));
+    needsViewReset.current = false;
+  }, [cw, ch]);
+
+  const zoomAt = useCallback((clientX: number, clientY: number, factor: number): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    setView((v) => {
+      const nextScale = clampScale(v.scale * factor);
+      if (nextScale === v.scale) return v;
+      // Keep the point under the cursor/centre fixed on screen across the scale change.
+      const canvasX = (localX - v.x) / v.scale;
+      const canvasY = (localY - v.y) / v.scale;
+      return { x: localX - canvasX * nextScale, y: localY - canvasY * nextScale, scale: nextScale };
+    });
+  }, []);
+  const zoomButton = (factor: number): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+  };
+  const zoomToFit = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    applyEasedView(computeFitView(el.clientWidth, el.clientHeight, cw, ch));
+  };
+
+  // Wheel: plain wheel pans, Ctrl/Cmd+wheel zooms (also how browsers report trackpad
+  // pinch). Attached as a native, non-passive listener — React registers wheel handlers
+  // as passive by default, which would silently swallow `preventDefault()` and let the
+  // page/browser's own scroll or pinch-zoom fire alongside ours.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent): void => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * WHEEL_ZOOM_K));
+      } else {
+        setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
+      }
+    };
+    el.addEventListener('wheel', onWheelNative, { passive: false });
+    return () => el.removeEventListener('wheel', onWheelNative);
+    // `isEmpty` re-runs this when the viewport div mounts/unmounts across the empty ⇄
+    // populated transition, so the listener attaches once a `scrollRef` element exists.
+  }, [zoomAt, isEmpty]);
+
+  // Pointer drag on empty canvas = pan; a drag starting on a node (or its name/years
+  // label), or on the zoom-controls toolbar, is left alone so those controls' own
+  // click/select behaviour keeps working undisturbed by an incidental pointer move.
+  const dragRef = useRef<{ startX: number; startY: number; viewX: number; viewY: number } | null>(
+    null,
+  );
+  const onCanvasPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.pedigree-node-wrap') || target.closest('.pedigree-zoom-controls')) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onCanvasPointerMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setView((v) => ({
+      ...v,
+      x: drag.viewX + (e.clientX - drag.startX),
+      y: drag.viewY + (e.clientY - drag.startY),
+    }));
+  };
+  const endCanvasDrag = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  // Pan by a fixed delta — shared by the keyboard handler below and the D-pad buttons in
+  // the zoom-controls toolbar, so both bindings can never drift apart.
+  const panBy = (dx: number, dy: number): void => {
+    setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+  };
+
+  // Keyboard pan/zoom (WCAG 2.1.1): scoped to keydowns bubbling up through the viewport
+  // (from the viewport itself or any focused node inside it), not a document-wide
+  // listener — so it never fires while, say, a form field elsewhere has focus. Only the
+  // keys below call preventDefault; everything else (notably Tab/Shift+Tab) passes
+  // through untouched, so focus order over the pedigree nodes is unchanged. This is a
+  // *supplement* to the D-pad/zoom buttons below, not the only way to reach this — a
+  // screen reader in browse mode may switch Arrow keys off an interactive `role="group"`
+  // before they ever reach this handler, which the button fallback covers.
+  const onCanvasKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    switch (e.key) {
+      case 'ArrowUp':
+        e.preventDefault();
+        panBy(0, PAN_STEP);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        panBy(0, -PAN_STEP);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        panBy(PAN_STEP, 0);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        panBy(-PAN_STEP, 0);
+        break;
+      case '+':
+      case '=':
+        e.preventDefault();
+        zoomButton(ZOOM_STEP);
+        break;
+      case '-':
+      case '_':
+        e.preventDefault();
+        zoomButton(1 / ZOOM_STEP);
+        break;
+      case '0':
+        e.preventDefault();
+        applyEasedView(DEFAULT_VIEW);
+        break;
+    }
+  };
+
+  // Nudge (never a re-centre) a person's node into view when it's off-screen — shared by
+  // the selection effect below (covers a click/Enter select, and any future programmatic
+  // selection) and `onNodeFocus` (covers plain Tab focus with no selection change, e.g. a
+  // sighted keyboard user tabbing past a node that's currently panned out of the
+  // `overflow:hidden` viewport with no visible focus indicator — WCAG 2.4.7). Reads `pos`
+  // via a ref rather than a dependency, so callers don't re-create this every layout pass.
+  const posRef = useRef(pos);
+  posRef.current = pos;
+  const nudgeToPerson = useCallback((id: string): void => {
+    const node = posRef.current[id];
+    const el = scrollRef.current;
+    if (!node || !el) return;
+    setView((v) => nudgeIntoView(v, node, el.clientWidth, el.clientHeight));
+  }, []);
+  // data-person-id (set on the node button, see PedigreeNode) lets this single delegated
+  // handler identify which node focused without threading a per-node onFocus closure
+  // through the memoized PedigreeNode's props.
+  const onNodeFocus = (e: ReactFocusEvent<HTMLDivElement>): void => {
+    const id = (e.target as HTMLElement).dataset.personId;
+    if (id) nudgeToPerson(id);
+  };
+
+  useEffect(() => {
+    if (!selectedId) return;
+    nudgeToPerson(selectedId);
+  }, [selectedId, nudgeToPerson]);
+
   // The payoff of category-highlight mode (restored from the prototype): a plain-language
   // breakdown of what the spotlit category actually contains — "N relatives · 2× Breast
   // cancer, 1× Colorectal cancer". Only meaningful with a category chip active.
@@ -235,12 +545,16 @@ export function PedigreeView() {
   // the new record matches it, so the whole tree dims with no chip showing as active), a
   // stale PersonForm `anchor`/`id` can mis-attach to or edit a person from the old record,
   // and the import panel would linger. Every record-swap entry point — the header buttons,
-  // the empty state's own loader, and GEDCOM import — routes through this helper.
+  // the empty state's own loader, and GEDCOM import — routes through this helper. The pan/
+  // zoom view gets the same treatment: flag it for the fit-on-next-layout effect above
+  // rather than resetting it here directly, since this record's new `cw`/`ch` haven't been
+  // computed yet at this point in the swap.
   const swapRecord = (action: () => void): void => {
     action();
     setActiveId(null);
     setFormState(null);
     setImporting(false);
+    needsViewReset.current = true;
   };
 
   // Toggle the import panel. Add/edit is a blocking modal (not a header panel), so there's
@@ -269,7 +583,17 @@ export function PedigreeView() {
     }
   };
 
-  const canvasStyle: CanvasStyle = { width: cw, height: ch, '--node-size': `${NODE}px` };
+  const canvasStyle: CanvasStyle = {
+    width: cw,
+    height: ch,
+    '--node-size': `${NODE}px`,
+    '--pedigree-scale': view.scale,
+    // Single atomic transform — node divs and the SVG overlay are both children of this
+    // element, so they pan/zoom together in one coordinate space (see ViewState).
+    transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+    transformOrigin: '0 0',
+  };
+  const zoomPct = Math.round(view.scale * 100);
 
   return (
     // Plain positioning wrapper — App already renders <main className="main"> around every
@@ -338,8 +662,9 @@ export function PedigreeView() {
             <p className="pedigree-guide__text">
               2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary;
               sex assigned at birth is noted when it differs. Filled = affected, coloured by
-              condition category; diagonal = deceased. Click any relative to view or edit their
-              record.
+              condition category; diagonal = deceased. A doubled line marks a consanguineous union;
+              converging diagonal lines mark a twin/multiple-birth set, with a horizontal bar for
+              identical (monozygotic) twins. Click any relative to view or edit their record.
             </p>
           </details>
 
@@ -373,12 +698,97 @@ export function PedigreeView() {
             onLoadSample={handleEmptyLoadSample}
           />
         ) : (
-          <div className="pedigree-scroll">
+          <div
+            className="pedigree-scroll"
+            ref={scrollRef}
+            tabIndex={0}
+            role="group"
+            aria-label="Pedigree pan and zoom viewport. Drag or use arrow keys to pan; plus, minus, and 0 to zoom in, out, and reset."
+            onPointerDown={onCanvasPointerDown}
+            onPointerMove={onCanvasPointerMove}
+            onPointerUp={endCanvasDrag}
+            onPointerCancel={endCanvasDrag}
+            onKeyDown={onCanvasKeyDown}
+          >
             <div
-              className="pedigree-canvas"
+              className="pedigree-zoom-controls"
+              role="group"
+              aria-label="Pedigree zoom controls"
+            >
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => zoomButton(1 / ZOOM_STEP)}
+              >
+                <span aria-hidden="true">−</span>
+                <span className="visually-hidden">Zoom out</span>
+              </button>
+              {/* Visible text readout (not colour/icon-only, WCAG 1.4.1) of the current zoom
+                  level; not a live region — wheel/drag zooming fires this constantly, and
+                  announcing every intermediate percentage would be noise for screen-reader
+                  users. The buttons' own labels already say what each does. */}
+              <span className="pedigree-zoom-readout">{zoomPct}%</span>
+              <button type="button" className="btn btn--sm" onClick={() => zoomButton(ZOOM_STEP)}>
+                <span aria-hidden="true">+</span>
+                <span className="visually-hidden">Zoom in</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => applyEasedView(DEFAULT_VIEW)}
+              >
+                Reset
+              </button>
+              <button type="button" className="btn btn--sm" onClick={zoomToFit}>
+                Zoom to fit
+              </button>
+              {/* Button-operable pan fallback for the Arrow-key handler on the viewport
+                  below: a screen reader in browse mode can switch Arrow keys off before
+                  they ever reach a `role="group"` element's own keydown handler, so
+                  panning needs a button-based path too (mirrors the zoom buttons already
+                  covering +/-/0). Same `PAN_STEP` delta as the keyboard bindings, via the
+                  shared `panBy`. */}
+              <div className="pedigree-pan-dpad" role="group" aria-label="Pan pedigree">
+                <button
+                  type="button"
+                  className="btn btn--sm pedigree-pan-dpad__btn pedigree-pan-dpad__btn--up"
+                  onClick={() => panBy(0, PAN_STEP)}
+                >
+                  <span aria-hidden="true">▲</span>
+                  <span className="visually-hidden">Pan up</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm pedigree-pan-dpad__btn pedigree-pan-dpad__btn--left"
+                  onClick={() => panBy(PAN_STEP, 0)}
+                >
+                  <span aria-hidden="true">◀</span>
+                  <span className="visually-hidden">Pan left</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm pedigree-pan-dpad__btn pedigree-pan-dpad__btn--right"
+                  onClick={() => panBy(-PAN_STEP, 0)}
+                >
+                  <span aria-hidden="true">▶</span>
+                  <span className="visually-hidden">Pan right</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm pedigree-pan-dpad__btn pedigree-pan-dpad__btn--down"
+                  onClick={() => panBy(0, -PAN_STEP)}
+                >
+                  <span aria-hidden="true">▼</span>
+                  <span className="visually-hidden">Pan down</span>
+                </button>
+              </div>
+            </div>
+            <div
+              className={`pedigree-canvas${easing ? ' pedigree-canvas--eased' : ''}`}
               role="group"
               aria-label="Family pedigree chart"
               style={canvasStyle}
+              onFocus={onNodeFocus}
             >
               <svg
                 width={cw}
@@ -387,17 +797,36 @@ export function PedigreeView() {
                 aria-hidden="true"
                 pointerEvents="none"
               >
-                {segs.map((s, i) => (
-                  <line
-                    key={i}
-                    x1={s.x1}
-                    y1={s.y1}
-                    x2={s.x2}
-                    y2={s.y2}
-                    stroke="#6b7280"
-                    strokeWidth={1.3}
-                  />
-                ))}
+                {segs.flatMap((s, i) => {
+                  // A consanguineous union's relationship line draws doubled (two parallel
+                  // tracks) per 2022 NSGC/Bennett notation; every other segment — sibship
+                  // lines, lines of descent, and the twin diagonals/mono bar `segments()`
+                  // already emits — renders exactly as before, unfiltered.
+                  if (s.double) {
+                    return offsetParallel(s, DOUBLE_LINE_GAP).map((ss, j) => (
+                      <line
+                        key={`${i}-${j}`}
+                        x1={ss.x1}
+                        y1={ss.y1}
+                        x2={ss.x2}
+                        y2={ss.y2}
+                        stroke="#6b7280"
+                        strokeWidth={1.3}
+                      />
+                    ));
+                  }
+                  return [
+                    <line
+                      key={i}
+                      x1={s.x1}
+                      y1={s.y1}
+                      x2={s.x2}
+                      y2={s.y2}
+                      stroke="#6b7280"
+                      strokeWidth={1.3}
+                    />,
+                  ];
+                })}
               </svg>
               {gens.map((g) => {
                 const rep = record.people.find((p) => p.gen === g);
@@ -429,6 +858,7 @@ export function PedigreeView() {
                   hlActive={hlActive}
                   matches={hlActive && nodeMatches(p)}
                   hlColor={hlColor}
+                  notes={pedigreeNotes.get(p.id)}
                   onSelect={selectPerson}
                 />
               ))}
@@ -663,6 +1093,63 @@ function legendCategories(people: Person[], catalog: Catalog): CategoryKey[] {
   return (Object.keys(CATEGORIES) as CategoryKey[]).filter((k) => present.has(k));
 }
 
+/** Per-person text alternative for the two union-level pedigree-structure notations that
+ * are otherwise drawn purely as connector geometry (a doubled relationship line, a
+ * converging-diagonal/bar twin group) — folded into `nodeLabel`'s accessible name so
+ * neither fact is colour/shape-only (WCAG 1.1.1). */
+interface PersonPedigreeNotes {
+  /** This person's twin/multiple-birth membership, if any. A person belongs to at most
+   * one `TwinSet` (domain-enforced), so this is a single fact, not a list. */
+  twin?: { zygosity: TwinSet['zygosity']; withNames: string[] };
+  /** Names of every co-parent this person shares a *consanguineous* union with. Usually
+   * empty or one name; more than one only if this person has multiple consanguineous
+   * unions. */
+  consanguineousWith: string[];
+}
+
+/** Builds {@link PersonPedigreeNotes} for every person with at least one fact to report,
+ * from the record's unions — one pass, shared by every node's `nodeLabel` call rather
+ * than each node re-scanning `unions` itself. Pure; a person absent from the map has
+ * neither fact. */
+function buildPedigreeNotes(
+  unions: Union[],
+  peopleById: Map<string, Person>,
+): Map<string, PersonPedigreeNotes> {
+  const notes = new Map<string, PersonPedigreeNotes>();
+  const forPerson = (id: string): PersonPedigreeNotes => {
+    let n = notes.get(id);
+    if (!n) {
+      n = { consanguineousWith: [] };
+      notes.set(id, n);
+    }
+    return n;
+  };
+  for (const u of unions) {
+    if (u.consanguineous === true) {
+      for (const pid of u.parents) {
+        for (const otherId of u.parents) {
+          if (otherId === pid) continue;
+          const name = peopleById.get(otherId)?.name;
+          if (name) forPerson(pid).consanguineousWith.push(name);
+        }
+      }
+    }
+    for (const ts of u.twins ?? []) {
+      for (const id of ts.members) {
+        // Domain-enforced (member of at most one TwinSet); defensive first-wins guard so
+        // a malformed record can't overwrite an already-assigned note.
+        if (forPerson(id).twin) continue;
+        const withNames = ts.members
+          .filter((m) => m !== id)
+          .map((m) => peopleById.get(m)?.name)
+          .filter((n): n is string => n != null);
+        forPerson(id).twin = { zygosity: ts.zygosity, withNames };
+      }
+    }
+  }
+  return notes;
+}
+
 /** Visible category-colour key so fill hue is never the only signal (WCAG 1.4.1). */
 function CategoryLegend({ categories, palette }: { categories: CategoryKey[]; palette: Palette }) {
   if (categories.length === 0) return null;
@@ -690,7 +1177,10 @@ function CategoryLegend({ categories, palette }: { categories: CategoryKey[]; pa
  * can match on any of a person's conditions (e.g. their second), and naming only the
  * first would silently fail to say why a match lit up. The you-centric generation
  * orientation the ▲/▼ row labels give sighted users (aria-hidden decorative) is folded in
- * here too, so a screen-reader user gets the same "N generations above/below you" cue. */
+ * here too, so a screen-reader user gets the same "N generations above/below you" cue.
+ * `notes` (see {@link PersonPedigreeNotes}) is the text alternative for the doubled
+ * consanguineous-union line and the twin-diagonal/bar notation — both otherwise pure
+ * connector geometry with no text equivalent (WCAG 1.1.1). */
 function nodeLabel(
   person: Person,
   catalog: Catalog,
@@ -698,6 +1188,7 @@ function nodeLabel(
   matches: boolean,
   proband: boolean,
   probandGen: number,
+  notes: PersonPedigreeNotes | undefined,
 ): string {
   const parts: string[] = [person.name];
   if (proband) {
@@ -722,6 +1213,17 @@ function nodeLabel(
 
   if (sabAnnotationDiffers(person)) {
     parts.push(`sex assigned at birth ${sabLabel(sabOf(person))}`);
+  }
+
+  if (notes?.consanguineousWith.length) {
+    parts.push(`consanguineous union with ${notes.consanguineousWith.join(', ')}`);
+  }
+  if (notes?.twin) {
+    const zygosityWord = notes.twin.zygosity === 'mono' ? 'identical' : 'fraternal';
+    const withClause = notes.twin.withNames.length
+      ? ` with ${notes.twin.withNames.join(', ')}`
+      : '';
+    parts.push(`twin (${zygosityWord})${withClause}`);
   }
 
   const ids = condIds(person);
@@ -755,6 +1257,9 @@ interface NodeProps {
   hlActive: boolean;
   matches: boolean;
   hlColor: string | null;
+  /** Text alternative for this person's consanguineous-union/twin membership, if any —
+   * see {@link PersonPedigreeNotes}. */
+  notes: PersonPedigreeNotes | undefined;
   onSelect: (id: string) => void;
 }
 
@@ -775,6 +1280,7 @@ const PedigreeNode = memo(function PedigreeNode({
   hlActive,
   matches,
   hlColor,
+  notes,
   onSelect,
 }: NodeProps) {
   const g: Gender = genderOf(person);
@@ -807,7 +1313,7 @@ const PedigreeNode = memo(function PedigreeNode({
   const dots = ids.slice(0, 4).map((id) => categoryColor(catalog.get(id).cat, palette));
   const extraConditions = ids.length - dots.length;
   const dimmed = hlActive && !matches;
-  const label = nodeLabel(person, catalog, hlActive, matches, proband, probandGen);
+  const label = nodeLabel(person, catalog, hlActive, matches, proband, probandGen, notes);
   // Hover-only title cues so category is never colour-only at the glyph itself (WCAG
   // 1.4.1) — a supplementary channel alongside the always-visible footer legend and the
   // full accessible name above; the node is too small (44px) for permanent visible text
@@ -831,6 +1337,11 @@ const PedigreeNode = memo(function PedigreeNode({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={selected}
+        // Read by the delegated `onNodeFocus` handler on `.pedigree-canvas` (see
+        // PedigreeView) to nudge a Tab-focused, panned-out-of-view node back into the
+        // viewport (WCAG 2.4.7) — cheaper than threading a per-node onFocus closure
+        // through this memoized component's props.
+        data-person-id={person.id}
         onClick={() => onSelect(person.id)}
         style={{
           borderRadius: shape === 'circle' ? '50%' : 7,

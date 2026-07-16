@@ -17,7 +17,7 @@ import type { Palette } from '@/data/categories';
 import type { LayoutNode } from '@/domain/graph';
 import { categoryColor } from '@/data/categories';
 import { condIds, genderOf, sabLabel, sabOf } from '@/domain/person';
-import { computeLayout, segments } from '@/domain/graph';
+import { computeLayout, offsetParallel, segments } from '@/domain/graph';
 
 export interface PedigreeSvgOptions {
   palette?: Palette;
@@ -27,6 +27,10 @@ const NODE = 15;
 const OUTLINE = '#1a1f28';
 const LINE = '#3a4150';
 const UNAFFECTED_FILL = '#ffffff';
+// Perpendicular separation of a consanguineous union's doubled relationship line, in the
+// same coordinate space as the layout (NODE radius 15, H_GAP 96) — ~3.5px reads as two
+// distinct parallel lines at this node scale without the tracks touching.
+const CONSANG_GAP = 3.5;
 
 // Escapes for XML text content AND attribute values (quotes included), so the same
 // helper is safe if a name is ever interpolated into an attribute, not just text.
@@ -69,9 +73,19 @@ export function buildPedigreeSvg(
   const w = maxX - minX;
   const h = maxY - minY;
 
+  const line = (s: { x1: number; y1: number; x2: number; y2: number }): string =>
+    `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${LINE}" stroke-width="1.3"/>`;
   let body = '';
   for (const s of segs) {
-    body += `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${LINE}" stroke-width="1.3"/>`;
+    // A consanguineous relationship line draws as two parallel tracks; every other segment
+    // (sibship, descent, jog, and the twin diagonals/bar already emitted by `segments`) is an
+    // ordinary single line.
+    if (s.double) {
+      const [a, b] = offsetParallel(s, CONSANG_GAP);
+      body += line(a) + line(b);
+    } else {
+      body += line(s);
+    }
   }
   for (const p of nodes) {
     body += glyph(p, pos[p.id], catalog, palette, record.probandId);

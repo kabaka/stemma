@@ -11,6 +11,7 @@ import {
   degreeLong,
   degreeShort,
   indexPeople,
+  offsetParallel,
   parentsOf,
   relationInfo,
   segments,
@@ -310,7 +311,15 @@ describe('segments', () => {
   it('draws a partner bar between two unioned parents at equal cy', () => {
     const robert = layout.pos.robert;
     const susan = layout.pos.susan;
-    expect(segs).toContainEqual({ x1: robert.x, y1: robert.cy, x2: susan.x, y2: susan.cy });
+    // Every relationship-line segment now explicitly carries `double` (true for a
+    // consanguineous union, false otherwise — see the `consanguinity` describe block below).
+    expect(segs).toContainEqual({
+      x1: robert.x,
+      y1: robert.cy,
+      x2: susan.x,
+      y2: susan.cy,
+      double: false,
+    });
     expect(robert.cy).toBe(susan.cy);
   });
 
@@ -1009,5 +1018,218 @@ describe('cross-defect integration — removing a shared parent demotes a full s
     expect(info.degree).toBe(2);
     expect(info.side).toBe('Paternal');
     expect(info.r).toBeCloseTo(0.25, 5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR 3 — consanguinity double-line, twin notation, offsetParallel (segments())
+// ---------------------------------------------------------------------------
+
+describe('consanguinity — segments() marks the relationship line double', () => {
+  it("marks a consanguineous union's relationship-line segment double: true", () => {
+    const pos: Record<string, LayoutNode> = {
+      p1: { x: 0, y: 100, cy: 124 },
+      p2: { x: 96, y: 100, cy: 124 },
+    };
+    const unions: Union[] = [{ parents: ['p1', 'p2'], children: [], consanguineous: true }];
+    const segs = segments(unions, pos);
+    expect(segs).toHaveLength(1);
+    expect(segs[0]).toEqual({ x1: 0, y1: 124, x2: 96, y2: 124, double: true });
+  });
+
+  it('never marks double on a non-consanguineous union (relationship, sibship, or descent segments)', () => {
+    const pos: Record<string, LayoutNode> = {
+      p1: { x: 0, y: 100, cy: 124 },
+      p2: { x: 96, y: 100, cy: 124 },
+      c1: { x: 0, y: 270, cy: 294 },
+      c2: { x: 96, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [{ parents: ['p1', 'p2'], children: ['c1', 'c2'] }];
+    const segs = segments(unions, pos);
+    expect(segs.length).toBeGreaterThan(0);
+    expect(segs.every((s) => !s.double)).toBe(true);
+  });
+});
+
+describe('offsetParallel', () => {
+  it('offsets a horizontal segment vertically by ±gap/2', () => {
+    const s: Segment = { x1: 0, y1: 10, x2: 20, y2: 10 };
+    const [a, b] = offsetParallel(s, 4);
+    expect(a).toEqual({ x1: 0, y1: 12, x2: 20, y2: 12 });
+    expect(b).toEqual({ x1: 0, y1: 8, x2: 20, y2: 8 });
+  });
+
+  it('offsets a vertical segment horizontally by ±gap/2', () => {
+    const s: Segment = { x1: 5, y1: 0, x2: 5, y2: 30 };
+    const [a, b] = offsetParallel(s, 6);
+    expect(a).toEqual({ x1: 2, y1: 0, x2: 2, y2: 30 });
+    expect(b).toEqual({ x1: 8, y1: 0, x2: 8, y2: 30 });
+  });
+
+  it('offsets a diagonal segment perpendicular to its own direction', () => {
+    const s: Segment = { x1: 0, y1: 0, x2: 10, y2: 10 };
+    const [a, b] = offsetParallel(s, 2);
+    // 45° diagonal, gap 2 ⇒ perpendicular offset magnitude gap/2 * 1/√2 = 1/√2 on each axis.
+    const off = Math.SQRT1_2;
+    expect(a.x1).toBeCloseTo(-off, 10);
+    expect(a.y1).toBeCloseTo(off, 10);
+    expect(a.x2).toBeCloseTo(10 - off, 10);
+    expect(a.y2).toBeCloseTo(10 + off, 10);
+    expect(b.x1).toBeCloseTo(off, 10);
+    expect(b.y1).toBeCloseTo(-off, 10);
+    expect(b.x2).toBeCloseTo(10 + off, 10);
+    expect(b.y2).toBeCloseTo(10 - off, 10);
+  });
+
+  it('returns two coincident copies for a zero-length segment, with no NaN', () => {
+    const s: Segment = { x1: 5, y1: 5, x2: 5, y2: 5 };
+    const [a, b] = offsetParallel(s, 10);
+    expect(a).toEqual({ x1: 5, y1: 5, x2: 5, y2: 5 });
+    expect(b).toEqual({ x1: 5, y1: 5, x2: 5, y2: 5 });
+    for (const seg of [a, b]) {
+      expect(Number.isNaN(seg.x1)).toBe(false);
+      expect(Number.isNaN(seg.y1)).toBe(false);
+      expect(Number.isNaN(seg.x2)).toBe(false);
+      expect(Number.isNaN(seg.y2)).toBe(false);
+    }
+  });
+});
+
+describe('twin notation (segments()) — di, mono, triplets, mixed sibships, degrade', () => {
+  const parentsPos = (): Record<string, LayoutNode> => ({
+    p1: { x: 0, y: 100, cy: 124 },
+    p2: { x: 96, y: 100, cy: 124 },
+  });
+
+  it('dizygotic twins: two diagonals from a shared confluence, no bar, no ordinary verticals', () => {
+    const pos: Record<string, LayoutNode> = {
+      ...parentsPos(),
+      t1: { x: 0, y: 270, cy: 294 },
+      t2: { x: 96, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [
+      {
+        parents: ['p1', 'p2'],
+        children: ['t1', 't2'],
+        twins: [{ members: ['t1', 't2'], zygosity: 'di' }],
+      },
+    ];
+    const segs = segments(unions, pos);
+    const busY = 248; // pos[t1].y (270) - 22
+    const midX = 48; // mean of present members' x (0, 96)
+    // Both diagonals share the confluence point (midX, busY) — same x1,y1.
+    expect(segs).toContainEqual({ x1: midX, y1: busY, x2: 0, y2: 270 });
+    expect(segs).toContainEqual({ x1: midX, y1: busY, x2: 96, y2: 270 });
+    // The ordinary per-child verticals are ABSENT for both twins.
+    expect(segs).not.toContainEqual({ x1: 0, y1: busY, x2: 0, y2: 270 });
+    expect(segs).not.toContainEqual({ x1: 96, y1: busY, x2: 96, y2: 270 });
+    // Dizygotic: no connecting bar anywhere strictly between the bus and the child row.
+    expect(segs.some((s) => s.y1 === s.y2 && s.y1 > busY && s.y1 < 270)).toBe(false);
+  });
+
+  it('monozygotic twins: two diagonals plus one bar at busY + (childY − busY) × 0.4', () => {
+    const pos: Record<string, LayoutNode> = {
+      ...parentsPos(),
+      t1: { x: 0, y: 270, cy: 294 },
+      t2: { x: 96, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [
+      {
+        parents: ['p1', 'p2'],
+        children: ['t1', 't2'],
+        twins: [{ members: ['t1', 't2'], zygosity: 'mono' }],
+      },
+    ];
+    const segs = segments(unions, pos);
+    const busY = 248;
+    const childY = 270;
+    const barY = busY + (childY - busY) * 0.4;
+    const bar = segs.find((s) => s.y1 === s.y2 && Math.abs(s.y1 - barY) < 1e-9);
+    expect(bar).toBeDefined();
+    // Its ends land exactly on the two diagonals interpolated at barY (t = 0.4 along each):
+    // midX=48, t1 → 48 + (0-48)*0.4 = 28.8; t2 → 48 + (96-48)*0.4 = 67.2.
+    expect(Math.min(bar!.x1, bar!.x2)).toBeCloseTo(28.8, 9);
+    expect(Math.max(bar!.x1, bar!.x2)).toBeCloseTo(67.2, 9);
+    // Both diagonals are still present alongside the bar.
+    expect(segs).toContainEqual({ x1: 48, y1: busY, x2: 0, y2: 270 });
+    expect(segs).toContainEqual({ x1: 48, y1: busY, x2: 96, y2: 270 });
+  });
+
+  it('triplet monozygotic set: three diagonals plus one bar spanning the extremes', () => {
+    const pos: Record<string, LayoutNode> = {
+      ...parentsPos(),
+      t1: { x: 0, y: 270, cy: 294 },
+      t2: { x: 96, y: 270, cy: 294 },
+      t3: { x: 192, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [
+      {
+        parents: ['p1', 'p2'],
+        children: ['t1', 't2', 't3'],
+        twins: [{ members: ['t1', 't2', 't3'], zygosity: 'mono' }],
+      },
+    ];
+    const segs = segments(unions, pos);
+    const busY = 248;
+    const midX = 96; // mean of 0, 96, 192
+    expect(segs).toContainEqual({ x1: midX, y1: busY, x2: 0, y2: 270 });
+    expect(segs).toContainEqual({ x1: midX, y1: busY, x2: 96, y2: 270 });
+    expect(segs).toContainEqual({ x1: midX, y1: busY, x2: 192, y2: 270 });
+    const barY = busY + (270 - busY) * 0.4;
+    const bar = segs.find((s) => s.y1 === s.y2 && Math.abs(s.y1 - barY) < 1e-9);
+    expect(bar).toBeDefined();
+    // Spans the extremes (leftmost/rightmost diagonal), not the middle triplet.
+    expect(Math.min(bar!.x1, bar!.x2)).toBeCloseTo(57.6, 9);
+    expect(Math.max(bar!.x1, bar!.x2)).toBeCloseTo(134.4, 9);
+  });
+
+  it('mixed sibship: a twin pair keeps its diagonals while a non-twin sibling keeps its ordinary vertical', () => {
+    const pos: Record<string, LayoutNode> = {
+      ...parentsPos(),
+      t1: { x: 0, y: 270, cy: 294 },
+      t2: { x: 96, y: 270, cy: 294 },
+      s1: { x: 192, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [
+      {
+        parents: ['p1', 'p2'],
+        children: ['t1', 't2', 's1'],
+        twins: [{ members: ['t1', 't2'], zygosity: 'di' }],
+      },
+    ];
+    const segs = segments(unions, pos);
+    const busY = 248;
+    expect(segs).toContainEqual({ x1: 48, y1: busY, x2: 0, y2: 270 });
+    expect(segs).toContainEqual({ x1: 48, y1: busY, x2: 96, y2: 270 });
+    // The non-twin sibling keeps an ordinary individual vertical.
+    expect(segs).toContainEqual({ x1: 192, y1: busY, x2: 192, y2: 270 });
+  });
+
+  it('degrades to an ordinary vertical when fewer than two of a TwinSet’s members are present', () => {
+    // t2 has no laid-out position (e.g. pruned from a windowed view) even though the union's
+    // `children` and the TwinSet still name it — present.length < 2 must degrade gracefully,
+    // never throw, and never leave a NaN coordinate.
+    const pos: Record<string, LayoutNode> = {
+      ...parentsPos(),
+      t1: { x: 0, y: 270, cy: 294 },
+    };
+    const unions: Union[] = [
+      {
+        parents: ['p1', 'p2'],
+        children: ['t1', 't2'],
+        twins: [{ members: ['t1', 't2'], zygosity: 'di' }],
+      },
+    ];
+    expect(() => segments(unions, pos)).not.toThrow();
+    const segs = segments(unions, pos);
+    const busY = 248;
+    // t1 falls back to its ordinary individual vertical.
+    expect(segs).toContainEqual({ x1: 0, y1: busY, x2: 0, y2: 270 });
+    for (const s of segs) {
+      expect(Number.isNaN(s.x1)).toBe(false);
+      expect(Number.isNaN(s.y1)).toBe(false);
+      expect(Number.isNaN(s.x2)).toBe(false);
+      expect(Number.isNaN(s.y2)).toBe(false);
+    }
   });
 });

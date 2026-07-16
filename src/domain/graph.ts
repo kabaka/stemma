@@ -6,7 +6,7 @@
  * degree of relationship and derives a human-readable label from any vantage — which
  * is what lets risk and screening be re-rooted on any person in the record.
  */
-import type { Gender, Person, Sab, Union } from './types';
+import type { Gender, Person, Sab, TwinSet, Union } from './types';
 import { genderOf, sabOf } from './person';
 
 /** O(1) lookup helpers built once from a record's people. */
@@ -659,6 +659,34 @@ export interface Segment {
   y1: number;
   x2: number;
   y2: number;
+  /** True only on a consanguineous union's relationship-line segment — the renderer draws
+   * it as a doubled (parallel) line. Never set on sibship/descent/jog/twin segments. */
+  double?: boolean;
+}
+
+/** Fraction of the descent height (bus → child) at which a monozygotic twin bar is drawn
+ * across the converging diagonals. 0 = at the bus, 1 = at the child row. */
+const TWIN_BAR_FRACTION = 0.4;
+
+/**
+ * Split a segment into two parallel tracks offset ±gap/2 perpendicular to its direction
+ * — the doubled-line construction for a consanguineous relationship line. On a zero-length
+ * segment returns two coincident copies rather than dividing by zero. Pure.
+ */
+export function offsetParallel(s: Segment, gap: number): [Segment, Segment] {
+  const dx = s.x2 - s.x1;
+  const dy = s.y2 - s.y1;
+  const len = Math.hypot(dx, dy);
+  // Unit perpendicular (−dy, dx)/len; zero-length ⇒ no direction, so no offset (coincident
+  // copies) rather than a divide-by-zero.
+  const ux = len === 0 ? 0 : -dy / len;
+  const uy = len === 0 ? 0 : dx / len;
+  const ox = (ux * gap) / 2;
+  const oy = (uy * gap) / 2;
+  return [
+    { x1: s.x1 + ox, y1: s.y1 + oy, x2: s.x2 + ox, y2: s.y2 + oy },
+    { x1: s.x1 - ox, y1: s.y1 - oy, x2: s.x2 - ox, y2: s.y2 - oy },
+  ];
 }
 
 /** A jogged (offset) line of descent awaiting a lane, so its horizontal never coincides with
@@ -675,6 +703,50 @@ interface PendingJog {
  * the relationship line. */
 const JOG_LANE_GAP = 16;
 const JOG_MIN_RISER = 12;
+
+/**
+ * Emit the twin-notation segments for a union's `twins` and return the set of member ids that
+ * were drawn as twin diagonals (so the caller skips their ordinary individual vertical).
+ *
+ * For each {@link TwinSet} whose members are laid out: the present members converge on a single
+ * confluence point `(midX, busY)` on the sibship bus (`midX` = mean of present members' x), and
+ * one diagonal is emitted from that point down to each member's node. A monozygotic set adds one
+ * horizontal bar at `barY = busY + (childY − busY) * TWIN_BAR_FRACTION`, spanning the leftmost to
+ * the rightmost diagonal's x *at that bar height* — each diagonal's x is interpolated at `barY`
+ * so the bar's ends land on the diagonals (generalising cleanly to triplets: one bar across the
+ * extremes). A set with fewer than two present members degrades to nothing here, leaving those
+ * children their ordinary verticals. Pure arithmetic over computed positions — never a clock, a
+ * random source, or {@link Person.gender} (guardrail #4).
+ */
+function drawTwins(
+  twins: TwinSet[] | undefined,
+  pos: Record<string, LayoutNode>,
+  busY: number,
+  segs: Segment[],
+): Set<string> {
+  const handled = new Set<string>();
+  for (const ts of twins ?? []) {
+    const present = ts.members.filter((id) => pos[id]);
+    if (present.length < 2) continue; // degrade gracefully: too few present → ordinary verticals
+    for (const id of present) handled.add(id);
+    const midX = present.reduce((s, id) => s + pos[id].x, 0) / present.length;
+    // One diagonal per present member, from the shared confluence on the bus to the node.
+    for (const id of present) segs.push({ x1: midX, y1: busY, x2: pos[id].x, y2: pos[id].y });
+    if (ts.zygosity === 'mono') {
+      // Interpolate each diagonal's x at barY: t = (barY − busY)/(memberY − busY) along the
+      // diagonal, so the bar's ends sit exactly on the leftmost/rightmost diagonals.
+      const childY = pos[present[0]].y;
+      const barY = busY + (childY - busY) * TWIN_BAR_FRACTION;
+      const xsAtBar = present.map((id) => {
+        const my = pos[id].y;
+        const t = my === busY ? 0 : (barY - busY) / (my - busY);
+        return midX + (pos[id].x - midX) * t;
+      });
+      segs.push({ x1: Math.min(...xsAtBar), y1: barY, x2: Math.max(...xsAtBar), y2: barY });
+    }
+  }
+  return handled;
+}
 
 /**
  * Connector line segments (relationship bars, sibship lines, lines of descent) for a layout,
@@ -713,7 +785,9 @@ export function segments(unions: Union[], pos: Record<string, LayoutNode>): Segm
     if (parts.length === 2) {
       const a = pos[parts[0]];
       const b = pos[parts[1]];
-      segs.push({ x1: a.x, y1: a.cy, x2: b.x, y2: b.cy });
+      // The relationship line is the only segment that carries `double`: a consanguineous
+      // union is drawn as a doubled (parallel) line by the renderer.
+      segs.push({ x1: a.x, y1: a.cy, x2: b.x, y2: b.cy, double: u.consanguineous === true });
     }
     const kids = (u.children ?? []).filter((id) => pos[id]);
     if (!kids.length) continue;
@@ -723,7 +797,15 @@ export function segments(unions: Union[], pos: Record<string, LayoutNode>): Segm
     const busY = pos[kids[0]].y - 22;
     // Sibship line: children only. Each child then hangs from it by its own individual line.
     if (cmax !== cmin) segs.push({ x1: cmin, y1: busY, x2: cmax, y2: busY });
-    for (const cid of kids) segs.push({ x1: pos[cid].x, y1: busY, x2: pos[cid].x, y2: pos[cid].y });
+    // Twin sets: members sharing one birth converge on a single confluence point on the bus
+    // rather than each dropping its own vertical. Any id drawn as a twin diagonal is collected
+    // in `twinMembers` so the ordinary per-child vertical below skips it (non-twin children of
+    // the same sibship keep their vertical — both shapes coexist in a mixed sibship). Purely
+    // geometric over computed positions; never reads Person.gender (guardrail #4).
+    const twinMembers = drawTwins(u.twins, pos, busY, segs);
+    for (const cid of kids)
+      if (!twinMembers.has(cid))
+        segs.push({ x1: pos[cid].x, y1: busY, x2: pos[cid].x, y2: pos[cid].y });
     if (!parts.length) continue; // parentless sibling group: siblings only, no line of descent
     const mx = parts.reduce((s, id) => s + pos[id].x, 0) / parts.length;
     const py = pos[parts[0]].cy;

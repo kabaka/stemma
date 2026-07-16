@@ -343,6 +343,34 @@ function isValidPerson(p: unknown): p is Person {
   );
 }
 
+const ZYGOSITY_VALUES = new Set(['mono', 'di']);
+
+/**
+ * Optional-safe shape check for a union's `TwinSet` array against the union's own
+ * `children` id set. `undefined` passes (a legacy union has none). If present, every entry
+ * must have `members` a string[] of length ≥2, each member ∈ `childIds` (a twin group is
+ * drawn among *this* union's children), a valid `zygosity`, and no id shared across two
+ * TwinSets in the same union — the twin geometry drops each member's ordinary vertical, so a
+ * child listed in two sets would be double-claimed.
+ */
+export function isValidTwinSets(v: unknown, childIds: Set<string>): boolean {
+  if (v === undefined) return true;
+  if (!Array.isArray(v)) return false;
+  const claimed = new Set<string>();
+  for (const item of v) {
+    if (!item || typeof item !== 'object') return false;
+    const ts = item as Record<string, unknown>;
+    if (!isStringArray(ts.members) || ts.members.length < 2) return false;
+    if (!ZYGOSITY_VALUES.has(ts.zygosity as string)) return false;
+    for (const id of ts.members) {
+      if (!childIds.has(id)) return false;
+      if (claimed.has(id)) return false; // a child belongs to at most one TwinSet
+      claimed.add(id);
+    }
+  }
+  return true;
+}
+
 function isValidUnion(u: unknown, validIds: Set<string>): u is Union {
   if (!u || typeof u !== 'object') return false;
   const union = u as Record<string, unknown>;
@@ -354,7 +382,11 @@ function isValidUnion(u: unknown, validIds: Set<string>): u is Union {
   if (!union.parents.every((id) => validIds.has(id))) return false;
   if (!union.children.every((id) => validIds.has(id))) return false;
   const parentSet = new Set(union.parents);
-  return !union.children.some((id) => parentSet.has(id));
+  if (union.children.some((id) => parentSet.has(id))) return false;
+  // Optional flags, but validated when present so a corrupt/hostile blob can't smuggle a
+  // non-boolean `consanguineous` or a malformed twin group past this hardened boundary.
+  if (union.consanguineous !== undefined && typeof union.consanguineous !== 'boolean') return false;
+  return isValidTwinSets(union.twins, new Set(union.children));
 }
 
 function isValidEvent(e: unknown): boolean {

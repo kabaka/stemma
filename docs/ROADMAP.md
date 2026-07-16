@@ -77,6 +77,22 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 - **Full 2022 NSGC pedigree** (ideation §5): union nodes, multiple partners, half-siblings,
   consanguinity (double line), adoption/donor (social vs genetic parent), twins (mono/di).
   Pan/zoom/collapse over a real graph.
+  - ✅ **Union nodes, multiple partners, half-siblings, NSGC/Bennett connector lines** —
+    shipped earlier (see `docs/ARCHITECTURE.md` §4).
+  - ✅ **Consanguinity double-line** (`Segment.double` + pure `offsetParallel` in
+    `src/domain/graph.ts`; rendered on-screen and in the SVG export) and **twins mono/di**
+    (`Union.twins: TwinSet[]`, converging-diagonal + monozygotic-bar geometry emitted by
+    `segments()`), both set through a new **"Union details"** editing surface in
+    `PersonDrawer` (`updateUnion` store action). Twins are draw-only — an MZ twin still counts
+    as an ordinary sibling (`r = 0.5`) in the kinship/pattern engine (recomputing MZ kinship
+    is a deferred risk-engine unit).
+  - ✅ **Pan/zoom** over the real graph (CSS-transform canvas, wheel/drag/keyboard + button
+    controls, zoom-to-fit, accessible with a pan-button fallback and reduced-motion support).
+  - **Deferred (named, not dropped):** **collapse/expand** — needs a pure-core layout-engine
+    redesign (a collapsed subtree as a placeholder node), a materially larger unit than
+    pan/zoom; and **adoption/donor** (social vs genetic parent), which stays a Phase 5 axis
+    per the maintainer decision. See
+    [`../.ai-dlc/records/DR-0005-phase2-pedigree-extras-merge.md`](../.ai-dlc/records/DR-0005-phase2-pedigree-extras-merge.md).
 - **Timeline upgrades** (ideation §6): attach documents/labs, medication start/stop with a
   derived "currently taking" list, numeric lab trends with reference ranges, allergies,
   immunization record, vitals.

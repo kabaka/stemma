@@ -17,6 +17,7 @@ import type {
   Person,
   Provenance,
   TimelineEvent,
+  Union,
 } from '@/domain/types';
 import type { Palette } from '@/data/categories';
 import { emptyRecord, seedRecord } from '@/data/seed';
@@ -74,6 +75,9 @@ interface Actions {
   addRelative: (anchorId: string, relation: Relation, input: PersonInput) => string;
   updatePerson: (id: string, input: PersonInput) => void;
   deletePerson: (id: string) => void;
+  /** Patch a union's pedigree-structure flags (consanguinity, twin sets), matched by its
+   * `parents` set (order-independent). A no-op if no union has exactly those parents. */
+  updateUnion: (parents: string[], patch: Partial<Pick<Union, 'consanguineous' | 'twins'>>) => void;
 
   toggleCondition: (personId: string, condId: string) => void;
   setConditionField: (
@@ -231,6 +235,19 @@ export const useStore = create<Store>()(
           (cid): ConditionEntry => prevById.get(cid) ?? { id: cid, onset: null, prov: 'self' },
         );
         set({ record });
+      },
+
+      updateUnion: (parents, patch) => {
+        const record = get().record;
+        const target = new Set(parents);
+        // Same-members match, order-independent: same count and every parent present.
+        const matches = (u: Union): boolean =>
+          u.parents.length === target.size && u.parents.every((p) => target.has(p));
+        if (!record.unions.some(matches)) return; // no such union — no-op, record left unchanged
+        const next = cloneRecord(record);
+        const union = next.unions.find(matches);
+        if (union) Object.assign(union, patch);
+        set({ record: next });
       },
 
       deletePerson: (id) => {

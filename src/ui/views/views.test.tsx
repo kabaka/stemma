@@ -922,6 +922,200 @@ describe('PedigreeView', () => {
       .querySelector('.pedigree-node__fill');
     expect(helenFill).toHaveStyle({ opacity: '1' });
   });
+
+  // jsdom reports zero layout everywhere (getBoundingClientRect/clientWidth/clientHeight are
+  // always 0) — so the real fit-to-viewport SIZING math (computeFitView) and the off-screen
+  // focus-nudge math (nudgeIntoView) can't be meaningfully exercised here; those need a real
+  // browser and are covered by the frontend's live `npm run dev` verification. What jsdom CAN
+  // exercise faithfully: the zoom-% readout and its clamp (pure state, independent of any
+  // measured size), the pan buttons' effect on the canvas's own inline `transform` (string
+  // state, not geometry), Reset's return to the known default view, and that Zoom to fit is
+  // reachable and doesn't throw. `.pedigree-canvas`'s `transform` is `translate(x, y)
+  // scale(s)` (see PedigreeView's `canvasStyle`) — parsed back out below rather than asserted
+  // as an opaque string, so the assertions read as "pan step" / "zoom clamp", not string diffs.
+  describe('pan / zoom controls', () => {
+    const canvas = () => screen.getByRole('group', { name: /family pedigree chart/i });
+    const zoomReadout = (): string =>
+      document.querySelector('.pedigree-zoom-readout')?.textContent ?? '';
+    const parseTransform = (transform: string): { x: number; y: number; scale: number } => {
+      const m = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([-\d.]+)\)/);
+      if (!m) throw new Error(`unparseable transform: "${transform}"`);
+      return { x: Number(m[1]), y: Number(m[2]), scale: Number(m[3]) };
+    };
+
+    it('starts at 100% zoom (the default view)', () => {
+      render(<PedigreeView />);
+      expect(zoomReadout()).toBe('100%');
+      expect(parseTransform(canvas().style.transform).scale).toBe(1);
+    });
+
+    it('zoom-out floors the readout at 30% (SCALE_MIN) how ever many times it’s clicked', async () => {
+      const user = userEvent.setup();
+      render(<PedigreeView />);
+      const zoomOut = screen.getByRole('button', { name: /zoom out/i });
+      // 1 * (1/1.2)^n <= 0.3 first crosses at n≈7; click well past that to prove it floors
+      // rather than continuing to shrink or going negative.
+      for (let i = 0; i < 15; i++) await user.click(zoomOut);
+      expect(zoomReadout()).toBe('30%');
+      expect(parseTransform(canvas().style.transform).scale).toBeCloseTo(0.3, 5);
+    });
+
+    it('zoom-in ceils the readout at 150% (SCALE_MAX) how ever many times it’s clicked', async () => {
+      const user = userEvent.setup();
+      render(<PedigreeView />);
+      const zoomIn = screen.getByRole('button', { name: /zoom in/i });
+      // 1 * 1.2^n >= 1.5 first crosses at n≈3; click well past that to prove it ceils.
+      for (let i = 0; i < 15; i++) await user.click(zoomIn);
+      expect(zoomReadout()).toBe('150%');
+      expect(parseTransform(canvas().style.transform).scale).toBeCloseTo(1.5, 5);
+    });
+
+    it('Reset returns to the default view after panning and zooming away from it', async () => {
+      const user = userEvent.setup();
+      render(<PedigreeView />);
+      const initial = canvas().style.transform;
+
+      await user.click(screen.getByRole('button', { name: /zoom in/i }));
+      await user.click(screen.getByRole('button', { name: /pan up/i }));
+      expect(canvas().style.transform).not.toBe(initial);
+
+      await user.click(screen.getByRole('button', { name: /^reset$/i }));
+      expect(canvas().style.transform).toBe(initial);
+      expect(zoomReadout()).toBe('100%');
+    });
+
+    it('"Zoom to fit" is present, enabled, and doesn’t throw when activated', async () => {
+      const user = userEvent.setup();
+      render(<PedigreeView />);
+      const fitBtn = screen.getByRole('button', { name: /zoom to fit/i });
+      expect(fitBtn).toBeEnabled();
+      // With jsdom's zero-size viewport, computeFitView's own fallback keeps this at the
+      // default view — real fit-to-content sizing is a browser-only concern (see the
+      // describe-level comment above). This only proves the control is reachable/operable.
+      await user.click(fitBtn);
+      expect(fitBtn).toBeInTheDocument();
+    });
+
+    it('each of the four pan buttons shifts the canvas transform by exactly PAN_STEP (60px) on the right axis', async () => {
+      const user = userEvent.setup();
+      render(<PedigreeView />);
+      const PAN_STEP = 60;
+
+      const before1 = parseTransform(canvas().style.transform);
+      await user.click(screen.getByRole('button', { name: /pan up/i }));
+      const afterUp = parseTransform(canvas().style.transform);
+      expect(afterUp.y - before1.y).toBe(PAN_STEP);
+      expect(afterUp.x).toBe(before1.x);
+
+      const before2 = parseTransform(canvas().style.transform);
+      await user.click(screen.getByRole('button', { name: /pan down/i }));
+      const afterDown = parseTransform(canvas().style.transform);
+      expect(afterDown.y - before2.y).toBe(-PAN_STEP);
+      expect(afterDown.x).toBe(before2.x);
+
+      const before3 = parseTransform(canvas().style.transform);
+      await user.click(screen.getByRole('button', { name: /pan left/i }));
+      const afterLeft = parseTransform(canvas().style.transform);
+      expect(afterLeft.x - before3.x).toBe(PAN_STEP);
+      expect(afterLeft.y).toBe(before3.y);
+
+      const before4 = parseTransform(canvas().style.transform);
+      await user.click(screen.getByRole('button', { name: /pan right/i }));
+      const afterRight = parseTransform(canvas().style.transform);
+      expect(afterRight.x - before4.x).toBe(-PAN_STEP);
+      expect(afterRight.y).toBe(before4.y);
+    });
+  });
+
+  it('folds twin/consanguineous-union notation into a node’s accessible name (WCAG 1.1.1)', () => {
+    // Father+Mother: a consanguineous union whose two children are ALSO a monozygotic twin
+    // set — one fixture exercises both notations. `consanguineousWith` is symmetric (both
+    // parents get the note), so it's asserted per-node by name; `twin` notes live on the
+    // children.
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'father',
+            name: 'Father',
+            sab: 'm',
+            gender: 'man',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1950,
+            death: null,
+            conds: [],
+          },
+          {
+            id: 'mother',
+            name: 'Mother',
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 100,
+            dead: false,
+            birth: 1952,
+            death: null,
+            conds: [],
+          },
+          {
+            id: 'twin1',
+            name: 'Twin1',
+            sab: 'f',
+            gender: 'woman',
+            gen: 1,
+            x: 0,
+            dead: false,
+            birth: 1980,
+            death: null,
+            isProband: true,
+            conds: [],
+          },
+          {
+            id: 'twin2',
+            name: 'Twin2',
+            sab: 'f',
+            gender: 'woman',
+            gen: 1,
+            x: 100,
+            dead: false,
+            birth: 1980,
+            death: null,
+            conds: [],
+          },
+        ],
+        unions: [
+          {
+            parents: ['father', 'mother'],
+            children: ['twin1', 'twin2'],
+            consanguineous: true,
+            twins: [{ members: ['twin1', 'twin2'], zygosity: 'mono' }],
+          },
+        ],
+        timeline: [],
+        probandId: 'twin1',
+      }),
+    );
+    render(<PedigreeView />);
+
+    // Both parents of the consanguineous union carry the note (symmetric).
+    expect(screen.getAllByRole('button', { name: /consanguineous union with/i })).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: /Father.*consanguineous union with Mother/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Mother.*consanguineous union with Father/i }),
+    ).toBeInTheDocument();
+
+    // Both twins carry the monozygotic ("identical") note, naming their co-twin.
+    expect(
+      screen.getByRole('button', { name: /Twin1.*twin \(identical\) with Twin2/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Twin2.*twin \(identical\) with Twin1/i }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('PedigreeView — empty record', () => {
