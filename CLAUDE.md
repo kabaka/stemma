@@ -6,10 +6,32 @@ against [`docs/ROADMAP.md`](docs/ROADMAP.md). This file is the standing contract
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and [`CONTRIBUTING.md`](CONTRIBUTING.md)
 for conventions.
 
+@AGENTS.md
+
+## Claude-Code specifics
+
+The orchestrator definition above (imported from `AGENTS.md`) is canonical. The notes below and the
+rest of this file are the Claude-Code-specific and Stemma-specific contract that rides on top of it.
+
+- **You are the Orchestrator** — the main Claude Code session. Delegate substantial work via the
+  **Agent tool** to the agents in `.claude/agents/`; skills in `.claude/skills/` load on demand, and
+  some agents preload a skill via their `skills:` frontmatter. The maintainer is the product owner
+  and **sole arbiter**.
+- **Dispatch independent work in parallel** by issuing multiple Agent calls in one turn — fan out
+  `researcher`s during Inception, run dual `planner`s and parallel reviewers during Construction.
+- **The four arbiter gates are documented discipline in Stemma** — a Decision Record committed under
+  [`.ai-dlc/records/`](.ai-dlc/records/), not a wired git-hook (see that dir's README). The record is
+  still required; absence of a record = closed gate.
+- **Protect context**: prefer the `Explore` agent and read-only specialists over reading large files
+  yourself; ask subagents for summaries plus file paths.
+- **Editing the kit live**: SKILL.md text edits are picked up mid-session; new skill directories and
+  edited agent files need a restart (or `/agents`) before they are live. Use `kit-extender` (never a
+  wholesale replacement) to tailor the kit.
+
 ## Clinical-safety guardrails (non-negotiable)
 
-Stemma is **decision-support, not a diagnostic device.** These rules bind every change and
-are what the `clinical-safety-reviewer` agent checks:
+Stemma is **decision-support, not a diagnostic device.** These rules bind every change and every
+agent — above the lifecycle mechanics — and are what the `clinical-safety-reviewer` agent checks:
 
 1. **Never manufacture a risk number.** The engine reports *patterns* and the *specific
    published criterion met* (e.g. "meets common criteria to discuss BRCA1/2 testing"), never a
@@ -45,39 +67,56 @@ Dependencies point **inward**; the core is pure. Put new code in the **lowest** 
 - **Two-layer catalog:** curated conditions are the engine's known set; the ICD-10 long tail is
   reached through the `VocabularyProvider` port. Don't hardcode long-tail codes into the catalog.
 
-## The workflow
+## The workflow — run the AI-DLC lifecycle
 
-1. Work a [`docs/ROADMAP.md`](docs/ROADMAP.md) item; keep changes in the right layer.
-2. Add/extend **co-located tests** (`*.test.ts`). Domain and export tests must be deterministic —
-   pass an explicit as-of year/timestamp; never assert against the wall clock.
-3. **`npm run check` must pass** before every commit (`format:check` + `lint` + `typecheck` +
-   `test:run`). CI runs the same gate plus a catalog-staleness check and the build.
-4. For non-trivial changes, verify behavior in the running app (`npm run dev`), not just tests.
-5. Commit with the sign-off trailers already used in the history.
+Every request runs the AI-DLC loop (Inception → Construction → Operations) with the maintainer as
+sole arbiter. The full procedure — arbiter gates, Solo Mob ceremonies, units of work, complexity
+triage — lives in the **`aidlc-workflow`** skill; **load it and follow it.** Concepts are in
+**`aidlc-methodology`**. In practice:
 
-## The team (skills & agents)
+1. **Right-size the ceremony to the risk.** A typical roadmap item is *standard-tier*: run the
+   **`/roadmap-task`** fast-path (scope → design → implement in the right layer → deterministic
+   tests → `npm run check` → verify in-app → safety review → commit), recording a terse Decision
+   Record at each gate. Anything touching the guardrails or risk/advice/screening/identity logic is
+   *high-risk*: run the full `aidlc-workflow` — real Inception, dual planners, a wider challenge
+   round, explicit Decision Records under `.ai-dlc/records/`.
+2. **Design before code.** Stand up `software-architect` (and `medical-domain-expert` /
+   `medical-coder` for clinical logic) *before* building; the gate approves the layered design.
+3. **Add/extend co-located tests** (`*.test.ts`). Domain and export tests are deterministic — pass
+   an explicit as-of year/timestamp; never assert against the wall clock. `test-engineer` owns the
+   oracle; the implementer never edits it to pass.
+4. **`npm run check` must pass** before every commit (`format:check` + `lint` + `typecheck` +
+   `test:run`). CI runs the same gate plus a catalog-staleness check and the build. If you touched
+   the catalog, run `npm run gen:conditions` and commit the regenerated file.
+5. **Verify in the running app** for non-trivial changes (`npm run dev`), not just tests. Confirm
+   the clinical-boundary text is present on any new analysis surface.
+6. **Review gate before merge:** `code-reviewer` + `clinical-safety-reviewer` both clear (they can
+   block), plus `security-privacy-reviewer` / `accessibility-reviewer` / `medical-domain-expert` /
+   `test-engineer` as the change warrants. Fix findings before commit.
+7. **Commit** with the sign-off trailers already used in the history.
 
-Stemma ships a specialist team; **stand up the relevant members before substantial work, not
-after.** Design with the architect, build with the engineers, verify with the reviewers — in
-parallel where independent. See [`docs/AI-DLC.md`](docs/AI-DLC.md) for how they compose.
+## The team (agents & skills)
 
-**Skills** (task playbooks): **`/roadmap-task`** (the umbrella loop) · **`/add-condition`** ·
-**`/add-pattern`** · **`/add-export`**.
+Stemma ships a full AI-DLC specialist team; **stand up the relevant members before substantial work,
+not after.** The Orchestrator coordinates; the agents propose and contest; the maintainer decides.
+See [`AGENTS.md`](AGENTS.md) for the full roster and routing boundaries, and
+[`docs/AI-DLC.md`](docs/AI-DLC.md) for how they compose.
 
-**Agents** (delegate via the Agent tool):
+**Lifecycle agents** — `requirements-analyst`, `researcher`, `research-synthesizer` (Inception);
+`software-architect`, `planner`, `implementer`, `frontend-engineer`, `test-engineer` (Construction);
+`devops`, `observability`, `debugger` (Operations & RCA).
 
-| Role | Agent | Use for |
-| --- | --- | --- |
-| Architecture | `software-architect` | design & architectural review before/after building |
-| Frontend | `frontend-engineer` | React/TS UI implementation & review |
-| Testing | `test-engineer` | coverage assessment + deterministic tests |
-| Code review | `code-reviewer` | general correctness/quality review |
-| Clinical safety | `clinical-safety-reviewer` | the guardrails + layering + faithful semantics |
-| Medical domain | `medical-domain-expert` | clinical accuracy vs. published guidelines (evidence-grounded) |
-| Medical coding | `medical-coder` | verified ICD-10-CM / SNOMED / HPO / RxNorm codes |
-| Security & privacy | `security-privacy-reviewer` | no-exfiltration, XSS, supply chain, PHI handling |
-| Accessibility | `accessibility-reviewer` | WCAG 2.1 AA + inclusive design |
-| Docs | `technical-writer` | keep docs accurate and in sync |
+**Stemma domain specialists** — `clinical-safety-reviewer`, `medical-domain-expert`, `medical-coder`,
+`accessibility-reviewer`, `security-privacy-reviewer`, `technical-writer`, `code-reviewer`. On-demand:
+`kit-extender` (tailor the kit, propose-for-approval).
+
+**Skills** — the lifecycle/methodology playbooks (`aidlc-workflow`, `aidlc-methodology`,
+`requirements-elaboration`, `architecture-design`, `implementation-planning`, `testing-strategy`,
+`code-review`, `spec-conformance`, `rca-investigation`, `research-method`, `citation-verification`,
+`delivery-operations`, `observability-practice`, `security-review`, `dependency-compliance`,
+`ux-design`, `design-system`, `stack-binding`, `writing-docs`, `conventional-commits`,
+`extending-the-kit`) plus Stemma's Construction fast-paths: **`/roadmap-task`** (umbrella loop) ·
+**`/add-condition`** · **`/add-pattern`** · **`/add-export`**.
 
 **Default review gate before committing non-trivial work:** `code-reviewer` +
 `clinical-safety-reviewer`, plus `security-privacy-reviewer` (anything touching data/network/deps),

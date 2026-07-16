@@ -8,10 +8,19 @@ description: >-
   "build the <feature>", "work the next roadmap task", "add <capability> to Stemma".
 ---
 
-# Roadmap task — the AI-DLC loop
+# Roadmap task — the standard-tier Construction fast-path
 
 Stemma is built AI-first with no human dev team, so each change must land **complete**: scoped,
-tested, gated, verified, and safety-reviewed. Follow this loop.
+tested, gated, verified, and safety-reviewed. This is the **standard-tier fast-path** through the
+AI-DLC lifecycle (`AGENTS.md` / `aidlc-workflow`) for a typical roadmap unit of work — the everyday
+loop that already carries the Inception → Construction → Operations shape without the full ceremony.
+
+**When to use the full lifecycle instead:** if the work is **high-risk** (touches the clinical-safety
+guardrails, risk/advice/screening/identity logic, or has broad blast radius), or is novel/ambiguous
+enough to need real Inception, run `aidlc-workflow` proper — dual planners, a wider Solo Mob challenge
+round, and explicit Decision Records at each of the four gates under `.ai-dlc/records/`. Even on this
+fast-path, the **arbiter gates still apply**: the maintainer signs off the scope, the design, and the
+merge — record the decision (it may be terse for a standard unit). Follow this loop.
 
 ## 1. Scope
 - Read the relevant [`docs/ROADMAP.md`](../../../docs/ROADMAP.md) item and
