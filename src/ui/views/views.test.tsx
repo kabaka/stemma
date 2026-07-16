@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
 import { OverviewView } from './OverviewView';
@@ -314,6 +314,235 @@ describe('TimelineView', () => {
       useStore.getState().record.timeline.find((e) => e.title === 'Retyped screening event')
         ?.screeningId,
     ).toBeUndefined();
+  });
+
+  it('reveals the medication sub-fields for Type = Medication, hides them for Type = Lab (which reveals its own value/unit/reference-range), and reveals Allergy fields for Type = Allergy', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    const typeSelect = screen.getByRole('combobox', { name: /^type$/i });
+
+    // Default Type (Diagnosis) shows none of the structured sub-fieldsets.
+    expect(screen.queryByLabelText(/dose/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^value$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/substance/i)).not.toBeInTheDocument();
+
+    await user.selectOptions(typeSelect, 'medication');
+    expect(screen.getByLabelText(/dose/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/ongoing/i)).toBeInTheDocument();
+
+    await user.selectOptions(typeSelect, 'lab');
+    // Medication fields are gone once Type is no longer Medication...
+    expect(screen.queryByLabelText(/dose/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/ongoing/i)).not.toBeInTheDocument();
+    // ...and Lab's own value/unit/reference-range fields are shown instead.
+    expect(screen.getByLabelText(/^value$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^unit$/i)).toBeInTheDocument();
+    expect(screen.getByText(/reference range/i)).toBeInTheDocument();
+
+    await user.selectOptions(typeSelect, 'allergy');
+    expect(screen.queryByLabelText(/^value$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/substance/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^severity$/i)).toBeInTheDocument();
+  });
+
+  it('clears a previously saved medication payload when Type is switched to Lab and saved (regression, mirrors the screeningId-clear fix)', async () => {
+    // The same partial-merge hazard that bit screeningId (see the two regression tests
+    // above) applies to every type-specific sub-object: switching Type away from
+    // Medication must explicitly clear `med`, not just stop rendering its fields.
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.type(screen.getByLabelText(/^title$/i), 'Retyped medication event');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'medication');
+    await user.type(screen.getByLabelText(/dose/i), '10mg daily');
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Retyped medication event');
+    expect(saved?.med).toEqual({ dose: '10mg daily', ongoing: true, stopYear: undefined });
+
+    await user.click(screen.getByRole('button', { name: /edit retyped medication event/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'lab');
+    await user.type(screen.getByLabelText(/^value$/i), '100');
+    await user.type(screen.getByLabelText(/^unit$/i), 'mg/dL');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    const updated = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Retyped medication event');
+    expect(updated?.med).toBeUndefined();
+    expect(updated?.lab).toEqual({
+      value: 100,
+      unit: 'mg/dL',
+      refLow: undefined,
+      refHigh: undefined,
+    });
+  });
+
+  it('renders the "Currently taking" surface with a fixture person\'s ongoing medication', () => {
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'you',
+            name: 'Robin',
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1980,
+            death: null,
+            isProband: true,
+            conds: [],
+          },
+        ],
+        unions: [],
+        timeline: [
+          {
+            id: 'med-1',
+            person: 'you',
+            year: 2020,
+            type: 'medication',
+            title: 'Started Metformin',
+            detail: '',
+            med: { dose: '500mg BID', ongoing: true },
+          },
+        ],
+        probandId: 'you',
+      }),
+    );
+    render(<TimelineView />);
+    const meds = screen.getByRole('list', { name: /currently taking/i });
+    expect(within(meds).getByText(/started metformin/i)).toBeInTheDocument();
+    expect(within(meds).getByText(/500mg BID/i)).toBeInTheDocument();
+  });
+
+  it('omits the "Currently taking" list content when no medication is structured/ongoing, and omits the lab-trend surface when no lab title exists', () => {
+    // The sample family's medication/lab events are all legacy flat events (no
+    // structured payload) — neither read-model surface has anything to key off.
+    render(<TimelineView />);
+    expect(screen.getByRole('heading', { name: /currently taking/i })).toBeInTheDocument();
+    expect(screen.getByText(/no current medications recorded/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /lab trend/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the lab-trend surface — with the clinical boundary — when a lab title exists for the person', () => {
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'you',
+            name: 'Robin',
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1980,
+            death: null,
+            isProband: true,
+            conds: [],
+          },
+        ],
+        unions: [],
+        timeline: [
+          {
+            id: 'lab-1',
+            person: 'you',
+            year: 2020,
+            type: 'lab',
+            title: 'LDL',
+            detail: '',
+            lab: { value: 130, unit: 'mg/dL', refLow: 0, refHigh: 100 },
+          },
+        ],
+        probandId: 'you',
+      }),
+    );
+    render(<TimelineView />);
+    expect(screen.getByRole('heading', { name: /lab trend/i })).toBeInTheDocument();
+    expect(screen.getByRole('note', { name: /clinical boundary/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /test/i })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '2020' })).toBeInTheDocument();
+    expect(screen.getByText(/130 mg\/dL/)).toBeInTheDocument();
+  });
+
+  it('NEW-MED-AT-DEFAULT: a brand-new Medication event saved with only a Title (Dose blank, Ongoing left at its default) gets a med payload and appears under "Currently taking" (code-review finding 1)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'medication');
+    // Dose is left blank and "Ongoing" is left at its default (checked) — neither is touched.
+    expect((screen.getByLabelText(/ongoing/i) as HTMLInputElement).checked).toBe(true);
+    await user.type(screen.getByLabelText(/^title$/i), 'Brand new medication');
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Brand new medication');
+    expect(saved?.med).toEqual({ dose: undefined, ongoing: true, stopYear: undefined });
+
+    const meds = screen.getByRole('list', { name: /currently taking/i });
+    expect(within(meds).getByText(/brand new medication/i)).toBeInTheDocument();
+  });
+
+  it('LEGACY-EDIT-NO-FABRICATION: editing only the title of a legacy medication event (no prior med payload) leaves med undefined and never surfaces it under "Currently taking" (regression)', async () => {
+    // The exact bug the unit fixed: the seed's "Started Levothyroxine" (2016) is a
+    // type: 'medication' event with no structured `med` payload. Retitling it — without
+    // ever touching the medication sub-fields (Dose / Ongoing / Stop year) — used to
+    // fabricate `med: { ongoing: true }` on save, which then duplicated the event's title
+    // under the new "Currently taking" surface.
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    const before = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Started Levothyroxine');
+    expect(before?.type).toBe('medication');
+    expect(before?.med).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /edit started levothyroxine/i }));
+    const titleField = screen.getByLabelText(/^title$/i) as HTMLInputElement;
+    await user.clear(titleField);
+    await user.type(titleField, 'Adjusted levothyroxine dose');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    const updated = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Adjusted levothyroxine dose');
+    expect(updated?.med).toBeUndefined();
+
+    // Renders exactly once (the timeline row) — never duplicated into "Currently taking".
+    expect(screen.getAllByText(/adjusted levothyroxine dose/i)).toHaveLength(1);
+    expect(screen.queryByRole('list', { name: /currently taking/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/no current medications recorded/i)).toBeInTheDocument();
+  });
+
+  it('ATTACHMENT-REMOVE-FOCUS: removing an attachment reference moves focus to "+ add reference" (WCAG 2.4.3)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.click(screen.getByRole('button', { name: /add reference/i }));
+    expect(screen.getByRole('button', { name: /remove reference 1/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /remove reference 1/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /add reference/i })).toHaveFocus(),
+    );
+  });
+
+  it('REFERENCE-RANGE-GROUP: the Lab reference-range Low/High inputs are grouped under a named <fieldset> (WCAG 1.3.1)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'lab');
+
+    const g = screen.getByRole('group', { name: /reference range/i });
+    within(g).getByLabelText(/^low$/i);
+    within(g).getByLabelText(/^high$/i);
   });
 });
 

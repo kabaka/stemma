@@ -80,6 +80,20 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 - **Timeline upgrades** (ideation §6): attach documents/labs, medication start/stop with a
   derived "currently taking" list, numeric lab trends with reference ranges, allergies,
   immunization record, vitals.
+  - ✅ **Structured event payloads** on `TimelineEvent` (optional, so legacy events stay
+    valid): `med` (dose + `ongoing`/stop → a derived **"currently taking"** list via
+    `currentMedications`), `lab`/`vital` numeric `Measurement`s with **user-entered**
+    reference ranges (never a Stemma-shipped "normal" — guardrail #1), `allergy`
+    (substance/reaction/severity as recorded facts), `immunization`, and metadata-only
+    document `attachments`. Two new `EventType`s (`allergy`, `vital`). Derivations live in
+    the pure `src/domain/timeline.ts`; UI is a type-aware event form plus "Currently taking"
+    and a **lab-trend** table (`labSeries`/`labTitles`) that shows the value next to the
+    user's own range with **no in/out-of-range flag** (interpretation is a clinician's job).
+  - **Deferred (named, not dropped):** document *bytes* — attachments are references only
+    this cycle; real blob storage waits on the async-storage seam (§7). A vitals *trend*
+    surface (labs get the trend view). FHIR/Phenopacket enrichment of the new fields (the
+    native backup already round-trips them losslessly). See
+    [`../.ai-dlc/records/DR-0004-phase2-timeline-depth-merge.md`](../.ai-dlc/records/DR-0004-phase2-timeline-depth-merge.md).
 - **Append-only history** with a visible "what changed" diff.
 - **Care coordination**: screenings as a schedule with overdue flags, calendar export
   (`.ics`), and a printable "bring to your appointment" sheet.

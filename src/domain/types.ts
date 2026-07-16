@@ -162,7 +162,56 @@ export type EventType =
   | 'medication'
   | 'screening'
   | 'procedure'
-  | 'genetic';
+  | 'genetic'
+  | 'allergy'
+  | 'vital';
+
+/**
+ * A numeric measurement with a USER-ENTERED reference range. Stemma never ships a
+ * built-in "normal" range (guardrail #1) — refLow/refHigh are transcribed by the user
+ * from their own lab/vitals report. Shared by `lab` and `vital` event payloads.
+ */
+export interface Measurement {
+  value: number;
+  unit: string;
+  refLow?: number;
+  refHigh?: number;
+}
+
+/** Structured payload for a `medication` event. */
+export interface MedicationInfo {
+  /** Free text e.g. `"10mg daily"`. */
+  dose?: string;
+  /** Explicit recorded fact; the event's `year` is the start year (single source of truth). */
+  ongoing: boolean;
+  /** Set when `ongoing === false` and the stop year is known. */
+  stopYear?: number;
+}
+
+/** Structured payload for an `allergy` event. */
+export interface AllergyInfo {
+  substance: string;
+  reaction?: string;
+  /** A recorded fact, never a computed risk. */
+  severity?: 'mild' | 'moderate' | 'severe';
+}
+
+/** Structured payload for an `immunization` event. */
+export interface ImmunizationInfo {
+  vaccine?: string;
+  doseLabel?: string;
+}
+
+/**
+ * A REFERENCE to a document, never its bytes (local-first; byte storage deferred to the
+ * Phase-5 async-storage seam, roadmap §7).
+ */
+export interface AttachmentRef {
+  id: string;
+  name: string;
+  note?: string;
+  mediaType?: string;
+}
 
 /** One dated event on a person's timeline. */
 export interface TimelineEvent {
@@ -179,6 +228,18 @@ export interface TimelineEvent {
    * valid but unlinked.
    */
   screeningId?: string;
+  /** Structured `medication` payload — present on richer medication events. */
+  med?: MedicationInfo;
+  /** Structured `lab` measurement with a user-entered reference range. */
+  lab?: Measurement;
+  /** Structured `vital` measurement with a user-entered reference range. */
+  vital?: Measurement;
+  /** Structured `allergy` payload. */
+  allergy?: AllergyInfo;
+  /** Structured `immunization` payload. */
+  immunization?: ImmunizationInfo;
+  /** References to associated documents (never their bytes). */
+  attachments?: AttachmentRef[];
 }
 
 /** The complete family record — the single graph every view reads from. */
