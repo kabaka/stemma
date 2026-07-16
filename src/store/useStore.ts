@@ -123,6 +123,30 @@ function recordUi(
   };
 }
 
+/**
+ * Clamp the transient vantage (selection + risk/timeline roots) to the record being hydrated.
+ * On reload, the persisted `record` is restored but the vantage is transient UI state that
+ * spread in from `current` (the fresh default store) — for an imported/restored record whose
+ * proband is not `'you'`, that vantage points at a person the rehydrated record no longer
+ * contains, so `detectPatterns`/`screeningsFor` hit their `if (!root) return []` guard and
+ * silently render empty. Keep each value only when it still resolves to a real person in the
+ * record (checked by actual id existence — never a truthy shortcut or a hardcoded `'you'`),
+ * else fall back to `recordUi(record)` (the proband). `view`/`tlType` are left untouched.
+ */
+function reconcileVantage(
+  record: FamilyRecord,
+  current: Pick<UiState, 'selectedId' | 'riskRoot' | 'tlPerson'>,
+): Pick<UiState, 'selectedId' | 'riskRoot' | 'tlPerson'> {
+  const fallback = recordUi(record);
+  const exists = (id: string | null): boolean =>
+    id != null && record.people.some((p) => p.id === id);
+  return {
+    selectedId: exists(current.selectedId) ? current.selectedId : fallback.selectedId,
+    riskRoot: exists(current.riskRoot) ? current.riskRoot : fallback.riskRoot,
+    tlPerson: exists(current.tlPerson) ? current.tlPerson : fallback.tlPerson,
+  };
+}
+
 const cloneRecord = (r: FamilyRecord): FamilyRecord => structuredClone(r);
 
 /** Coerce a persisted blob (any version) into a valid PersistedState, or reset to seed. */
@@ -319,7 +343,13 @@ export const useStore = create<Store>()(
       // migrate handles explicit version bumps; merge validates on *every* hydration,
       // so a corrupt same-version blob also falls back to a clean seed.
       migrate: (persisted) => migratePersisted(persisted),
-      merge: (persisted, current) => ({ ...current, ...migratePersisted(persisted) }),
+      // Re-point the transient vantage at the hydrated record: spread the fresh defaults
+      // (`current`), then the persisted durable data (`migrated`), then clamp selection/roots
+      // so they resolve to a person that actually exists in the restored record.
+      merge: (persisted, current) => {
+        const migrated = migratePersisted(persisted);
+        return { ...current, ...migrated, ...reconcileVantage(migrated.record, current) };
+      },
       partialize: (s): PersistedState => ({
         record: s.record,
         extensions: s.extensions,

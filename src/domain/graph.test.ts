@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
 import { buildCatalog } from '@/domain/catalog';
-import { layoutFromGraph } from './record';
+import { layoutFromGraph, removePerson } from './record';
 import type { FamilyRecord, Person, Union } from './types';
 import { detectPatterns, familyFindings } from './patterns';
 import {
@@ -80,13 +80,57 @@ describe('relationInfo', () => {
     const alex = relationInfo(idx, 'alex', 'you');
     expect(alex.degree).toBe(null);
     expect(alex.rel).toBe('Spouse');
+    // A spouse shares no ancestry (r=0) — `blood` is false — but the spouse check outranks
+    // the blood ternary in relLabel, so the label still reads 'Spouse', never "By marriage".
+    expect(alex.blood).toBe(false);
   });
 
-  it('respects gender identity in labels (Ray is an uncle, not aunt)', () => {
-    // Ray is AFAB but gender man; child of Tom & Carol, so a paternal cousin of Maya.
-    const ray = relationInfo(idx, 'ray', 'you');
-    expect(ray.degree).toBe(3);
-    expect(ray.rel).toContain('Cousin');
+  it('respects gender identity, not sex assigned at birth, in a gendered label (Uncle vs Aunt)', () => {
+    // The seed's Ray (AFAB, gender man) is a Cousin from Maya's vantage — but relLabel's
+    // pick() is NEVER invoked for a plain "Cousin" (only the Half-sibling branch uses it),
+    // so the original version of this test asserting `.toContain('Cousin')` could not
+    // actually exercise gender at all; it passed unconditionally regardless of Ray's gender.
+    // Rebuild the same "sab disagrees with gender" shape one generation up, where relLabel
+    // DOES pick a gendered word (gd === -1 → Uncle/Aunt), so the assertion can actually fail
+    // under a wrong-but-plausible implementation that read `sab` instead of `gender`.
+    const mk = (id: string, overrides: Partial<Person>): Person => ({
+      id,
+      name: id,
+      sab: 'u',
+      gender: 'nb',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+      ...overrides,
+    });
+    const people: Person[] = [
+      mk('grandpa', { sab: 'm', gender: 'man', gen: 0 }),
+      mk('grandma', { sab: 'f', gender: 'woman', gen: 0 }),
+      mk('dad', { sab: 'm', gender: 'man', gen: 1 }),
+      // Mirrors the seed's Ray: sab 'f' (AFAB) but gender identity 'man' — sab and gender
+      // deliberately disagree so a label driven by the wrong field is caught.
+      mk('uncleAfab', { sab: 'f', gender: 'man', gen: 1 }),
+      // The mirror image: sab 'm' (AMAB) but gender identity 'woman'.
+      mk('auntAmab', { sab: 'm', gender: 'woman', gen: 1 }),
+      mk('mom', { sab: 'f', gender: 'woman', gen: 1 }),
+      mk('root', { sab: 'f', gender: 'woman', gen: 2, isProband: true }),
+    ];
+    const unions: Union[] = [
+      { parents: ['grandpa', 'grandma'], children: ['dad', 'uncleAfab', 'auntAmab'] },
+      { parents: ['dad', 'mom'], children: ['root'] },
+    ];
+    const localIdx = indexPeople(people, unions);
+
+    const uncle = relationInfo(localIdx, 'uncleAfab', 'root');
+    expect(uncle.degree).toBe(2);
+    expect(uncle.rel).toBe('Paternal Uncle'); // gender 'man' wins despite sab 'f'
+
+    const aunt = relationInfo(localIdx, 'auntAmab', 'root');
+    expect(aunt.degree).toBe(2);
+    expect(aunt.rel).toBe('Paternal Aunt'); // gender 'woman' wins despite sab 'm'
   });
 
   it('distinguishes paternal vs maternal cousin side', () => {
@@ -712,5 +756,258 @@ describe('re-rooting from a non-proband (Helen)', () => {
     expect(brca).toBeDefined();
     expect(brca!.diagnosed).toBe(true);
     expect(brca!.band).toBe('Diagnosed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defect 2 — half-sibling label + side (relLabel, gd === 0 branch)
+// ---------------------------------------------------------------------------
+
+describe('half-siblings (relLabel)', () => {
+  const mk = (id: string, overrides: Partial<Person>): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen: 0,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+    ...overrides,
+  });
+
+  // dad + mom => root, fullSib (full siblings). dad + otherPartner1 => halfPat (shares only
+  // dad). mom + otherPartner2 => halfMat (shares only mom). One fixture exercises both the
+  // paternal and maternal half-sibling case, plus a full-sibling control.
+  const people: Person[] = [
+    mk('dad', { sab: 'm', gender: 'man', gen: 0 }),
+    mk('mom', { sab: 'f', gender: 'woman', gen: 0 }),
+    mk('otherPartner1', { sab: 'f', gender: 'woman', gen: 0 }),
+    mk('otherPartner2', { sab: 'm', gender: 'man', gen: 0 }),
+    mk('root', { sab: 'f', gender: 'woman', gen: 1, isProband: true }),
+    mk('fullSib', { sab: 'f', gender: 'woman', gen: 1 }),
+    mk('halfPat', { sab: 'f', gender: 'woman', gen: 1 }),
+    mk('halfMat', { sab: 'm', gender: 'man', gen: 1 }),
+  ];
+  const unions: Union[] = [
+    { parents: ['dad', 'mom'], children: ['root', 'fullSib'] },
+    { parents: ['dad', 'otherPartner1'], children: ['halfPat'] },
+    { parents: ['mom', 'otherPartner2'], children: ['halfMat'] },
+  ];
+  const idx = indexPeople(people, unions);
+
+  it('labels a relative sharing only the father as a paternal half-sibling (degree 2, r=0.25)', () => {
+    const info = relationInfo(idx, 'halfPat', 'root');
+    expect(info.rel).toBe('Paternal Half-sister');
+    expect(info.degree).toBe(2);
+    expect(info.side).toBe('Paternal');
+    expect(info.r).toBeCloseTo(0.25, 5);
+  });
+
+  it('labels a relative sharing only the mother as a maternal half-sibling (degree 2, r=0.25)', () => {
+    const info = relationInfo(idx, 'halfMat', 'root');
+    expect(info.rel).toBe('Maternal Half-brother');
+    expect(info.degree).toBe(2);
+    expect(info.side).toBe('Maternal');
+    expect(info.r).toBeCloseTo(0.25, 5);
+  });
+
+  it('still labels a relative sharing BOTH parents as a full sibling, never "Half-"', () => {
+    const info = relationInfo(idx, 'fullSib', 'root');
+    expect(info.rel).toBe('Sister');
+    expect(info.rel).not.toMatch(/half/i);
+    expect(info.degree).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defect 3 — one-parent-recorded side (relationInfo's per-lineage side resolution)
+// ---------------------------------------------------------------------------
+
+describe('one-parent-recorded side (relationInfo)', () => {
+  const mk = (id: string, overrides: Partial<Person>): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen: 0,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+    ...overrides,
+  });
+
+  it("resolves 'Paternal' from a single recorded father, with no mother in the record at all", () => {
+    // A normal in-progress pedigree: root has recorded ONLY a father. Before the fix, side
+    // was gated on `father && mother` both being present, so it silently went '—' for every
+    // relative — even one squarely on the recorded father's own side.
+    const people: Person[] = [
+      mk('grandpa', { sab: 'm', gender: 'man', gen: 0 }),
+      mk('grandma', { sab: 'f', gender: 'woman', gen: 0 }),
+      mk('dad', { sab: 'm', gender: 'man', gen: 1 }),
+      mk('auntPat', { sab: 'f', gender: 'woman', gen: 1 }),
+      mk('root', { sab: 'f', gender: 'woman', gen: 2, isProband: true }),
+    ];
+    const unions: Union[] = [
+      { parents: ['grandpa', 'grandma'], children: ['dad', 'auntPat'] },
+      { parents: ['dad'], children: ['root'] }, // root's ONLY recorded parent
+    ];
+    const idx = indexPeople(people, unions);
+    const info = relationInfo(idx, 'auntPat', 'root');
+    expect(info.side).toBe('Paternal');
+    expect(info.degree).toBe(2);
+  });
+
+  it("resolves 'Maternal' from a single recorded mother, with no father in the record at all", () => {
+    const people: Person[] = [
+      mk('grandpa', { sab: 'm', gender: 'man', gen: 0 }),
+      mk('grandma', { sab: 'f', gender: 'woman', gen: 0 }),
+      mk('mom', { sab: 'f', gender: 'woman', gen: 1 }),
+      mk('uncleMat', { sab: 'm', gender: 'man', gen: 1 }),
+      mk('root', { sab: 'f', gender: 'woman', gen: 2, isProband: true }),
+    ];
+    const unions: Union[] = [
+      { parents: ['grandpa', 'grandma'], children: ['mom', 'uncleMat'] },
+      { parents: ['mom'], children: ['root'] }, // root's ONLY recorded parent
+    ];
+    const idx = indexPeople(people, unions);
+    const info = relationInfo(idx, 'uncleMat', 'root');
+    expect(info.side).toBe('Maternal');
+    expect(info.degree).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defect 4 — RelationInfo.blood: distinguishes a distant blood relative from a true in-law
+// ---------------------------------------------------------------------------
+
+describe('RelationInfo.blood — distant blood relatives vs true in-laws', () => {
+  it('a great-great-grandparent (r=0.0625, below the 3rd-degree cutoff) is degree null but blood true, labelled "Distant relative"', () => {
+    const mk = (id: string, gen: number, overrides: Partial<Person> = {}): Person => ({
+      id,
+      name: id,
+      sab: 'u',
+      gender: 'nb',
+      gen,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+      ...overrides,
+    });
+    // A single-parent-per-generation chain, four generations up — deliberately also
+    // one-parent-recorded at every level, so side still resolves via Defect 3's fix.
+    const people: Person[] = [
+      mk('ggg', 0),
+      mk('gg', 1),
+      mk('g', 2),
+      mk('p', 3, { sab: 'm' }),
+      mk('root', 4, { isProband: true }),
+    ];
+    const unions: Union[] = [
+      { parents: ['ggg'], children: ['gg'] },
+      { parents: ['gg'], children: ['g'] },
+      { parents: ['g'], children: ['p'] },
+      { parents: ['p'], children: ['root'] },
+    ];
+    const idx = indexPeople(people, unions);
+    const info = relationInfo(idx, 'ggg', 'root');
+    expect(info.degree).toBeNull();
+    expect(info.r).toBeCloseTo(0.0625, 5);
+    expect(info.blood).toBe(true);
+    expect(info.rel).toBe('Paternal Distant relative');
+  });
+
+  it('a true non-blood in-law (no shared ancestry) is degree null AND blood false, labelled "By marriage"', () => {
+    // Carol (seed): Tom's wife, Maya's paternal-uncle's-wife — shares no ancestry with Maya
+    // at all (r=0), the genuine non-blood case `blood` exists to distinguish from the above.
+    // (The spouse case, degree null but rel 'Spouse' regardless of blood, is covered by the
+    // "marks a spouse-by-marriage as non-blood" test above.)
+    const carol = relationInfo(idx, 'carol', 'you');
+    expect(carol.degree).toBeNull();
+    expect(carol.r).toBe(0);
+    expect(carol.blood).toBe(false);
+    expect(carol.rel).toBe('By marriage');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-defect integration — removePerson (record.ts) feeding relationInfo (graph.ts)
+// ---------------------------------------------------------------------------
+
+describe('cross-defect integration — removing a shared parent demotes a full sibling to a half-sibling', () => {
+  it('turns a full sister into a "Paternal Half-sister" (degree 2, correct side) once her mother is removed', () => {
+    const dad: Person = {
+      id: 'dad',
+      name: 'Dad',
+      sab: 'm',
+      gender: 'man',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+    };
+    const mom: Person = {
+      id: 'mom',
+      name: 'Mom',
+      sab: 'f',
+      gender: 'woman',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+    };
+    const root: Person = {
+      id: 'root',
+      name: 'Root',
+      sab: 'f',
+      gender: 'woman',
+      gen: 1,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+      isProband: true,
+    };
+    const sister: Person = {
+      id: 'sister',
+      name: 'Sister',
+      sab: 'f',
+      gender: 'woman',
+      gen: 1,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+    };
+    const record: FamilyRecord = {
+      people: [dad, mom, root, sister],
+      unions: [{ parents: ['dad', 'mom'], children: ['root', 'sister'] }],
+      timeline: [],
+      probandId: 'root',
+    };
+
+    // Sanity: while both parents are recorded, she is a full sister (degree 1, no side).
+    const before = indexPeople(record.people, record.unions);
+    expect(relationInfo(before, 'sister', 'root').rel).toBe('Sister');
+
+    const after = removePerson(record, 'mom');
+    const idxAfter = indexPeople(after.people, after.unions);
+    const info = relationInfo(idxAfter, 'sister', 'root');
+    expect(info.rel).toBe('Paternal Half-sister');
+    expect(info.degree).toBe(2);
+    expect(info.side).toBe('Paternal');
+    expect(info.r).toBeCloseTo(0.25, 5);
   });
 });

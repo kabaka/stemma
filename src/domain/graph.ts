@@ -59,7 +59,12 @@ export function ancestors(idx: PeopleIndex, id: string): Map<string, number> {
   return dist;
 }
 
-/** Degree of relationship: 0 = self, 1st/2nd/3rd, or `null` for non-blood. */
+/**
+ * Degree of relationship: 0 = self, 1st/2nd/3rd, or `null`. `null` is NOT the same as
+ * "non-blood": it covers BOTH a true non-blood relative (r = 0) AND a distant blood
+ * relative below the 3rd-degree cutoff (0 < r < 0.09, e.g. a second cousin or a
+ * great-great-grandparent). Use {@link RelationInfo.blood} to tell those two apart.
+ */
 export type Degree = 0 | 1 | 2 | 3 | null;
 
 export interface RelationInfo {
@@ -70,6 +75,9 @@ export interface RelationInfo {
   side: string;
   /** Coefficient of relatedness (probability of sharing a given allele IBD). */
   r: number;
+  /** True whenever shared ancestry exists (r > 0) — distinguishes a distant blood relative
+   *  (`degree` null, `blood` true) from a true in-law (`degree` null, `blood` false). */
+  blood: boolean;
 }
 
 const EMDASH = '—';
@@ -81,7 +89,7 @@ const EMDASH = '—';
 export function relationInfo(idx: PeopleIndex, id: string, rootId: string): RelationInfo {
   if (id === rootId) {
     const self = personById(idx, rootId);
-    return { rel: self?.isProband ? 'You' : 'Self', degree: 0, side: EMDASH, r: 1 };
+    return { rel: self?.isProband ? 'You' : 'Self', degree: 0, side: EMDASH, r: 1, blood: true };
   }
   const aRoot = ancestors(idx, rootId);
   const aX = ancestors(idx, id);
@@ -92,28 +100,35 @@ export function relationInfo(idx: PeopleIndex, id: string, rootId: string): Rela
 
   let r = 0;
   for (const a of mrcas) r += Math.pow(0.5, (aRoot.get(a) ?? 0) + (aX.get(a) ?? 0));
+  // Shared ancestry ⟺ r > 0, computed once from the same MRCAs. Kept separate from `degree`,
+  // which bins both a distant blood relative and a true in-law to `null`; `blood` is what
+  // tells those two apart downstream (and drives the label's "Distant relative" vs "By marriage").
+  const blood = mrcas.length > 0;
 
   let degree: Degree = null;
   if (r >= 0.4) degree = 1;
   else if (r >= 0.2) degree = 2;
   else if (r >= 0.09) degree = 3;
 
-  // Side is relative to the root's own mother/father.
+  // Side is relative to the root's own mother/father, resolved per known parent independently:
+  // recording only one parent (a normal in-progress state) must not blank the side for the whole
+  // tree — the per-lineage clustering the pattern engine relies on depends on it. A parent that
+  // isn't recorded simply can't claim the side; it never forces the other side to '—'.
   let side = EMDASH;
   const rootParents = parentsOf(idx, rootId).map((pid) => personById(idx, pid));
   const father = rootParents.find((pp) => pp && sabOf(pp) === 'm');
   const mother = rootParents.find((pp) => pp && sabOf(pp) === 'f');
-  if (father && mother) {
-    const ancF = new Set<string>([father.id, ...ancestors(idx, father.id).keys()]);
-    const ancM = new Set<string>([mother.id, ...ancestors(idx, mother.id).keys()]);
-    const pat = mrcas.some((a) => ancF.has(a));
-    const mat = mrcas.some((a) => ancM.has(a));
-    if (pat && !mat) side = 'Paternal';
-    else if (mat && !pat) side = 'Maternal';
-  }
+  const ancOf = (person: Person | undefined): Set<string> | null =>
+    person ? new Set<string>([person.id, ...ancestors(idx, person.id).keys()]) : null;
+  const ancF = ancOf(father);
+  const ancM = ancOf(mother);
+  const pat = ancF ? mrcas.some((a) => ancF.has(a)) : false;
+  const mat = ancM ? mrcas.some((a) => ancM.has(a)) : false;
+  if (pat && !mat) side = 'Paternal';
+  else if (mat && !pat) side = 'Maternal';
 
-  const rel = relLabel(idx, id, degree, aRoot, aX, side, rootId);
-  return { rel, degree, side, r };
+  const rel = relLabel(idx, id, degree, aRoot, aX, side, rootId, blood);
+  return { rel, degree, side, r, blood };
 }
 
 function relLabel(
@@ -124,6 +139,7 @@ function relLabel(
   aX: Map<string, number>,
   side: string,
   rootId: string,
+  blood: boolean,
 ): string {
   const p = personById(idx, id);
   const you = personById(idx, rootId);
@@ -138,7 +154,11 @@ function relLabel(
     const spouseOfRoot = idx.unions.some(
       (u) => u.parents.includes(rootId) && u.parents.includes(id),
     );
-    return spouseOfRoot ? 'Spouse' : 'By marriage';
+    if (spouseOfRoot) return 'Spouse';
+    // A `null` degree is not automatically an in-law: it also covers a blood relative more
+    // distant than 3rd-degree (r < 0.09). Only a genuinely unrelated person (r = 0) is
+    // "By marriage"; a distant blood tie is surfaced as such rather than mislabeled.
+    return blood ? `${sp}Distant relative` : 'By marriage';
   }
   const isAnc = aRoot.has(id);
   const isDesc = aX.has(rootId);
@@ -153,7 +173,16 @@ function relLabel(
     if (gd === 2) return pick('Grandson', 'Granddaughter', 'Grandchild');
     return 'Descendant';
   }
-  if (gd === 0) return degree === 1 ? pick('Brother', 'Sister', 'Sibling') : `${sp}Cousin`;
+  if (gd === 0) {
+    if (degree === 1) return pick('Brother', 'Sister', 'Sibling');
+    // A same-generation relative who shares exactly one direct parent is a half-sibling
+    // (degree 2, r=0.25), not a cousin. Full siblings never reach here (they hit degree===1
+    // above); a true first cousin shares zero direct parents and stays a Cousin.
+    const rootParents = new Set(parentsOf(idx, rootId));
+    const shared = parentsOf(idx, id).filter((pid) => rootParents.has(pid)).length;
+    if (shared === 1) return `${sp}Half-${pick('brother', 'sister', 'sibling')}`;
+    return `${sp}Cousin`;
+  }
   if (gd === -1) return sp + pick('Uncle', 'Aunt', 'Aunt/Uncle');
   if (gd === 1) return pick('Nephew', 'Niece', 'Nibling');
   if (gd === -2) return `Great-${pick('uncle', 'aunt', 'aunt/uncle')}`;

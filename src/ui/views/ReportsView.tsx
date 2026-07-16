@@ -9,6 +9,7 @@ import {
   buildPhenopacket,
 } from '@/export';
 import { NativeRestore } from '../components/NativeRestore';
+import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import type { Condition, FamilyRecord } from '@/domain/types';
 
 const CONFIRM_RESTORE =
@@ -116,7 +117,9 @@ export function ReportsView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title">Reports &amp; Export</h1>
+        <h1 className="page-title" tabIndex={-1}>
+          Reports &amp; Export
+        </h1>
         <button
           type="button"
           className="btn btn--sm"
@@ -126,6 +129,9 @@ export function ReportsView() {
           Print clinical sheets
         </button>
       </div>
+      {/* The live SVG/FHIR/Phenopacket preview below is an analysis surface like any
+          other — every such surface restates the boundary (guardrail #3). */}
+      <ClinicalBoundary />
       <p className="lede">
         Your record is yours. Everything below is generated in your browser and exports to an open
         standard, so the data outlives the app. Nothing is uploaded.
@@ -133,6 +139,12 @@ export function ReportsView() {
 
       <section style={{ marginBottom: 24 }}>
         <h2 className="section-label">Backup &amp; restore</h2>
+        {/* The honest at-rest caveat (previously only in README/ARCHITECTURE) — stated
+            here, next to the controls that write and read that storage. */}
+        <p className="mono-dim" style={{ margin: '0 0 10px' }}>
+          Stored unencrypted in this browser&rsquo;s local storage — readable by anyone with access
+          to this device or profile.
+        </p>
         <div className="card">
           <h3 style={{ fontWeight: 600, fontSize: 14 }}>Full-record backup (Stemma JSON)</h3>
           <div className="mono-dim" style={{ margin: '3px 0 9px' }}>

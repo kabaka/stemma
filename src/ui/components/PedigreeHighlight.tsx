@@ -14,6 +14,11 @@ interface ChipData {
   name: string;
   color: string;
   count: number;
+  /** Category label, shown as a visible cue next to the name — set only in condition
+   * mode, where `name` is a condition and the category isn't otherwise stated. Omitted
+   * in category mode, where `name` already IS the category (restating it would be
+   * redundant noise, not a legibility win). */
+  categoryLabel?: string;
 }
 
 /** Conditions present in the family, one entry per id, sorted by prevalence (most
@@ -31,6 +36,7 @@ function conditionChipsFor(people: Person[], catalog: Catalog, palette: Palette)
       name: catalog.get(id).name,
       color: categoryColor(catalog.get(id).cat, palette),
       count,
+      categoryLabel: CATEGORIES[catalog.get(id).cat].label,
     }));
 }
 
@@ -59,9 +65,12 @@ function categoryChipsFor(people: Person[], catalog: Catalog, palette: Palette):
 /** Accessible name for a highlight row/chip. The swatch is decorative and the count is a
  * separate trailing `<span>`, so without an explicit name the browser concatenates the
  * visible text with no separator ("Coronary heart disease4"). Spelling out the unit also
- * makes the number mean something to screen-reader users, not just announce "4". */
-function chipLabel(name: string, count: number): string {
-  return `${name}, ${count} ${count === 1 ? 'person' : 'people'}`;
+ * makes the number mean something to screen-reader users, not just announce "4". The
+ * category (condition mode only — see `ChipData.categoryLabel`) is folded in too, so the
+ * accessible name carries the same information the row now shows visibly. */
+function chipLabel(name: string, count: number, categoryLabel?: string): string {
+  const countPart = `${count} ${count === 1 ? 'person' : 'people'}`;
+  return categoryLabel ? `${name}, ${categoryLabel}, ${countPart}` : `${name}, ${countPart}`;
 }
 
 /**
@@ -171,7 +180,10 @@ export function HighlightBar({
       className="row wrap"
       role="group"
       aria-label="Highlight a condition or category"
-      style={{ gap: 8, marginTop: 16, position: 'relative' }}
+      // No margin-top of its own: the caller (PedigreeView) now places this alongside the
+      // pedigree notation key in one shared row and owns that row's spacing, so a margin
+      // here would misalign the two against each other as flex siblings.
+      style={{ gap: 8, position: 'relative' }}
     >
       <h2 className="overline">Highlight</h2>
 
@@ -348,7 +360,7 @@ function HighlightPopover({
               type="button"
               className="pedigree-hl-row"
               aria-pressed={activeId === c.id}
-              aria-label={chipLabel(c.name, c.count)}
+              aria-label={chipLabel(c.name, c.count, c.categoryLabel)}
               onClick={() => onToggle(c.id)}
             >
               <span
@@ -359,6 +371,11 @@ function HighlightPopover({
               <span aria-hidden="true" className="pedigree-hl-row__name">
                 {c.name}
               </span>
+              {c.categoryLabel && (
+                <span aria-hidden="true" className="mono-dim">
+                  {c.categoryLabel}
+                </span>
+              )}
               <span aria-hidden="true" className="pedigree-hl-count">
                 {c.count}
               </span>

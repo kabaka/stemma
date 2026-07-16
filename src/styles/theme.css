@@ -105,3 +105,18 @@ select option {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* Respect the OS-level motion-reduction preference (WCAG 2.3.3). None of the app's
+   transitions (pedigree node hover/highlight-dim, a handful of opacity fades) carry
+   meaning on their own — the underlying state change is always also reflected in text/
+   aria — so collapsing them to near-instant is safe everywhere, not just case-by-case. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

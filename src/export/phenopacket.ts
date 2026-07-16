@@ -7,8 +7,9 @@
  * (subject + phenotypic features), affected `relatives`, a `pedigree` derived from the
  * union edges (paternal/maternal ids by sex assigned at birth), and `metaData`.
  *
- * Ported faithfully from the prototype's `buildPhenopacket`. Pure and deterministic
- * given `opts` (`now`, `id`, `asOfYear`); the default id derives from `now`.
+ * Ported faithfully from the prototype's `buildPhenopacket`. Pure and deterministic:
+ * callers inject `asOfYear` and `now` (both required) plus an optional `id`. `metaData.created`
+ * is always set from `now`, and the default id derives from `now`.
  */
 import type { Catalog } from '@/domain/catalog';
 import type { Condition, FamilyRecord, Person } from '@/domain/types';
@@ -65,6 +66,7 @@ export interface PhenopacketResource {
   iriPrefix: string;
 }
 export interface MetaData {
+  /** ISO creation timestamp, injected by the caller (the sanctioned wall-clock boundary). */
   created: string;
   createdBy: string;
   phenopacketSchemaVersion: string;
@@ -79,12 +81,12 @@ export interface Phenopacket {
 }
 
 export interface PhenopacketOptions {
-  /** ISO timestamp for `metaData.created` and the default id; defaults to now. */
-  now?: string;
+  /** ISO timestamp for `metaData.created` and the default id, injected by the caller (no clock read). */
+  now: string;
   /** Explicit document id; when omitted a deterministic id is derived from `now`. */
   id?: string;
-  /** As-of year for the proband's age at last encounter. */
-  asOfYear?: number;
+  /** As-of year for the proband's age at last encounter. Required — injected by the caller, never read from the clock. */
+  asOfYear: number;
 }
 
 const FAMILY_ID = 'stemma-kindred';
@@ -130,13 +132,12 @@ function phenoSex(p: Person): PhenoSex {
 export function buildPhenopacket(
   record: FamilyRecord,
   catalog: Catalog,
-  opts: PhenopacketOptions = {},
+  opts: PhenopacketOptions,
 ): Phenopacket {
   const idx = indexPeople(record.people, record.unions);
-  // Wall-clock defaults are evaluated per call (never at module load), so nothing goes
-  // stale across a year boundary; callers inject fixed values for deterministic output.
-  const asOfYear = opts.asOfYear ?? new Date().getFullYear();
-  const created = opts.now ?? new Date().toISOString();
+  // The as-of year and generation timestamp are injected by the caller (the sanctioned
+  // wall-clock boundary), so this stays pure/deterministic — the clock is never read here.
+  const asOfYear = opts.asOfYear;
   const probandId = record.probandId;
   const proband = personById(idx, probandId);
   if (!proband) throw new Error(`proband ${probandId} not found in record`);
@@ -207,12 +208,12 @@ export function buildPhenopacket(
   if (usedPrefixes.has('STEMMA')) resources.push(RESOURCE_DEFS.STEMMA);
 
   return {
-    id: opts.id ?? `stemma-family-${Date.parse(created)}`,
+    id: opts.id ?? `stemma-family-${Date.parse(opts.now)}`,
     proband: { subject, phenotypicFeatures: probandFeatures },
     relatives,
     pedigree: { persons },
     metaData: {
-      created,
+      created: opts.now,
       createdBy: 'Stemma',
       phenopacketSchemaVersion: '2.0',
       resources,

@@ -276,10 +276,18 @@ function isValidPerson(p: unknown): p is Person {
   );
 }
 
-function isValidUnion(u: unknown): u is Union {
+function isValidUnion(u: unknown, validIds: Set<string>): u is Union {
   if (!u || typeof u !== 'object') return false;
   const union = u as Record<string, unknown>;
-  return isStringArray(union.parents) && isStringArray(union.children);
+  if (!isStringArray(union.parents) || !isStringArray(union.children)) return false;
+  // Referential integrity: every member must be a real person in the record, and the two
+  // roles must be disjoint — a person can never be their own parent. A shallow shape check
+  // let a crafted native backup / hydrated blob smuggle a dangling id or a self-parenting
+  // cycle past this boundary the surrounding doc claims is hardened.
+  if (!union.parents.every((id) => validIds.has(id))) return false;
+  if (!union.children.every((id) => validIds.has(id))) return false;
+  const parentSet = new Set(union.parents);
+  return !union.children.some((id) => parentSet.has(id));
 }
 
 function isValidEvent(e: unknown): boolean {
@@ -317,13 +325,20 @@ function isValidEvent(e: unknown): boolean {
 export function isValidRecord(r: unknown): r is FamilyRecord {
   if (!r || typeof r !== 'object') return false;
   const rec = r as Partial<FamilyRecord>;
+  // People are validated first so the id set is built before unions are checked for
+  // referential integrity (a union member must resolve to a validated person).
+  if (
+    !Array.isArray(rec.people) ||
+    !Array.isArray(rec.unions) ||
+    !Array.isArray(rec.timeline) ||
+    typeof rec.probandId !== 'string' ||
+    !rec.people.every(isValidPerson)
+  ) {
+    return false;
+  }
+  const ids = new Set(rec.people.map((p) => p.id));
   return (
-    Array.isArray(rec.people) &&
-    Array.isArray(rec.unions) &&
-    Array.isArray(rec.timeline) &&
-    typeof rec.probandId === 'string' &&
-    rec.people.every(isValidPerson) &&
-    rec.unions.every(isValidUnion) &&
+    rec.unions.every((u) => isValidUnion(u, ids)) &&
     rec.timeline.every(isValidEvent) &&
     rec.people.some((p) => p.id === rec.probandId)
   );

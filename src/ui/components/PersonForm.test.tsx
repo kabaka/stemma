@@ -29,14 +29,14 @@ describe('PersonForm — dialog semantics', () => {
   it('closes on a backdrop click but not on a click inside the modal', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    const { container } = render(
-      <PersonForm state={{ mode: 'edit', id: 'robert' }} onClose={onClose} />,
-    );
+    render(<PersonForm state={{ mode: 'edit', id: 'robert' }} onClose={onClose} />);
 
     await user.click(screen.getByRole('dialog'));
     expect(onClose).not.toHaveBeenCalled();
 
-    await user.click(container.querySelector('.modal-backdrop')!);
+    // Portalled to document.body (see PersonForm's createPortal call), so the backdrop
+    // is a sibling of RTL's `container`, not a descendant of it — query the document.
+    await user.click(document.querySelector('.modal-backdrop')!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -340,6 +340,64 @@ describe('PersonForm — editing updates the record', () => {
 
     expect(useStore.getState().record.people.some((p) => p.id === 'leo')).toBe(true);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('PersonForm — .app inert/focus-restore ordering (regression)', () => {
+  // [HIGH, review-gate] The inert-toggle and focus-restore used to live in two separate
+  // effects (focus-restore declared first, inert-toggle second). React runs effect
+  // cleanups in DECLARATION order, so on close the focus-restore cleanup —
+  // `lastTriggerEl.focus()` — fired BEFORE the inert-toggle cleanup removed `.app`'s
+  // `inert`/`aria-hidden`. In a real browser, focusing an element that's still `inert` is
+  // a silent no-op (HTML spec), so focus fell through to <body> instead of back to the
+  // trigger. jsdom doesn't implement `inert` at all, so `trigger.focus()` "succeeds" there
+  // regardless of ordering — a plain `toHaveFocus()` assertion is blind to this bug and
+  // would pass against BOTH the old and new code. The only way to catch a regression here
+  // is to assert the CALL ORDER of the two effects' side effects directly.
+  it('removes .app inert/aria-hidden BEFORE calling focus() on the trigger', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div className="app">
+          <button type="button" onClick={() => setOpen(true)}>
+            Opener
+          </button>
+          {open && (
+            <PersonForm state={{ mode: 'edit', id: 'robert' }} onClose={() => setOpen(false)} />
+          )}
+        </div>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Opener' });
+    // A real trigger that genuinely has focus before the modal opens, mirroring the real
+    // app shell (App.tsx renders `.app` as PersonForm's actual ancestor; a component test
+    // rendering PersonForm alone never exercises this branch at all).
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // Spy only from here, so the recorded calls are exclusively the CLOSE-time (cleanup)
+    // ones — not the open-time setAttribute/focus-into-dialog calls.
+    const appEl = document.querySelector('.app') as HTMLElement;
+    const removeAttrSpy = vi.spyOn(appEl, 'removeAttribute');
+    const focusSpy = vi.spyOn(trigger, 'focus');
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const inertIdx = removeAttrSpy.mock.calls.findIndex((call) => call[0] === 'inert');
+    const ariaHiddenIdx = removeAttrSpy.mock.calls.findIndex((call) => call[0] === 'aria-hidden');
+    expect(inertIdx).toBeGreaterThanOrEqual(0);
+    expect(ariaHiddenIdx).toBeGreaterThanOrEqual(0);
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+
+    const focusOrder = focusSpy.mock.invocationCallOrder[0];
+    expect(removeAttrSpy.mock.invocationCallOrder[inertIdx]).toBeLessThan(focusOrder);
+    expect(removeAttrSpy.mock.invocationCallOrder[ariaHiddenIdx]).toBeLessThan(focusOrder);
   });
 });
 

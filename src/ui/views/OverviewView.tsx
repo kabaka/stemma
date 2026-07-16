@@ -57,15 +57,19 @@ export function OverviewView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title">Health Overview</h1>
+        <h1 className="page-title" tabIndex={-1}>
+          Health Overview
+        </h1>
         <span className="mono-dim">as of {asOf}</span>
       </div>
       <ClinicalBoundary />
+      {/* View-specific value only (the stat framing) — ClinicalBoundary directly above
+          already carries the "surfaces patterns, never a risk number" statement, so this
+          lede doesn't restate it. */}
       <p className="lede">
         Inheritance signals aggregated across{' '}
         <b style={{ color: 'var(--text)' }}>{relCount} relatives</b> and{' '}
-        <b style={{ color: 'var(--text)' }}>{genCount} generations</b>. Stemma is an organizing tool
-        that surfaces patterns worth a clinician&rsquo;s attention.
+        <b style={{ color: 'var(--text)' }}>{genCount} generations</b>.
       </p>
 
       <div className="stat-grid">

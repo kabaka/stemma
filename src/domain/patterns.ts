@@ -94,7 +94,11 @@ export function detectPatterns(
   {
     const breast = withCond('brca');
     const ovarian = withCond('ovarian');
-    handled.add('brca').add('ovarian');
+    const panc = withCond('panc');
+    // Male breast cancer keys on sex-assigned-at-birth, never gender (guardrail #4:
+    // genetics follows sab). It is a subset of the breast cases already gathered.
+    const maleBreast = breast.filter((b) => sabOf(b.person) === 'm');
+    handled.add('brca').add('ovarian').add('panc');
     // NCCN Genetic/Familial High-Risk Assessment (Breast/Ovarian/Pancreatic) criteria are
     // assessed PER LINEAGE: a BRCA1/2 variant descends through one side of the family, so
     // two breast cancers on *opposite* sides are two independent lineages, not one signal.
@@ -142,6 +146,18 @@ export function detectPatterns(
         'two or more breast cancers, but not clustered on one lineage (different sides of the family, or a side not determined)',
       );
     if (ovarian.length >= 1) referralReasons.push('ovarian cancer in a blood relative');
+    // Pancreatic cancer and male breast cancer are each any-age, single-case,
+    // side-independent testing indications (NCCN BOP). Guardrail #1: describe the family
+    // finding (relative + onset) — never a probability, multiplier, or risk number. Use
+    // `onset != null` so a recorded onset of 0 is preserved (not dropped by truthiness).
+    if (panc.length >= 1)
+      referralReasons.push(
+        `pancreatic cancer in a blood relative (${panc.map((y) => `${y.rel}${y.onset != null ? ` at ${y.onset}` : ''}`).join(', ')})`,
+      );
+    if (maleBreast.length >= 1)
+      referralReasons.push(
+        `male breast cancer in a blood relative (${maleBreast.map((y) => `${y.rel}${y.onset != null ? ` at ${y.onset}` : ''}`).join(', ')})`,
+      );
     const young = breast.filter((b) => b.onset != null && b.onset < 50);
     if (young.length)
       referralReasons.push(
@@ -154,17 +170,19 @@ export function detectPatterns(
       flags.push({
         severity: isReferral ? 'referral' : 'discuss',
         cat: 'canc',
-        title: 'Hereditary breast & ovarian cancer (HBOC) pattern',
+        title: 'Hereditary breast, ovarian & pancreatic cancer (HBOC/BRCA) pattern',
         criterion: reasons.join('; '),
         // Severity-aware wording (guardrail #1: never overstate). Only the referral path — a
-        // cluster on one lineage, ovarian at any age, or breast < 50 — may say criteria are
-        // met. The discuss path (two breast cancers split across lineages, nothing else)
-        // specifically does NOT meet per-lineage NCCN testing criteria, so it must not claim
-        // it does; it surfaces the finding and routes to a clinician + validated model.
+        // cluster on one lineage, ovarian at any age, breast < 50, or pancreatic / male breast
+        // at any age — may say criteria are met. The discuss path (two breast cancers split
+        // across lineages, nothing else) specifically does NOT meet per-lineage NCCN testing
+        // criteria, so it must not claim it does; it surfaces the finding and routes to a
+        // clinician + validated model. Guardrail #2: the rec stays an advisory referral
+        // prompt, and pancreatic surveillance is not overstated (specialist programs only).
         rec: isReferral
-          ? 'Meets common criteria to discuss BRCA1/2 testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage (one side of the family). Consider a genetics referral; enhanced breast screening (annual mammography ± MRI) may be indicated.'
+          ? 'Meets common criteria to discuss BRCA1/2 (and related genes, e.g. PALB2) genetic counseling/testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage; a single pancreatic or male-breast cancer at any age is a strong indication on its own to raise with a clinician — most strongly for a first-degree relative or when the affected relative can be tested. Consider a genetics referral; a clinician can advise on risk-appropriate screening. Pancreatic surveillance is offered only to confirmed high-risk individuals within specialist programs.'
           : 'Two or more breast cancers are present but not clustered on one lineage, so per-lineage BRCA1/2 testing criteria are not met. Still worth raising with a clinician, who can take a fuller history and run a validated risk model (Tyrer-Cuzick / CanRisk).',
-        relatives: [...breast, ...ovarian],
+        relatives: [...breast, ...ovarian, ...panc],
       });
     }
   }

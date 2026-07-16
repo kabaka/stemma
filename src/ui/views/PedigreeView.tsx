@@ -296,24 +296,16 @@ export function PedigreeView() {
               there's a tree to manage — showing both here and there would be redundant. */}
           {!isEmpty && (
             <div className="row wrap" style={{ gap: 8 }}>
-              <button
-                type="button"
-                className="btn btn--sm"
-                aria-expanded={importing}
-                onClick={openImporting}
-              >
-                {importing ? '✕ close import' : 'Import GEDCOM'}
-              </button>
-              <button type="button" className="btn btn--sm" onClick={handleLoadSample}>
-                Load example family
-              </button>
-              <button
-                type="button"
-                className="btn btn--sm btn--danger"
-                onClick={handleResetToEmpty}
-              >
-                Reset to empty
-              </button>
+              {/* The rarely-used trio (import / load sample / reset) collapses behind one
+                  overflow control so "+ add relative" — the one action most people reach
+                  for — reads as the row's actual primary, matching its .btn--primary
+                  styling instead of competing visually with three equally-weighted peers. */}
+              <RecordActionsMenu
+                importing={importing}
+                onToggleImport={openImporting}
+                onLoadSample={handleLoadSample}
+                onResetToEmpty={handleResetToEmpty}
+              />
               <button
                 type="button"
                 className="btn btn--primary btn--sm"
@@ -328,36 +320,43 @@ export function PedigreeView() {
           )}
         </div>
         <ClinicalBoundary />
-        {/* The notation key is reference material a frequent user already knows, so it sits
-            in a disclosure collapsed by default rather than as a permanent paragraph —
-            one small toggle instead of three lines of chrome, still one click away for
-            anyone learning to read the chart. */}
-        <details className="pedigree-guide">
-          <summary className="pedigree-guide__toggle">How to read this pedigree</summary>
-          <p className="pedigree-guide__text">
-            2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary; sex
-            assigned at birth is noted when it differs. Filled = affected, coloured by condition
-            category; diagonal = deceased. Click any relative to view or edit their record.
-          </p>
-        </details>
 
         {importing && (
           <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
         )}
 
-        {!isEmpty && (
-          <HighlightBar
-            mode={hlMode}
-            onSetMode={setHlMode}
-            activeId={activeId}
-            onToggleChip={toggleChip}
-            onHighlightCondition={highlightCondition}
-            onClear={clearHighlight}
-            people={record.people}
-            catalog={catalog}
-            palette={palette}
-          />
-        )}
+        {/* The notation key and the Highlight controls share one row — two small pieces
+            of chart chrome that both fit comfortably alongside each other, rather than
+            each claiming a full-width row of their own before the canvas even starts. */}
+        <div className="row wrap" style={{ gap: 20, marginTop: 12, alignItems: 'flex-start' }}>
+          {/* The notation key is reference material a frequent user already knows, so it
+              sits in a disclosure collapsed by default rather than as a permanent
+              paragraph — one small toggle instead of three lines of chrome, still one
+              click away for anyone learning to read the chart. */}
+          <details className="pedigree-guide" style={{ marginTop: 6 }}>
+            <summary className="pedigree-guide__toggle">How to read this pedigree</summary>
+            <p className="pedigree-guide__text">
+              2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary;
+              sex assigned at birth is noted when it differs. Filled = affected, coloured by
+              condition category; diagonal = deceased. Click any relative to view or edit their
+              record.
+            </p>
+          </details>
+
+          {!isEmpty && (
+            <HighlightBar
+              mode={hlMode}
+              onSetMode={setHlMode}
+              activeId={activeId}
+              onToggleChip={toggleChip}
+              onHighlightCondition={highlightCondition}
+              onClear={clearHighlight}
+              people={record.people}
+              catalog={catalog}
+              palette={palette}
+            />
+          )}
+        </div>
         {catBreakdown && (
           <p className="mono-dim" role="status" style={{ marginTop: 8, lineHeight: 1.5 }}>
             {catBreakdown}
@@ -507,6 +506,118 @@ function EmptyState({
 }
 
 /**
+ * Overflow menu for the header's rarely-used record-level actions (GEDCOM import, load
+ * the example family, reset to empty) — collapsed behind one trigger so "+ add relative"
+ * is the row's only immediately-visible action. Deliberately mirrors HighlightBar's own
+ * popover discipline (focus the first item on open; outside pointerdown, Escape, or a
+ * keyboard Tab out of the popover all close it; a selection closes and returns focus to
+ * the trigger) rather than introducing a new interaction pattern or full ARIA-menu
+ * semantics this codebase doesn't otherwise use.
+ */
+function RecordActionsMenu({
+  importing,
+  onToggleImport,
+  onLoadSample,
+  onResetToEmpty,
+}: {
+  importing: boolean;
+  onToggleImport: () => void;
+  onLoadSample: () => void;
+  onResetToEmpty: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open) firstItemRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [open]);
+
+  const closeToTrigger = (): void => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const runAndClose = (action: () => void): void => {
+    action();
+    closeToTrigger();
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="btn btn--sm"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        More actions <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div
+          className="pedigree-hl-search-popover"
+          role="dialog"
+          aria-label="More record actions"
+          tabIndex={-1}
+          style={{ width: 210, display: 'flex', flexDirection: 'column', gap: 4 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              closeToTrigger();
+            }
+          }}
+          onBlur={(e) => {
+            // Tab out of the popover (not Escape, not a click on a row) — just close, since
+            // focus is already moving on under the browser's own control; mirrors
+            // HighlightPopover's onDismiss vs. onClose distinction.
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+          }}
+        >
+          <button
+            ref={firstItemRef}
+            type="button"
+            className="btn btn--sm"
+            style={{ justifyContent: 'flex-start' }}
+            aria-expanded={importing}
+            onClick={() => runAndClose(onToggleImport)}
+          >
+            {importing ? '✕ close import' : 'Import GEDCOM'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm"
+            style={{ justifyContent: 'flex-start' }}
+            onClick={() => runAndClose(onLoadSample)}
+          >
+            Load example family
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--danger"
+            style={{ justifyContent: 'flex-start' }}
+            onClick={() => runAndClose(onResetToEmpty)}
+          >
+            Reset to empty
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Plain-language breakdown of one category across the family, e.g. "3 people · Breast
  * cancer (2), Colorectal cancer (1)" (restored from the prototype's `catBreakdown`). The
  * lead count is people with *any* condition in the category (deduped per person, so it
@@ -617,9 +728,13 @@ function nodeLabel(
   if (ids.length === 0) {
     parts.push('unaffected');
   } else {
-    const names = ids.map((id, i) => {
+    // Every condition's category is folded in here, not just the first (i === 0 used to
+    // gate this) — an active highlight can match on any one of a person's conditions, and
+    // silently dropping the category for everything past the first would leave a screen
+    // reader user unable to tell why a match on their second/third condition lit up.
+    const names = ids.map((id) => {
       const meta = catalog.get(id);
-      return i === 0 ? `${meta.name} (${CATEGORIES[meta.cat].label.toLowerCase()})` : meta.name;
+      return `${meta.name} (${CATEGORIES[meta.cat].label.toLowerCase()})`;
     });
     parts.push(`affected: ${names.join(', ')}`);
   }
@@ -693,6 +808,20 @@ const PedigreeNode = memo(function PedigreeNode({
   const extraConditions = ids.length - dots.length;
   const dimmed = hlActive && !matches;
   const label = nodeLabel(person, catalog, hlActive, matches, proband, probandGen);
+  // Hover-only title cues so category is never colour-only at the glyph itself (WCAG
+  // 1.4.1) — a supplementary channel alongside the always-visible footer legend and the
+  // full accessible name above; the node is too small (44px) for permanent visible text
+  // without real clutter, which is the opposite of this pass's goal. "Hover-only", not
+  // "hover/focus": the spans carrying `title` below are aria-hidden with no tabindex, so
+  // they're never in the focus order and a native title tooltip cannot appear on keyboard
+  // focus — only a mouse hover (or touch long-press) reaches it.
+  const fillTitle = affected ? CATEGORIES[catalog.get(ids[0]).cat].label : undefined;
+  const dotsTitle =
+    dots.length > 0
+      ? [...new Set(ids.map((id) => catalog.get(id).cat))]
+          .map((cat) => CATEGORIES[cat].label)
+          .join(', ')
+      : undefined;
 
   return (
     <div className="pedigree-node-wrap" style={{ left: x - NODE / 2, top: cy - NODE / 2 }}>
@@ -717,6 +846,7 @@ const PedigreeNode = memo(function PedigreeNode({
         <span
           aria-hidden="true"
           className="pedigree-node__fill"
+          title={fillTitle}
           style={{
             borderRadius: shape === 'circle' ? '50%' : 7,
             background: fill,
@@ -737,7 +867,7 @@ const PedigreeNode = memo(function PedigreeNode({
       </button>
       {person.dead && <span aria-hidden="true" className="pedigree-node__slash" />}
       {dots.length > 0 && (
-        <span aria-hidden="true" className="pedigree-node__dots">
+        <span aria-hidden="true" className="pedigree-node__dots" title={dotsTitle}>
           {dots.map((c, i) => (
             <span key={i} className="pedigree-node__dot" style={{ background: c }} />
           ))}

@@ -1,0 +1,18 @@
+# Dependabot version updates keep two ecosystems current so the app's dependencies
+# and the SHA-pinned GitHub Actions (see .github/workflows/) don't silently drift.
+# Security alerts are separate and always on; this file adds scheduled version PRs.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # Application + tooling dependencies (root package.json / package-lock.json).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The workflow actions pinned by commit SHA in .github/workflows/ — Dependabot
+  # bumps each pinned SHA and its trailing "# vX.Y.Z" comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

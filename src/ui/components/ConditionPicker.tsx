@@ -83,8 +83,9 @@ export function ConditionPicker({ personId }: { personId: string }) {
             <div key={id} className="card" style={{ padding: '10px 12px' }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span className="row" style={{ gap: 8 }}>
-                  {/* Category is conveyed by the swatch colour alone for sighted users;
-                      name it for screen readers and colourblind users (WCAG 1.4.1). */}
+                  {/* The swatch alone would carry category by colour only (WCAG 1.4.1); the
+                      mono-dim label beside it is the visible channel for sighted colourblind
+                      users too, not just assistive tech. */}
                   <span
                     aria-hidden="true"
                     style={{
@@ -94,10 +95,8 @@ export function ConditionPicker({ personId }: { personId: string }) {
                       background: categoryColor(meta.cat, palette),
                     }}
                   />
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>
-                    {meta.name}
-                    <span className="visually-hidden"> · {CATEGORIES[meta.cat].label}</span>
-                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{meta.name}</span>
+                  <span className="mono-dim">{CATEGORIES[meta.cat].label}</span>
                 </span>
                 <button
                   type="button"

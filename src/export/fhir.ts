@@ -82,13 +82,14 @@ export interface FhirBundleEntry {
 export interface FhirBundle {
   resourceType: 'Bundle';
   type: 'collection';
+  /** ISO generation timestamp, injected by the caller (the sanctioned wall-clock boundary). */
   timestamp: string;
   entry: FhirBundleEntry[];
 }
 
 export interface FhirExportOptions {
-  /** ISO timestamp for `Bundle.timestamp`; defaults to `new Date().toISOString()`. */
-  now?: string;
+  /** ISO timestamp for `Bundle.timestamp`, injected by the caller (no clock read here — stays pure). */
+  now: string;
 }
 
 const SNOMED_SYSTEM = 'http://snomed.info/sct';
@@ -171,7 +172,7 @@ function onsetAge(onset: number | null | undefined): FhirAge | undefined {
 export function buildFhirBundle(
   record: FamilyRecord,
   catalog: Catalog,
-  opts: FhirExportOptions = {},
+  opts: FhirExportOptions,
 ): FhirBundle {
   const idx = indexPeople(record.people, record.unions);
   const probandId = record.probandId;
@@ -239,7 +240,9 @@ export function buildFhirBundle(
   return {
     resourceType: 'Bundle',
     type: 'collection',
-    timestamp: opts.now ?? new Date().toISOString(),
+    // The generation timestamp is injected by the caller (the sanctioned wall-clock boundary),
+    // never read from the clock here, keeping this serialiser pure/deterministic.
+    timestamp: opts.now,
     entry,
   };
 }

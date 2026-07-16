@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore, type Relation } from '@/store/useStore';
 import { useCatalog, useRelations } from '../hooks';
 import { indexPeople, parentsOf } from '@/domain/graph';
@@ -132,13 +133,34 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const deathId = useId();
   const searchId = useId();
 
-  // Move focus into the dialog on open, and hand it back to whatever triggered it on
-  // close — same discipline as PersonDrawer.
+  // Move focus into the dialog on open, capture+hide `.app` behind it, and reverse both
+  // on close — ONE effect, not two. React runs effect cleanups in declaration order, so
+  // if inert-removal lived in a separate, later-declared effect, this effect's own
+  // cleanup would run FIRST on close and call `lastTriggerEl.focus()` while `.app` (and
+  // the trigger inside it) was still `inert` — focus on an inert element is a silent
+  // no-op per the HTML spec, so focus would fall through to <body> instead of back to the
+  // trigger. Confirmed in real Chromium; jsdom doesn't implement `inert`, so this ordering
+  // bug is invisible to a component test rendering PersonForm in isolation.
+  //
+  // This is also a true blocking modal (unlike the drawer, which leaves the rest of the
+  // page reachable) — the backdrop already blocks pointer interaction with the app behind
+  // it, but without `inert`/`aria-hidden`, a screen-reader virtual cursor could still
+  // read/reach into the sidebar and the view underneath. `inert` removes it from both
+  // focus and the accessibility tree; `aria-hidden` is the fallback for the (now
+  // vanishingly rare) AT that doesn't yet honour `inert`. `.app` is the app shell's own
+  // root — see App.tsx — and is absent in component tests that render PersonForm in
+  // isolation, so that part is a no-op there too.
   useEffect(() => {
     const active = document.activeElement;
     lastTriggerEl = active instanceof HTMLElement || active instanceof SVGElement ? active : null;
+    const appRoot = document.querySelector<HTMLElement>('.app');
+    appRoot?.setAttribute('inert', '');
+    appRoot?.setAttribute('aria-hidden', 'true');
     dialogRef.current?.focus();
     return () => {
+      // `.app` must stop being inert BEFORE lastTriggerEl.focus() below — see the note above.
+      appRoot?.removeAttribute('inert');
+      appRoot?.removeAttribute('aria-hidden');
       lastTriggerEl?.focus();
       lastTriggerEl = null;
     };
@@ -269,7 +291,10 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
 
   const canDelete = state.mode === 'edit' && state.id !== record.probandId;
 
-  return (
+  // Portalled to <body> (rather than rendered in place, deep under PedigreeView) so this
+  // true blocking modal is a DOM sibling of `.app`, not a descendant — the inert/aria-hidden
+  // effect above hides `.app` in one shot without also hiding the modal that lives inside it.
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
@@ -290,57 +315,68 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
         </div>
 
         {state.mode === 'add' && (
-          <div
-            className="row wrap"
-            style={{
-              gap: 12,
-              marginBottom: 16,
-              paddingBottom: 16,
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <label className="lbl" htmlFor={anchorId}>
-                Relative of
-              </label>
-              <select
-                id={anchorId}
-                className="field"
-                value={anchor}
-                onChange={(e) => setAnchor(e.target.value)}
-              >
-                {anchors.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
+          <>
+            {/* Subtle grouping (not a redesign) so the form's ~9 field groups read as a
+                few sections rather than one undifferentiated column — mirrors the
+                overline-caption idiom PersonDrawer already uses for its own subsections. */}
+            <h3 className="overline" style={{ marginBottom: 10 }}>
+              Family
+            </h3>
+            <div
+              className="row wrap"
+              style={{
+                gap: 12,
+                marginBottom: 20,
+                paddingBottom: 16,
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <label className="lbl" htmlFor={anchorId}>
+                  Relative of
+                </label>
+                <select
+                  id={anchorId}
+                  className="field"
+                  value={anchor}
+                  onChange={(e) => setAnchor(e.target.value)}
+                >
+                  {anchors.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <label className="lbl" htmlFor={relationId}>
+                  Connect as
+                </label>
+                <select
+                  id={relationId}
+                  className="field"
+                  value={relation}
+                  onChange={(e) => setRelation(e.target.value as Relation)}
+                >
+                  {RELATION_OPTIONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                {tooManyParents && (
+                  <p className="mono-dim" role="status" style={{ margin: '6px 0 0' }}>
+                    This person already has two recorded parents.
+                  </p>
+                )}
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 140 }}>
-              <label className="lbl" htmlFor={relationId}>
-                Connect as
-              </label>
-              <select
-                id={relationId}
-                className="field"
-                value={relation}
-                onChange={(e) => setRelation(e.target.value as Relation)}
-              >
-                {RELATION_OPTIONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-              {tooManyParents && (
-                <p className="mono-dim" role="status" style={{ margin: '6px 0 0' }}>
-                  This person already has two recorded parents.
-                </p>
-              )}
-            </div>
-          </div>
+          </>
         )}
 
+        <h3 className="overline" style={{ marginBottom: 10 }}>
+          Identity
+        </h3>
         <label className="lbl" htmlFor={nameId}>
           Name <span className="mono-dim">· required</span>
         </label>
@@ -411,30 +447,11 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
           </div>
         </div>
 
-        <span className="lbl" id={`${nameId}-organs`}>
-          Organ inventory{' '}
-          <span style={{ textTransform: 'none', letterSpacing: 0 }}>— drives screening</span>
-        </span>
-        <div
-          className="row wrap"
-          role="group"
-          aria-labelledby={`${nameId}-organs`}
-          style={{ gap: 6, marginBottom: 16 }}
-        >
-          {ORGANS.map((organ) => (
-            <button
-              key={organ}
-              type="button"
-              className="chip"
-              aria-pressed={organs.includes(organ)}
-              onClick={() => toggleOrgan(organ)}
-            >
-              {ORGAN_LABELS[organ]}
-            </button>
-          ))}
-        </div>
-
-        <div className="row wrap" style={{ gap: 14, marginBottom: 18 }}>
+        {/* Birth/death year sits with the rest of Identity, not Health — mirrors
+            PersonDrawer's own identity-grid, which groups Status and Lifespan (the
+            drawer's read-only view of these same two fields) with Gender/Kinship, not
+            with the organ inventory. */}
+        <div className="row wrap" style={{ gap: 14, marginBottom: 20 }}>
           <div style={{ flex: 1, minWidth: 120 }}>
             <label className="lbl" htmlFor={birthId}>
               Birth year
@@ -461,6 +478,32 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
               />
             </div>
           )}
+        </div>
+
+        <h3 className="overline" style={{ marginBottom: 10 }}>
+          Health
+        </h3>
+        <span className="lbl" id={`${nameId}-organs`}>
+          Organ inventory{' '}
+          <span style={{ textTransform: 'none', letterSpacing: 0 }}>— drives screening</span>
+        </span>
+        <div
+          className="row wrap"
+          role="group"
+          aria-labelledby={`${nameId}-organs`}
+          style={{ gap: 6, marginBottom: 16 }}
+        >
+          {ORGANS.map((organ) => (
+            <button
+              key={organ}
+              type="button"
+              className="chip"
+              aria-pressed={organs.includes(organ)}
+              onClick={() => toggleOrgan(organ)}
+            >
+              {ORGAN_LABELS[organ]}
+            </button>
+          ))}
         </div>
 
         <span className="lbl" id={`${nameId}-conds`}>
@@ -554,7 +597,24 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
           )}
         </div>
 
-        <div className="row" style={{ gap: 9, alignItems: 'center' }}>
+        {/* Sticky, not just a trailing row: PersonForm's content can run well past the
+            modal's own max-height (88vh) once conditions/organs pile up, and a Save button
+            that scrolls out of view is a real usability cost. Sticking it to the modal's
+            own scrollport — with the modal's background so scrolled content doesn't show
+            through — keeps Save/Cancel/Delete reachable without hunting for them. */}
+        <div
+          className="row"
+          style={{
+            gap: 9,
+            alignItems: 'center',
+            position: 'sticky',
+            bottom: 0,
+            marginTop: 8,
+            paddingTop: 14,
+            background: 'var(--bg-panel)',
+            borderTop: '1px solid var(--border)',
+          }}
+        >
           {canDelete && (
             <button type="button" className="btn btn--danger" onClick={handleDelete}>
               Delete
@@ -569,6 +629,7 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
