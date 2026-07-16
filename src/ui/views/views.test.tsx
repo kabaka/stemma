@@ -429,6 +429,66 @@ describe('PedigreeView', () => {
     expect(helenFill).toHaveStyle({ opacity: '0.28' });
   });
 
+  it('keeps focus inside the popover when Category mode has no categories to list', async () => {
+    const user = userEvent.setup();
+    // A family with a relative (so the HighlightBar renders) but no conditions recorded:
+    // Category mode's popover then has no rows and no search box, so focus must fall back
+    // to the dialog itself — never silently stranded on the trigger.
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'you',
+            name: 'You',
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1990,
+            death: null,
+            isProband: true,
+            conds: [],
+          },
+          {
+            id: 'kid',
+            name: 'Kid',
+            sab: 'm',
+            gender: 'man',
+            gen: 1,
+            x: 0,
+            dead: false,
+            birth: 2015,
+            death: null,
+            conds: [],
+          },
+        ],
+        unions: [{ parents: ['you'], children: ['kid'] }],
+        timeline: [],
+        probandId: 'you',
+      }),
+    );
+    render(<PedigreeView />);
+    const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    await user.click(within(highlightRow).getByRole('button', { name: /^Category$/i }));
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    const dialog = screen.getByRole('dialog', { name: /highlight a category/i });
+    expect(dialog).toHaveTextContent(/no categories recorded yet/i);
+    expect(dialog).toHaveFocus();
+  });
+
+  it('dismisses the highlight popover when keyboard focus leaves it', async () => {
+    const user = userEvent.setup();
+    render(<PedigreeView />);
+    const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
+    await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
+    expect(screen.getByRole('dialog', { name: /highlight a condition/i })).toBeInTheDocument();
+    // Moving focus out of the popover (a keyboard Tab out to a header control) dismisses it,
+    // so a keyboard user is never left with an orphaned dialog floating over the tree.
+    act(() => screen.getByRole('button', { name: /reset to empty/i }).focus());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('clears a stale highlight and add-relative form across a record swap', async () => {
     const user = userEvent.setup();
     vi.spyOn(window, 'confirm').mockReturnValue(true);

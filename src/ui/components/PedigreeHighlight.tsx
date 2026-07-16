@@ -225,6 +225,7 @@ export function HighlightBar({
               closePopover();
             }}
             onClose={closePopover}
+            onDismiss={() => setOpen(false)}
           />
         )}
       </div>
@@ -258,9 +259,13 @@ export function HighlightBar({
  * of scope here; the curated+extension catalog (`catalog.search`) is enough.
  *
  * Focus discipline mirrors the drawer/modal: focus moves in on open (the search box in
- * condition mode, else the first present-in-family row), Escape closes and returns focus
- * to the trigger (handled here + `onClose`), and picking any row closes and returns focus
- * to the trigger (via the parent's `closePopover`).
+ * condition mode, else the first present-in-family row, else the dialog itself when the
+ * list is empty), Escape or a keyboard Tab out of the popover closes it, and picking any
+ * row closes and returns focus to the trigger (via the parent's `closePopover`).
+ *
+ * `onClose` closes AND returns focus to the trigger (Escape / row-select); `onDismiss`
+ * only closes, leaving focus where the browser is moving it — used for a Tab-out, so a
+ * keyboard user tabbing forward past the last row isn't yanked back to the trigger.
  */
 function HighlightPopover({
   mode,
@@ -271,6 +276,7 @@ function HighlightPopover({
   onToggle,
   onSelect,
   onClose,
+  onDismiss,
 }: {
   mode: HlMode;
   chips: ChipData[];
@@ -280,17 +286,23 @@ function HighlightPopover({
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onDismiss: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const firstRowRef = useRef<HTMLButtonElement>(null);
   const inputId = useId();
 
   // Move focus into the popover on open. `mode` is fixed for this component's lifetime
   // (a mode change closes the popover in the parent, unmounting this), so this runs once.
+  // The dialog root is the fallback focus target for the one state with nothing else to
+  // focus — Category mode with no categories recorded yet (no search box, no rows) — so
+  // focus is never silently stranded on the trigger.
   useEffect(() => {
-    if (mode === 'cond') inputRef.current?.focus();
-    else firstRowRef.current?.focus();
+    if (mode === 'cond' && inputRef.current) inputRef.current.focus();
+    else if (firstRowRef.current) firstRowRef.current.focus();
+    else rootRef.current?.focus();
   }, [mode]);
 
   const trimmed = query.trim();
@@ -306,14 +318,22 @@ function HighlightPopover({
 
   return (
     <div
+      ref={rootRef}
       className="pedigree-hl-search-popover"
       role="dialog"
       aria-label={`Highlight a ${noun}`}
+      tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
           onClose();
         }
+      }}
+      onBlur={(e) => {
+        // Close when focus leaves the popover subtree entirely (e.g. Tab past the last
+        // row). `relatedTarget` is the element gaining focus — null when focus leaves the
+        // window; a node still inside means focus merely moved between rows, so stay open.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onDismiss();
       }}
     >
       <div className="overline" style={{ marginBottom: 7 }}>

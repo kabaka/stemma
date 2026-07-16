@@ -411,6 +411,9 @@ textarea.field {
   background: rgba(52, 226, 207, 0.12);
   color: var(--accent);
   border-color: var(--accent);
+  /* A non-colour cue for the pressed state so it doesn't read by hue alone (WCAG 1.4.1),
+     matching .seg-btn — aria-pressed already covers assistive tech. */
+  font-weight: 600;
 }
 
 /* Minimal "x" used to remove an item from inside a chip/pill (see PersonForm's
@@ -819,6 +822,8 @@ textarea.field {
   border-color: var(--accent);
   background: rgba(52, 226, 207, 0.12);
   color: var(--accent);
+  /* Non-colour cue for the active row (WCAG 1.4.1), matching the chips/.seg-btn. */
+  font-weight: 600;
 }
 .pedigree-hl-row__name {
   flex: 1;
