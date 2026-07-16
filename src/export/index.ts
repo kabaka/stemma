@@ -9,6 +9,7 @@
  * - {@link buildGedcom} — GEDCOM 5.5.1 (genealogy)
  * - {@link buildPedigreeSvg} — gender-inclusive pedigree drawing
  * - {@link buildNativeBackup} — lossless full-record backup (no-lock-in escape hatch)
+ * - {@link buildIcsCalendar} — iCalendar (RFC 5545) screening schedule (root-scoped)
  */
 export { buildFhirBundle } from './fhir';
 export type {
@@ -33,3 +34,6 @@ export type { PedigreeSvgOptions } from './pedigree-svg';
 
 export { buildNativeBackup, NATIVE_BACKUP_KIND, NATIVE_BACKUP_VERSION } from './native';
 export type { NativeBackup, NativeBackupOptions } from './native';
+
+export { buildIcsCalendar } from './ics';
+export type { IcsExportOptions } from './ics';

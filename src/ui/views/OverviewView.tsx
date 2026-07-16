@@ -1,10 +1,10 @@
 import { useId, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
-import { useFlags, useScreenings, useAsOfYear } from '../hooks';
+import { useFlags, useScreenings, useSchedule, useAsOfYear } from '../hooks';
 import { FlagCard } from '../components/FlagCard';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import { condIds } from '@/domain/person';
-import { dueCount } from '@/domain/screening';
+import { dueCount, type ScheduledScreening, type ScheduleStatus } from '@/domain/screening';
 import { computeLayout } from '@/domain/graph';
 import { EVENT_META } from '@/data/events';
 
@@ -14,15 +14,45 @@ const SCREEN_COLOR: Record<string, string> = {
   Routine: '#34e2cf',
 };
 
+// Advisory colour paired with (never a substitute for) the label text — WCAG 1.4.1.
+// Deliberately muted, not alarm-red: this is timing guidance, not a severity signal, and
+// "overdue" must never read as a verdict (guardrail #2).
+const SCHEDULE_COLOR: Record<ScheduleStatus, string> = {
+  overdue: 'var(--sev-discuss)',
+  due: 'var(--sev-discuss)',
+  upToDate: '#34e2cf',
+  notYet: 'var(--text-dim)',
+};
+
+/**
+ * Advisory phrasing for a schedule status — never the bare word "Overdue" (guardrail #2).
+ * `overdue`/`due` both read as "May be due" so a missed guideline interval reads as a
+ * gentle prompt, not an alarm; the year is the informative part.
+ */
+function scheduleLabel(s: ScheduledScreening): string {
+  switch (s.scheduleStatus) {
+    case 'overdue':
+    case 'due':
+      return `May be due · ${s.nextDueYear}`;
+    case 'notYet':
+      return s.nextDueYear != null ? `Not yet due · starts ${s.nextDueYear}` : 'Not yet due';
+    case 'upToDate':
+      return s.nextDueYear != null ? `On track · next ${s.nextDueYear}` : 'On track';
+  }
+}
+
 /** Landing view: headline stats, top hereditary flags, and screening status. */
 export function OverviewView() {
   const record = useStore((s) => s.record);
   const setView = useStore((s) => s.setView);
   const flags = useFlags(record.probandId);
   const screenings = useScreenings(record.probandId);
+  const schedule = useSchedule(record.probandId);
   const asOf = useAsOfYear();
   const screeningHeadingId = useId();
   const activityHeadingId = useId();
+
+  const scheduleById = useMemo(() => new Map(schedule.map((s) => [s.id, s])), [schedule]);
 
   const relCount = record.people.length - 1;
   const layout = computeLayout(record.people, record.unions);
@@ -124,25 +154,45 @@ export function OverviewView() {
               aria-labelledby={screeningHeadingId}
               style={{ display: 'flex', flexDirection: 'column', gap: 9 }}
             >
-              {screenings.map((s) => (
-                <li className="card" role="listitem" key={s.id} style={{ padding: '12px 14px' }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</span>
-                    <span
-                      className="badge"
-                      style={{
-                        color: SCREEN_COLOR[s.status],
-                        background: 'rgba(255,255,255,0.05)',
-                      }}
-                    >
-                      {s.status}
-                    </span>
-                  </div>
-                  <div className="mono-dim" style={{ marginTop: 6 }}>
-                    {s.freq} · {s.why}
-                  </div>
-                </li>
-              ))}
+              {screenings.map((s) => {
+                const sched = scheduleById.get(s.id);
+                const familySignal = s.status === 'Recommended' || s.status === 'Referred';
+                return (
+                  <li className="card" role="listitem" key={s.id} style={{ padding: '12px 14px' }}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</span>
+                      <span
+                        className="badge"
+                        style={{
+                          color: SCREEN_COLOR[s.status],
+                          background: 'rgba(255,255,255,0.05)',
+                        }}
+                      >
+                        {s.status}
+                      </span>
+                    </div>
+                    <div className="mono-dim" style={{ marginTop: 6 }}>
+                      {s.freq} · {s.why}
+                    </div>
+                    {sched && (
+                      <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+                        <span
+                          style={{ fontWeight: 600, color: SCHEDULE_COLOR[sched.scheduleStatus] }}
+                        >
+                          {scheduleLabel(sched)}
+                        </span>
+                        {familySignal && (
+                          <span style={{ color: 'var(--text-dim)' }}>
+                            {' '}
+                            · Family history — guidelines often start earlier and screen more often;
+                            discuss timing with your clinician.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
 

@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useDisclosureFocus, useRelations } from '../hooks';
 import { EVENT_META, EVENT_TYPES } from '@/data/events';
+import { SCREENING_DEFS } from '@/domain/screening';
 import type { EventType, TimelineEvent } from '@/domain/types';
 
 /** The editable fields of a timeline event (everything but its id). */
@@ -237,12 +238,16 @@ function EventForm({
   const [type, setType] = useState<EventType>(initial?.type ?? 'diagnosis');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [detail, setDetail] = useState(initial?.detail ?? '');
+  // Which ScreeningDef this event completes — only meaningful when type === 'screening',
+  // but kept around across a type change so re-selecting "screening" restores the pick.
+  const [screeningId, setScreeningId] = useState(initial?.screeningId ?? '');
 
   const personId_ = useId();
   const yearId = useId();
   const typeId = useId();
   const titleId = useId();
   const detailId = useId();
+  const screeningIdId = useId();
   // Move focus into the form on open (first field), back to the trigger on close.
   const firstFieldRef = useDisclosureFocus<HTMLSelectElement>();
 
@@ -255,6 +260,10 @@ function EventForm({
       type,
       title: title.trim(),
       detail: detail.trim(),
+      // Set explicitly (not a conditional spread) so it can be *cleared*: updateEvent
+      // partial-merges, so an omitted key leaves a stale link when the user picks "— none —"
+      // or switches the type away from screening. `undefined` overwrites via the spread.
+      screeningId: type === 'screening' && screeningId ? screeningId : undefined,
     });
   };
 
@@ -309,6 +318,26 @@ function EventForm({
           </select>
         </div>
       </div>
+      {type === 'screening' && (
+        <div>
+          <label className="lbl" htmlFor={screeningIdId}>
+            Which screening (optional)
+          </label>
+          <select
+            id={screeningIdId}
+            className="field"
+            value={screeningId}
+            onChange={(e) => setScreeningId(e.target.value)}
+          >
+            <option value="">— none —</option>
+            {SCREENING_DEFS.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="lbl" htmlFor={titleId}>
           Title

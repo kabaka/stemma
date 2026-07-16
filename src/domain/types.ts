@@ -173,6 +173,12 @@ export interface TimelineEvent {
   type: EventType;
   title: string;
   detail: string;
+  /**
+   * When `type === 'screening'`, the {@link import('./screening').ScreeningDef | ScreeningDef}
+   * `id` this event completes. Optional so pre-existing free-text screening events stay
+   * valid but unlinked.
+   */
+  screeningId?: string;
 }
 
 /** The complete family record — the single graph every view reads from. */

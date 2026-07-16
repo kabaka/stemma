@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { CURRENT_YEAR, useStore } from '@/store/useStore';
 import { buildCatalog, type Catalog } from '@/domain/catalog';
 import { detectPatterns, familyFindings, relationMap, type PatternFlag } from '@/domain/patterns';
-import { calculatorsFor, screeningsFor } from '@/domain/screening';
+import { calculatorsFor, scheduleFor, screeningsFor } from '@/domain/screening';
 import type { RelationInfo } from '@/domain/graph';
 
 /**
@@ -64,6 +64,13 @@ export function useFindings(rootId: string) {
 export function useScreenings(rootId: string) {
   const record = useStore((s) => s.record);
   return useMemo(() => screeningsFor(record, rootId), [record, rootId]);
+}
+
+/** Cadence-bearing screenings for a vantage, resolved against the guideline schedule. */
+export function useSchedule(rootId: string) {
+  const record = useStore((s) => s.record);
+  const asOf = useAsOfYear();
+  return useMemo(() => scheduleFor(record, rootId, asOf), [record, rootId, asOf]);
 }
 
 /** External calculators seeded by the family history. */
