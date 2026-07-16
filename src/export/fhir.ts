@@ -82,12 +82,13 @@ export interface FhirBundleEntry {
 export interface FhirBundle {
   resourceType: 'Bundle';
   type: 'collection';
-  timestamp: string;
+  /** ISO generation timestamp; omitted when the caller injects no `now` (Bundle.timestamp is 0..1 in R4). */
+  timestamp?: string;
   entry: FhirBundleEntry[];
 }
 
 export interface FhirExportOptions {
-  /** ISO timestamp for `Bundle.timestamp`; defaults to `new Date().toISOString()`. */
+  /** ISO timestamp for `Bundle.timestamp`; when omitted the field is left off (no clock read — stays pure). */
   now?: string;
 }
 
@@ -239,7 +240,9 @@ export function buildFhirBundle(
   return {
     resourceType: 'Bundle',
     type: 'collection',
-    timestamp: opts.now ?? new Date().toISOString(),
+    // The generation timestamp is injected by the caller (the sanctioned wall-clock boundary);
+    // when absent it is omitted rather than read from the clock, keeping this serialiser pure.
+    ...(opts.now ? { timestamp: opts.now } : {}),
     entry,
   };
 }

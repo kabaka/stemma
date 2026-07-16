@@ -68,7 +68,8 @@ export function validateFhirBundle(bundle: FhirBundle): string[] {
   const errs: string[] = [];
   if (bundle.resourceType !== 'Bundle') errs.push('Bundle.resourceType must be "Bundle"');
   if (bundle.type !== 'collection') errs.push('Bundle.type must be "collection"');
-  if (!INSTANT.test(bundle.timestamp)) errs.push('Bundle.timestamp is not a valid instant');
+  if (bundle.timestamp !== undefined && !INSTANT.test(bundle.timestamp))
+    errs.push('Bundle.timestamp is not a valid instant');
   if (!Array.isArray(bundle.entry)) {
     errs.push('Bundle.entry must be an array');
     return errs;
