@@ -507,6 +507,41 @@ textarea.field {
   line-height: 1.45;
 }
 
+/* Collapsible "how to read this pedigree" notation key — reference material a frequent
+   user already knows, so it defaults collapsed to one small toggle instead of a permanent
+   paragraph (see PedigreeView). Muted (not accent) because, unlike the clinical boundary,
+   it carries no safety statement. */
+.pedigree-guide {
+  margin-top: 10px;
+}
+.pedigree-guide__toggle {
+  display: inline-block;
+  width: fit-content;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+.pedigree-guide__toggle::-webkit-details-marker {
+  display: none;
+}
+.pedigree-guide__toggle::before {
+  content: '▸ ';
+}
+.pedigree-guide[open] .pedigree-guide__toggle::before {
+  content: '▾ ';
+}
+.pedigree-guide__text {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  max-width: 680px;
+  margin: 8px 0 0;
+}
+
 /* ---- Pedigree ----
    Rebuilt as a natural-size, scrollable DOM canvas (never scaled to fit): a pinned
    header (title + Highlight controls) above a flexible body that either scrolls the
@@ -892,6 +927,7 @@ textarea.field {
 .nav-item:focus-visible,
 .field:focus-visible,
 .clinical-boundary__toggle:focus-visible,
+.pedigree-guide__toggle:focus-visible,
 .pedigree-hl-row:focus-visible,
 .pedigree-node:focus-visible {
   outline: 2px solid var(--accent);
