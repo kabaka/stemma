@@ -46,14 +46,19 @@ describe('OverviewView', () => {
 
   it('shows the proband’s three newest timeline events as recent activity (M1)', () => {
     render(<OverviewView />);
-    expect(screen.getByRole('heading', { name: /recent activity/i, level: 2 })).toBeInTheDocument();
+    // Scoped to the "Recent activity" list itself: the HBOC flag's own recommendation text
+    // now also legitimately contains "genetic counseling" (the HBOC-pancreatic/male-breast
+    // wording added for the audit's clinical-sensitivity extension), so an unscoped
+    // `getByText` is ambiguous — the assertion should be about the activity list, not the
+    // whole page.
+    const list = screen.getByRole('list', { name: /recent activity/i });
     // Maya's three newest events: 2026 Annual physical, 2025 Genetic counseling,
     // 2024 Annual mammogram — all with their year and type label.
-    expect(screen.getByText(/annual physical/i)).toBeInTheDocument();
-    expect(screen.getByText(/genetic counseling/i)).toBeInTheDocument();
-    expect(screen.getByText(/annual mammogram/i)).toBeInTheDocument();
+    expect(within(list).getByText(/annual physical/i)).toBeInTheDocument();
+    expect(within(list).getByText(/genetic counseling/i)).toBeInTheDocument();
+    expect(within(list).getByText(/annual mammogram/i)).toBeInTheDocument();
     // Only three; older proband events (and relatives' events) are not in the list.
-    expect(screen.queryByText(/started levothyroxine/i)).not.toBeInTheDocument();
+    expect(within(list).queryByText(/started levothyroxine/i)).not.toBeInTheDocument();
   });
 
   it('marks recent activity as a real list of three items for assistive tech', () => {
@@ -118,10 +123,11 @@ describe('TimelineView', () => {
     expect(screen.getByText(/started levothyroxine/i)).toBeInTheDocument();
   });
 
-  it('gives the unlabelled person switcher an accessible name', () => {
+  it('labels the person switcher "Viewing", visibly (no longer an unlabelled control)', () => {
     render(<TimelineView />);
-    // Placeholder-only control (no visible text label) — must still resolve a name.
-    expect(screen.getByRole('combobox', { name: /select person/i })).toBeInTheDocument();
+    // Now a real, visible <label> ("Viewing") wraps the select — matching PatternsView's
+    // own vantage selector, rather than a visually-hidden label as before.
+    expect(screen.getByRole('combobox', { name: /^viewing$/i })).toBeInTheDocument();
   });
 
   it('edits an existing event in place through updateEvent', async () => {
@@ -274,14 +280,16 @@ describe('PedigreeView', () => {
     ).toBeInTheDocument();
   });
 
-  it('gives a highlight row an accessible name that separates the condition from its count', async () => {
+  it('gives a highlight row an accessible name that separates the condition, category, and count', async () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
     const highlightRow = screen.getByRole('group', { name: /highlight a condition or category/i });
     await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
-    // Seed data: cad (coronary heart disease) affects 4 people (Walter, Frank, Robert, Tom).
+    // Seed data: cad (coronary heart disease, category Cardiovascular) affects 4 people
+    // (Walter, Frank, Robert, Tom). The row now also visibly states the category (the P0
+    // category-label fix), so the accessible name carries all three parts in order.
     const row = within(highlightRow).getByRole('button', { name: /coronary heart disease/i });
-    expect(row).toHaveAccessibleName(/Coronary heart disease, 4 people/i);
+    expect(row).toHaveAccessibleName(/Coronary heart disease, Cardiovascular, 4 people/i);
   });
 
   it('gives a search result an accessible name that separates the condition from its category', async () => {
@@ -292,7 +300,15 @@ describe('PedigreeView', () => {
     await user.click(within(highlightRow).getByRole('button', { name: /^(choose|change)/i }));
     await user.type(screen.getByRole('textbox', { name: /search all conditions/i }), 'breast');
 
-    expect(screen.getByRole('button', { name: /Breast cancer, Cancer/i })).toBeInTheDocument();
+    // Breast cancer is ALSO present in the family (Helen/Linda/Mia), so the "in this family"
+    // row now carries the same "Breast cancer, Cancer, N people" accessible name (the P0
+    // category-label fix) and would also match an unscoped query — scope to the search
+    // results list specifically, since that's what this test is about.
+    const dialog = screen.getByRole('dialog', { name: /highlight a condition/i });
+    const results = dialog.querySelector('.pedigree-hl-list--results') as HTMLElement;
+    expect(
+      within(results).getByRole('button', { name: /Breast cancer, Cancer/i }),
+    ).toBeInTheDocument();
   });
 
   it('renders a category-colour legend near the chart', () => {
@@ -485,7 +501,11 @@ describe('PedigreeView', () => {
     expect(screen.getByRole('dialog', { name: /highlight a condition/i })).toBeInTheDocument();
     // Moving focus out of the popover (a keyboard Tab out to a header control) dismisses it,
     // so a keyboard user is never left with an orphaned dialog floating over the tree.
-    act(() => screen.getByRole('button', { name: /reset to empty/i }).focus());
+    // "Reset to empty" now lives inside the collapsed RecordActionsMenu (only rendered once
+    // its own trigger is opened), so it isn't a stable always-present target any more —
+    // the always-present "More actions" trigger plays the same role here (a header control
+    // outside the highlight popover's own subtree).
+    act(() => screen.getByRole('button', { name: /more actions/i }).focus());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -501,6 +521,8 @@ describe('PedigreeView', () => {
       within(highlightRow).getByRole('button', { name: /clear highlight/i }),
     ).toBeInTheDocument();
 
+    // "Reset to empty" now lives inside the collapsed RecordActionsMenu — open it first.
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
     await user.click(screen.getByRole('button', { name: /reset to empty/i }));
     expect(useStore.getState().record.people).toHaveLength(1);
 
@@ -657,7 +679,10 @@ describe('PedigreeView — GEDCOM import', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<PedigreeView />);
 
-    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    // Import GEDCOM now lives inside the header's collapsed RecordActionsMenu (non-empty
+    // record) — open it first.
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
+    await user.click(screen.getByRole('button', { name: /^import gedcom$/i }));
     await user.upload(screen.getByLabelText(/gedcom file/i), gedcomFile());
     await screen.findByRole('combobox', { name: /which of these is you/i });
     await user.click(screen.getByRole('button', { name: /import family/i }));
@@ -670,9 +695,15 @@ describe('PedigreeView — GEDCOM import', () => {
   it('the header Import GEDCOM button is a real toggle — a second press closes the panel', async () => {
     const user = userEvent.setup();
     render(<PedigreeView />); // sample family loaded, header cluster visible
-    await user.click(screen.getByRole('button', { name: /import gedcom/i }));
+    // Import GEDCOM now lives inside the header's collapsed RecordActionsMenu — the menu
+    // itself closes (returning focus to its own trigger) every time one of its own items is
+    // clicked, so re-open it before the second press too.
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
+    await user.click(screen.getByRole('button', { name: /^import gedcom$/i }));
     expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
+
     // Label swaps to a close affordance while open (aria-expanded is also true).
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
     await user.click(screen.getByRole('button', { name: /close import/i }));
     expect(screen.queryByLabelText(/gedcom file/i)).not.toBeInTheDocument();
   });
@@ -681,10 +712,14 @@ describe('PedigreeView — GEDCOM import', () => {
     const user = userEvent.setup();
     render(<PedigreeView />);
     await user.click(screen.getByRole('button', { name: /\+ add relative/i }));
-    const importBtn = screen.getByRole('button', { name: /import gedcom/i });
-    await user.click(importBtn);
-    // Focus stays on the toggle the user just pressed, not yanked to the page heading.
-    expect(importBtn).toHaveFocus();
+    // Import GEDCOM now lives inside the header's collapsed RecordActionsMenu; selecting it
+    // closes the menu and returns focus to its own trigger (the same "focus the fallback,
+    // then change state" discipline the menu uses throughout) — a header control, not the
+    // toggle item itself, but still never the page heading.
+    const moreActions = screen.getByRole('button', { name: /more actions/i });
+    await user.click(moreActions);
+    await user.click(screen.getByRole('button', { name: /^import gedcom$/i }));
+    expect(moreActions).toHaveFocus();
     expect(screen.getByLabelText(/gedcom file/i)).toBeInTheDocument();
   });
 });
@@ -933,6 +968,19 @@ describe('ReportsView', () => {
     const pre = document.querySelector('pre');
     expect(pre).toBeTruthy();
     expect(pre!.textContent).toContain('0 HEAD');
+  });
+
+  it('renders the pedigree SVG preview inline via dangerouslySetInnerHTML, not as <pre>-wrapped text', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ReportsView />);
+    const svgCard = screen.getByText('Pedigree chart').closest('.card') as HTMLElement;
+    await user.click(within(svgCard).getByRole('button', { name: 'Preview' }));
+
+    // Unlike the FHIR/Phenopacket/GEDCOM previews (plain text in a <pre>), the SVG format
+    // takes the dangerouslySetInnerHTML branch — a real <svg> element must land in the DOM.
+    const svg = container.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg!.outerHTML).toContain('<circle'); // the seed family has gender-woman nodes
   });
 
   it('downloads a lossless native backup as JSON (H2)', async () => {

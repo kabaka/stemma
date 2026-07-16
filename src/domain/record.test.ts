@@ -314,3 +314,43 @@ describe('isValidRecord — deep validation', () => {
     expect(isValidRecord(badEvent)).toBe(false);
   });
 });
+
+describe('isValidRecord — union referential integrity (Defect 5)', () => {
+  // Three real people, so a "legit union" positive control and each negative case can
+  // reuse the same base set without id collisions.
+  const threePeople = (): FamilyRecord => ({
+    people: [mkPerson('a', { isProband: true }), mkPerson('b'), mkPerson('c')],
+    unions: [],
+    timeline: [],
+    probandId: 'a',
+  });
+
+  it('rejects a union whose parent id does not resolve to any recorded person (dangling parent)', () => {
+    const rec = threePeople();
+    rec.unions = [{ parents: ['a', 'ghost-parent'], children: ['c'] }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a union whose child id does not resolve to any recorded person (dangling child)', () => {
+    const rec = threePeople();
+    rec.unions = [{ parents: ['a', 'b'], children: ['ghost-child'] }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a union where a person is listed as both a parent and a child (self-parenting overlap)', () => {
+    const rec = threePeople();
+    // 'a' is both a parent AND a child of the same union — a cycle a crafted/corrupt blob
+    // could smuggle past a shallow shape check.
+    rec.unions = [{ parents: ['a', 'b'], children: ['a', 'c'] }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('accepts legitimate unions — single-parent, childless, and normal two-parent shapes all stay valid', () => {
+    const rec = threePeople();
+    rec.unions = [
+      { parents: ['a'], children: ['c'] }, // single-parent union (a normal in-progress state)
+      { parents: ['a', 'b'], children: [] }, // childless union (partners with no kids yet)
+    ];
+    expect(isValidRecord(rec)).toBe(true);
+  });
+});

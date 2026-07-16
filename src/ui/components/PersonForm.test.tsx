@@ -29,14 +29,14 @@ describe('PersonForm — dialog semantics', () => {
   it('closes on a backdrop click but not on a click inside the modal', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    const { container } = render(
-      <PersonForm state={{ mode: 'edit', id: 'robert' }} onClose={onClose} />,
-    );
+    render(<PersonForm state={{ mode: 'edit', id: 'robert' }} onClose={onClose} />);
 
     await user.click(screen.getByRole('dialog'));
     expect(onClose).not.toHaveBeenCalled();
 
-    await user.click(container.querySelector('.modal-backdrop')!);
+    // Portalled to document.body (see PersonForm's createPortal call), so the backdrop
+    // is a sibling of RTL's `container`, not a descendant of it — query the document.
+    await user.click(document.querySelector('.modal-backdrop')!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from './useStore';
 import { buildCatalog } from '@/domain/catalog';
+import { seedRecord } from '@/data/seed';
 import type { FamilyRecord } from '@/domain/types';
 
 // Most mutation tests operate on the example family, so load it explicitly (the app's
@@ -345,5 +346,186 @@ describe('persistence', () => {
     const state = useStore.getState();
     expect(state.record.probandId).toBe('you');
     expect(state.record.people.length).toBeGreaterThan(0);
+  });
+});
+
+describe('persistence — vantage reconciliation on rehydration (Defect 1)', () => {
+  beforeEach(reset);
+
+  /** A minimal valid record whose proband is deliberately NOT 'you' — an imported/restored
+   * record, the exact shape that exposed the hardcoded-'you' shortcut. */
+  const otherProbandRecord = (): FamilyRecord => ({
+    people: [
+      {
+        id: 'zed',
+        name: 'Zed',
+        sab: 'u',
+        gender: 'nb',
+        gen: 0,
+        x: 0,
+        dead: false,
+        birth: null,
+        death: null,
+        conds: [],
+        isProband: true,
+      },
+    ],
+    unions: [],
+    timeline: [],
+    probandId: 'zed',
+  });
+
+  const persistRecord = (record: FamilyRecord): void => {
+    localStorage.setItem(
+      'stemma-record',
+      JSON.stringify({ state: { record, extensions: [], palette: 'default' }, version: 1 }),
+    );
+  };
+
+  it("re-points a stale vantage to the hydrated record's own proband, not a hardcoded 'you'", async () => {
+    // The in-memory vantage (from whatever was loaded before rehydration) points at ids
+    // that do not exist in the record being hydrated in. `setState` is called BEFORE
+    // writing to localStorage: the persist middleware auto-saves on every state change, so
+    // writing the target fixture afterwards is what makes it the content rehydrate() reads.
+    useStore.setState({ selectedId: 'robert', riskRoot: 'robert', tlPerson: 'robert' });
+    persistRecord(otherProbandRecord());
+    await useStore.persist.rehydrate();
+    const state = useStore.getState();
+    expect(state.record.probandId).toBe('zed');
+    expect(state.selectedId).toBeNull();
+    expect(state.riskRoot).toBe('zed');
+    expect(state.tlPerson).toBe('zed');
+  });
+
+  it('preserves a vantage that still resolves in the hydrated record, rather than blindly resetting it', async () => {
+    // 'robert' exists in the seed being hydrated in — real existence, not a truthy
+    // shortcut, must keep it exactly as-is rather than falling back to the proband.
+    useStore.setState({ selectedId: 'robert', riskRoot: 'robert', tlPerson: 'robert' });
+    persistRecord(seedRecord());
+    await useStore.persist.rehydrate();
+    const state = useStore.getState();
+    expect(state.selectedId).toBe('robert');
+    expect(state.riskRoot).toBe('robert');
+    expect(state.tlPerson).toBe('robert');
+  });
+
+  it("does not treat a literal 'you' id as always existing — falls back when the hydrated record has no such person", async () => {
+    // Guards specifically against `id === 'you'` as a hardcoded existence shortcut: the
+    // CURRENT vantage happens to be the literal string 'you' (e.g. left over from the
+    // default store), but the record being hydrated in has no person with that id at all.
+    useStore.setState({ selectedId: 'you', riskRoot: 'you', tlPerson: 'you' });
+    persistRecord(otherProbandRecord());
+    await useStore.persist.rehydrate();
+    const state = useStore.getState();
+    expect(state.riskRoot).toBe('zed');
+    expect(state.tlPerson).toBe('zed');
+    expect(state.selectedId).toBeNull();
+  });
+});
+
+describe('migratePersisted (via rehydrate) — valid-blob happy path', () => {
+  beforeEach(reset);
+
+  it('coerces a non-array extensions and an unrecognised palette to safe defaults on an otherwise-valid record', async () => {
+    localStorage.setItem(
+      'stemma-record',
+      JSON.stringify({
+        state: { record: seedRecord(), extensions: 'not-an-array', palette: 'garbage' },
+        version: 1,
+      }),
+    );
+    await useStore.persist.rehydrate();
+    const state = useStore.getState();
+    expect(state.record.probandId).toBe('you');
+    expect(state.extensions).toEqual([]);
+    expect(state.palette).toBe('default');
+  });
+
+  it('preserves a well-formed extensions array and the colorblind palette', async () => {
+    const ext = [{ id: 'X9', name: 'X9', cat: 'other' as const, base: 0, pattern: '—' }];
+    localStorage.setItem(
+      'stemma-record',
+      JSON.stringify({
+        state: { record: seedRecord(), extensions: ext, palette: 'colorblind' },
+        version: 1,
+      }),
+    );
+    await useStore.persist.rehydrate();
+    const state = useStore.getState();
+    expect(state.extensions).toEqual(ext);
+    expect(state.palette).toBe('colorblind');
+  });
+});
+
+describe('mutator no-op guards on an unknown id', () => {
+  beforeEach(reset);
+
+  it('updatePerson no-ops (no `set` call) for an unknown person id', () => {
+    const before = useStore.getState().record;
+    useStore.getState().updatePerson('nonexistent', {
+      name: 'Ghost',
+      sab: 'u',
+      gender: 'nb',
+      dead: false,
+      birth: null,
+      death: null,
+      condIds: [],
+    });
+    expect(useStore.getState().record).toBe(before); // same reference — set() never ran
+  });
+
+  it('toggleCondition no-ops for an unknown person id', () => {
+    const before = useStore.getState().record;
+    useStore.getState().toggleCondition('nonexistent', 'brca');
+    expect(useStore.getState().record).toBe(before);
+  });
+
+  it('setConditionField no-ops for an unknown person id', () => {
+    const before = useStore.getState().record;
+    useStore.getState().setConditionField('nonexistent', 'brca', 'onset', '50');
+    expect(useStore.getState().record).toBe(before);
+  });
+
+  it('setConditionField no-ops for a known person but an unrecorded condition id', () => {
+    const before = useStore.getState().record;
+    // Robert exists, but doesn't carry 'ovarian'.
+    useStore.getState().setConditionField('robert', 'ovarian', 'onset', '50');
+    expect(useStore.getState().record).toBe(before);
+  });
+
+  it('toggleOrgan no-ops for an unknown person id', () => {
+    const before = useStore.getState().record;
+    useStore.getState().toggleOrgan('nonexistent', 'breasts');
+    expect(useStore.getState().record).toBe(before);
+  });
+
+  it('updateEvent no-ops for an unknown event id', () => {
+    const before = useStore.getState().record;
+    useStore.getState().updateEvent('nonexistent-event', { title: 'Should not apply' });
+    expect(useStore.getState().record).toBe(before);
+  });
+});
+
+describe('deletePerson (vantage-reset asymmetry)', () => {
+  beforeEach(reset);
+
+  it('always clears selectedId on a successful delete, even for an unrelated selection', () => {
+    // selectedId is unconditionally cleared on any successful delete — unlike riskRoot/
+    // tlPerson, which are only reset when THEY equal the id being deleted (see below).
+    useStore.getState().selectPerson('susan');
+    useStore.getState().deletePerson('leo'); // an unrelated leaf, not Susan
+    expect(useStore.getState().selectedId).toBeNull();
+  });
+
+  it('resets tlPerson to the proband when the deleted person was the timeline vantage', () => {
+    useStore.getState().setTlPerson('robert');
+    useStore.getState().deletePerson('robert');
+    expect(useStore.getState().tlPerson).toBe(useStore.getState().record.probandId);
+  });
+
+  it('leaves tlPerson untouched when the deleted person was not the timeline vantage', () => {
+    useStore.getState().setTlPerson('you');
+    useStore.getState().deletePerson('leo');
+    expect(useStore.getState().tlPerson).toBe('you');
   });
 });

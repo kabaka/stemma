@@ -68,4 +68,13 @@ describe('buildPedigreeSvg', () => {
     const svg = buildPedigreeSvg(soloRecord({ dead: true, birth: 1950, death: 2020 }), catalog);
     expect(svg).toContain('<line');
   });
+
+  it('escapes <, >, &, and " in a person’s name (the SVG is injected via dangerouslySetInnerHTML)', () => {
+    const svg = buildPedigreeSvg(soloRecord({ name: 'A&B <script>"x"</script>' }), catalog);
+    // The raw markup must never survive into the output string.
+    expect(svg).not.toContain('<script>');
+    expect(svg).not.toContain('</script>');
+    // Every one of & < > " is escaped, in the order esc() applies them.
+    expect(svg).toContain('A&amp;B &lt;script&gt;&quot;x&quot;&lt;/script&gt;');
+  });
 });
