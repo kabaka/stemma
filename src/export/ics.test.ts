@@ -4,6 +4,21 @@ import { scheduleFor } from '@/domain/screening';
 import { CLINICAL_BOUNDARY_TEXT } from '@/domain/boundary';
 import type { FamilyRecord, Person, TimelineEvent } from '@/domain/types';
 
+/**
+ * Escape a string the way the exporter's own `icsText` does (RFC 5545 §3.3.11), so the
+ * expected DESCRIPTION content is derived with the *same* rules the code under test applies.
+ * Backslash is escaped first — a complete escaper, not a partial comma-only replace (which
+ * static analysis flags as incomplete sanitisation and which would drift if the boundary
+ * text ever gained a `;`, `\`, or newline).
+ */
+function icsEscape(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n');
+}
+
 /** Minimal fixture person — mirrors the other export tests' `mkPerson` helper. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
   return {
@@ -92,7 +107,7 @@ describe('buildIcsCalendar', () => {
 
   it('produces the exact documented content for a specific VEVENT (mammogram)', () => {
     const block = findVevent(lines, 'p1.mammogram.2021@stemma.local');
-    const escapedBoundary = CLINICAL_BOUNDARY_TEXT.replace(/,/g, '\\,');
+    const escapedBoundary = icsEscape(CLINICAL_BOUNDARY_TEXT);
     const expectedDescription =
       'Breast tissue present. ' +
       'From 40\\; annual (ACS/ACR) or biennial (USPSTF). ' +
@@ -145,7 +160,7 @@ describe('buildIcsCalendar', () => {
   });
 
   it('includes the shared clinical-boundary text verbatim (escaped) in every DESCRIPTION', () => {
-    const escapedBoundary = CLINICAL_BOUNDARY_TEXT.replace(/,/g, '\\,');
+    const escapedBoundary = icsEscape(CLINICAL_BOUNDARY_TEXT);
     const descriptionLines = lines.filter((l) => l.startsWith('DESCRIPTION:'));
     expect(descriptionLines.length).toBeGreaterThan(0);
     for (const d of descriptionLines) {
