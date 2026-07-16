@@ -3,7 +3,7 @@ import { useCalculators, useFindings, useFlags, useRelations } from '../hooks';
 import { FlagCard } from '../components/FlagCard';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import { ProvenanceMark } from '../components/ProvenanceMark';
-import { categoryColor } from '@/data/categories';
+import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PROV_META, PROVENANCE_ORDER, provenanceSummary } from '@/data/provenance';
 
 /** Visible one-line key explaining the provenance glyphs and that source carries weight. */
@@ -35,7 +35,9 @@ export function PatternsView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title">Family Patterns</h1>
+        <h1 className="page-title" tabIndex={-1}>
+          Family Patterns
+        </h1>
         <label className="row" style={{ gap: 8 }}>
           <span className="mono-dim">Vantage</span>
           <select
@@ -43,6 +45,7 @@ export function PatternsView() {
             style={{ width: 'auto' }}
             value={riskRoot}
             onChange={(e) => setRiskRoot(e.target.value)}
+            title="Re-roots pattern detection on this person. Overview always shows your own perspective."
           >
             {record.people.map((p) => (
               <option key={p.id} value={p.id}>
@@ -54,18 +57,28 @@ export function PatternsView() {
         </label>
       </div>
       <ClinicalBoundary />
+      {/* View-specific value only — ClinicalBoundary above already states "surfaces
+          red-flag patterns and the criteria they meet, never a risk number", so this lede
+          adds the vantage framing and the calculator pointer instead of restating it. */}
       <p className="lede">
-        Published red-flag patterns detected from {rootName}&rsquo;s vantage, each stating the
-        specific criterion met. Validated calculators below are the right tool where a number is
-        needed.
+        Findings below reflect {rootName}&rsquo;s vantage in the family tree — re-root with the
+        selector above. Validated calculators are the right tool where an actual number is needed.
       </p>
-      <p className="mono-dim" style={{ margin: '0 0 18px', color: 'var(--text-dim)' }}>
-        Provenance {PROV_LEGEND} — clinicians weight family history by its source (a
-        records-confirmed diagnosis carries more than a recollection).
-      </p>
+      {/* Reference material a frequent user already knows — collapsed by default rather
+          than a permanent line, matching the pedigree's own notation-key disclosure. */}
+      <details className="pedigree-guide" style={{ margin: '0 0 18px' }}>
+        <summary className="pedigree-guide__toggle">Provenance key</summary>
+        <p className="pedigree-guide__text">
+          {PROV_LEGEND} — clinicians weight family history by its source (a records-confirmed
+          diagnosis carries more than a recollection).
+        </p>
+      </details>
 
       <section style={{ marginBottom: 26 }}>
         <h2 className="section-label">Detected patterns</h2>
+        <p className="mono-dim" style={{ margin: '-7px 0 12px' }}>
+          Named hereditary red-flag patterns — HBOC, Lynch, and similar published criteria.
+        </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           {flags.length === 0 && (
             <div className="card" style={{ color: 'var(--text-dim)', fontSize: 13 }}>
@@ -111,12 +124,16 @@ export function PatternsView() {
 
       <section>
         <h2 className="section-label">Per-condition family findings</h2>
+        <p className="mono-dim" style={{ margin: '-7px 0 12px' }}>
+          Every condition recorded in the family, regardless of pattern status.
+        </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {findings.map((f) => (
             <div className="card" key={f.id} style={{ padding: '12px 14px' }}>
               <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
                 <div className="row">
                   <span
+                    aria-hidden="true"
                     style={{
                       width: 9,
                       height: 9,
@@ -126,6 +143,7 @@ export function PatternsView() {
                     }}
                   />
                   <span style={{ fontSize: 13.5, fontWeight: 600 }}>{f.name}</span>
+                  <span className="mono-dim">{CATEGORIES[f.cat].label}</span>
                   <span className="mono-dim">{f.pattern}</span>
                 </div>
                 <span

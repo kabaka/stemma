@@ -59,27 +59,30 @@ export function TimelineView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title">
+        <h1 className="page-title" tabIndex={-1}>
           {isProband ? 'My Health Timeline' : `${person.name}’s Timeline`}
         </h1>
         <div className="row" style={{ gap: 8 }}>
-          <label className="visually-hidden" htmlFor={personSelectId}>
-            Select person
+          {/* Visible label, matching PatternsView's vantage selector treatment (both
+              re-root a per-person view; a visually-hidden label here was the odd one out). */}
+          <label className="row" style={{ gap: 8 }}>
+            <span className="mono-dim">Viewing</span>
+            <select
+              id={personSelectId}
+              className="field"
+              style={{ width: 'auto' }}
+              value={tlPerson}
+              onChange={(e) => setTlPerson(e.target.value)}
+              title="Shows this person's own timeline. Overview always shows yours."
+            >
+              {record.people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.id === record.probandId ? ' (you)' : ` · ${relations.get(p.id)?.rel ?? ''}`}
+                </option>
+              ))}
+            </select>
           </label>
-          <select
-            id={personSelectId}
-            className="field"
-            style={{ width: 'auto' }}
-            value={tlPerson}
-            onChange={(e) => setTlPerson(e.target.value)}
-          >
-            {record.people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.id === record.probandId ? ' (you)' : ` · ${relations.get(p.id)?.rel ?? ''}`}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
             className="btn btn--primary btn--sm"

@@ -87,6 +87,9 @@
 .nav-item[aria-current='page'] {
   background: rgba(52, 226, 207, 0.1);
   color: var(--accent);
+  /* A non-colour cue for the current page, matching .chip/.seg-btn's pressed state —
+     colour is never the only signal (WCAG 1.4.1). */
+  font-weight: 600;
 }
 .sidebar__foot {
   margin-top: auto;
@@ -940,12 +943,14 @@ textarea.field {
 }
 
 @media (max-width: 720px) {
+  /* Narrower, not icon-only: nav labels stay visible (below) so a nav item never
+     collapses to an unlabelled, colour-only pill — 64px only had room for the bare
+     .nav-item background tint as the sole (colour-only) way to tell items apart. */
   .sidebar {
-    width: 64px;
+    width: 160px;
   }
   .brand-name,
   .brand-tag,
-  .nav-item span,
   .sidebar__foot .who {
     display: none;
   }

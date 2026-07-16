@@ -24,15 +24,15 @@ export function FlagCard({ flag }: { flag: PatternFlag }) {
       <p className="flag__rec">{flag.rec}</p>
       {flag.relatives.length > 0 && (
         <>
-          <div className="row wrap" style={{ marginTop: 10, gap: 6 }}>
+          {/* Plain text, not filled pills — matches the per-condition findings list
+              (PatternsView) so the same kind of data doesn't read as heavier chrome just
+              because it's on this card. */}
+          <div className="mono-dim" style={{ marginTop: 10 }}>
             {flag.relatives.map((r, i) => (
-              <span
-                key={`${r.person.id}-${i}`}
-                className="badge"
-                style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-dim)' }}
-              >
+              <span key={`${r.person.id}-${i}`}>
+                {i > 0 ? ' · ' : ''}
                 {r.rel}
-                {r.onset != null ? ` · onset ${r.onset}` : ''} <ProvenanceMark prov={r.prov} />
+                {r.onset != null ? `, onset ${r.onset}` : ''} <ProvenanceMark prov={r.prov} />
               </span>
             ))}
           </div>
