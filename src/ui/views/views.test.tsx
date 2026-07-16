@@ -66,6 +66,60 @@ describe('OverviewView', () => {
     const list = screen.getByRole('list', { name: /recent activity/i });
     expect(within(list).getAllByRole('listitem')).toHaveLength(3);
   });
+
+  it('renders an advisory schedule label (never a standalone "Overdue" verdict), plus the family-history caveat when a signal is present (guardrail #2)', () => {
+    // Purpose-built fixture (not the seed): a proband with a schedulable screen (breast
+    // tissue, well past mammogram's startAge 40, no completion on record — overdue by
+    // construction) whose blood parent carries the flagging condition, so the screen also
+    // escalates to "Recommended" and the family-history caveat has something to attach to.
+    act(() =>
+      useStore.getState().replaceRecord({
+        people: [
+          {
+            id: 'parent',
+            name: 'Pat',
+            sab: 'f',
+            gender: 'woman',
+            gen: 0,
+            x: 0,
+            dead: false,
+            birth: 1950,
+            death: null,
+            conds: [{ id: 'brca', onset: 45, prov: 'record' }],
+          },
+          {
+            id: 'you',
+            name: 'Robin',
+            sab: 'f',
+            gender: 'woman',
+            gen: 1,
+            x: 0,
+            dead: false,
+            birth: 1980, // age 46 in 2026 — past mammogram's startAge 40, so it schedules.
+            death: null,
+            isProband: true,
+            organs: ['breasts'],
+            conds: [],
+          },
+        ],
+        unions: [{ parents: ['parent'], children: ['you'] }],
+        timeline: [],
+        probandId: 'you',
+      }),
+    );
+    render(<OverviewView />);
+
+    // Advisory phrasing only — "May be due" / "On track" / "Not yet due" — never a bare verdict.
+    // (Robin's fixture yields more than one schedulable screen — mammogram and the
+    // organ-agnostic lipids/HbA1c cadences all qualify at age 46 — so assert at least one.)
+    expect(screen.getAllByText(/may be due|on track|not yet due/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^overdue$/i)).not.toBeInTheDocument();
+
+    // Pat's BRCA history escalates Robin's mammogram screen — the caveat renders alongside it.
+    expect(
+      screen.getByText(/family history — guidelines often start earlier/i),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('PatternsView', () => {
@@ -178,6 +232,88 @@ describe('TimelineView', () => {
     const saved = useStore.getState().record.timeline.find((e) => e.title === 'New relative event');
     expect(saved).toBeTruthy();
     expect(saved!.person).toBe(relative.value);
+  });
+
+  it('shows the "Which screening (optional)" picker only when Type is Screening', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    // Default Type is Diagnosis — the screening picker is absent.
+    expect(screen.queryByRole('combobox', { name: /which screening/i })).not.toBeInTheDocument();
+
+    const typeSelect = screen.getByRole('combobox', { name: /^type$/i });
+    await user.selectOptions(typeSelect, 'screening');
+    expect(screen.getByRole('combobox', { name: /which screening/i })).toBeInTheDocument();
+
+    // Switching to any other type hides it again — it's only meaningful for Screening.
+    await user.selectOptions(typeSelect, 'visit');
+    expect(screen.queryByRole('combobox', { name: /which screening/i })).not.toBeInTheDocument();
+  });
+
+  it('clears a previously linked screeningId when the user picks "— none —" and saves (regression)', async () => {
+    // Regression for the unlink bug: `updateEvent` partial-merges, so an *omitted*
+    // screeningId key used to leave a stale link when the user picked "— none —". The fix
+    // sets `screeningId: undefined` explicitly so the merge actually clears it.
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.type(screen.getByLabelText(/^title$/i), 'Linked screening event');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'screening');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /which screening/i }),
+      'mammogram',
+    );
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    expect(
+      useStore.getState().record.timeline.find((e) => e.title === 'Linked screening event')
+        ?.screeningId,
+    ).toBe('mammogram');
+
+    // Re-open the saved event: the form re-hydrates the picker from the stored link.
+    await user.click(screen.getByRole('button', { name: /edit linked screening event/i }));
+    const screeningSelect = screen.getByRole('combobox', {
+      name: /which screening/i,
+    }) as HTMLSelectElement;
+    expect(screeningSelect.value).toBe('mammogram');
+
+    await user.selectOptions(screeningSelect, '');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(
+      useStore.getState().record.timeline.find((e) => e.title === 'Linked screening event')
+        ?.screeningId,
+    ).toBeUndefined();
+  });
+
+  it('clears a previously linked screeningId when Type is switched away from Screening (regression)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+    await user.type(screen.getByLabelText(/^title$/i), 'Retyped screening event');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'screening');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /which screening/i }),
+      'colonoscopy',
+    );
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    expect(
+      useStore.getState().record.timeline.find((e) => e.title === 'Retyped screening event')
+        ?.screeningId,
+    ).toBe('colonoscopy');
+
+    await user.click(screen.getByRole('button', { name: /edit retyped screening event/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^type$/i }), 'visit');
+    // The picker itself disappears once Type is no longer Screening.
+    expect(screen.queryByRole('combobox', { name: /which screening/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(
+      useStore.getState().record.timeline.find((e) => e.title === 'Retyped screening event')
+        ?.screeningId,
+    ).toBeUndefined();
   });
 });
 
@@ -964,7 +1100,10 @@ describe('ReportsView', () => {
     const user = userEvent.setup();
     render(<ReportsView />);
     const gedcomCard = screen.getByText('GEDCOM').closest('.card') as HTMLElement;
-    await user.click(within(gedcomCard).getByRole('button', { name: 'Download' }));
+    // Export buttons carry a per-card accessible name (a11y 2.4.6) rather than the bare
+    // "Download"/"Preview" text, so five identical-looking buttons are distinguishable to
+    // a screen-reader user tabbing straight to one.
+    await user.click(within(gedcomCard).getByRole('button', { name: 'Download GEDCOM' }));
 
     expect(clicks).toHaveLength(1);
     expect(clicks[0].href).toBe('blob:mock-url');
@@ -975,7 +1114,7 @@ describe('ReportsView', () => {
     const user = userEvent.setup();
     render(<ReportsView />);
     const gedcomCard = screen.getByText('GEDCOM').closest('.card') as HTMLElement;
-    await user.click(within(gedcomCard).getByRole('button', { name: 'Preview' }));
+    await user.click(within(gedcomCard).getByRole('button', { name: 'Preview GEDCOM' }));
 
     const pre = document.querySelector('pre');
     expect(pre).toBeTruthy();
@@ -986,13 +1125,40 @@ describe('ReportsView', () => {
     const user = userEvent.setup();
     const { container } = render(<ReportsView />);
     const svgCard = screen.getByText('Pedigree chart').closest('.card') as HTMLElement;
-    await user.click(within(svgCard).getByRole('button', { name: 'Preview' }));
+    await user.click(within(svgCard).getByRole('button', { name: 'Preview Pedigree chart' }));
 
     // Unlike the FHIR/Phenopacket/GEDCOM previews (plain text in a <pre>), the SVG format
     // takes the dangerouslySetInnerHTML branch — a real <svg> element must land in the DOM.
     const svg = container.querySelector('svg');
     expect(svg).toBeTruthy();
     expect(svg!.outerHTML).toContain('<circle'); // the seed family has gender-woman nodes
+  });
+
+  it('renders the Screening calendar card with a specific accessible name and the vantage note', () => {
+    render(<ReportsView />);
+    const icsCard = screen.getByText('Screening calendar').closest('.card') as HTMLElement;
+    expect(
+      within(icsCard).getByRole('button', { name: 'Download Screening calendar' }),
+    ).toBeInTheDocument();
+    expect(
+      within(icsCard).getByRole('button', { name: 'Preview Screening calendar' }),
+    ).toBeInTheDocument();
+    // Unlike the whole-graph exports above, .ics is scoped to one person — the card says
+    // whose calendar this is (the current risk vantage, Maya in the loaded sample).
+    expect(within(icsCard).getByText(/^For Maya/)).toBeInTheDocument();
+  });
+
+  it('previews the .ics export as VCALENDAR text in a <pre>, not the SVG dangerouslySetInnerHTML branch', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ReportsView />);
+    const icsCard = screen.getByText('Screening calendar').closest('.card') as HTMLElement;
+    await user.click(within(icsCard).getByRole('button', { name: 'Preview Screening calendar' }));
+
+    const pre = document.querySelector('pre');
+    expect(pre).toBeTruthy();
+    expect(pre!.textContent).toContain('BEGIN:VCALENDAR');
+    // Confirm this took the <pre> branch, not the SVG dangerouslySetInnerHTML one.
+    expect(container.querySelector('svg')).toBeNull();
   });
 
   it('downloads a lossless native backup as JSON (H2)', async () => {

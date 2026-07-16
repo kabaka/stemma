@@ -4,6 +4,7 @@ import { useAsOfYear, useCatalog } from '../hooks';
 import {
   buildFhirBundle,
   buildGedcom,
+  buildIcsCalendar,
   buildNativeBackup,
   buildPedigreeSvg,
   buildPhenopacket,
@@ -15,7 +16,7 @@ import type { Condition, FamilyRecord } from '@/domain/types';
 const CONFIRM_RESTORE =
   'Restore this backup? It replaces your current record, timeline, and custom conditions.';
 
-type Format = 'fhir' | 'phenopacket' | 'gedcom' | 'svg';
+type Format = 'fhir' | 'phenopacket' | 'gedcom' | 'svg' | 'ics';
 
 interface ExportSpec {
   id: Format;
@@ -59,6 +60,14 @@ const EXPORTS: ExportSpec[] = [
     filename: 'stemma-pedigree.svg',
     mime: 'image/svg+xml',
   },
+  {
+    id: 'ics',
+    name: 'Screening calendar',
+    standard: 'iCalendar · RFC 5545',
+    desc: 'Upcoming and outstanding screens for the current risk vantage — unlike the exports above, this one covers a single person, not the whole record.',
+    filename: 'stemma-screenings.ics',
+    mime: 'text/calendar',
+  },
 ];
 
 function download(filename: string, text: string, mime: string) {
@@ -79,10 +88,15 @@ export function ReportsView() {
   const extensions = useStore((s) => s.extensions);
   const palette = useStore((s) => s.palette);
   const replaceRecord = useStore((s) => s.replaceRecord);
+  // The .ics export is vantage-scoped (unlike every other export here, which is
+  // whole-graph) — it needs the current risk root to know whose calendar to build.
+  const riskRoot = useStore((s) => s.riskRoot);
   const catalog = useCatalog();
   const asOfYear = useAsOfYear();
   const [preview, setPreview] = useState<{ format: Format; text: string } | null>(null);
   const [restoring, setRestoring] = useState(false);
+
+  const rootName = record.people.find((p) => p.id === riskRoot)?.name ?? 'the current vantage';
 
   const downloadBackup = (): void => {
     // The generation timestamp is injected here (the sanctioned wall-clock boundary) so the
@@ -111,6 +125,8 @@ export function ReportsView() {
         return buildGedcom(record);
       case 'svg':
         return buildPedigreeSvg(record, catalog, { palette });
+      case 'ics':
+        return buildIcsCalendar(record, riskRoot, { now, asOfYear });
     }
   };
 
@@ -186,35 +202,56 @@ export function ReportsView() {
           marginBottom: 24,
         }}
       >
-        {EXPORTS.map((spec) => (
-          <div className="card" key={spec.id}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{spec.name}</div>
-            <div className="mono-dim" style={{ margin: '3px 0 9px' }}>
-              {spec.standard}
-            </div>
-            <div
-              style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.5, minHeight: 54 }}
-            >
-              {spec.desc}
-            </div>
-            <div className="row" style={{ marginTop: 10 }}>
-              <button
-                type="button"
-                className="btn btn--primary btn--sm"
-                onClick={() => download(spec.filename, render(spec.id), spec.mime)}
+        {EXPORTS.map((spec) => {
+          // Describe each button by the export's name + description (and, for the
+          // vantage-scoped .ics, the "whose calendar" note) so a screen-reader user tabbing
+          // straight to a button — past five identical "Download"s — still knows which export
+          // it is and, for the .ics, that it covers one person not the whole record (a11y
+          // 2.4.6 / guardrail #5). `describedby` points at the visible copy, no duplication.
+          const descId = `export-desc-${spec.id}`;
+          const noteId = `export-note-${spec.id}`;
+          const describedBy = spec.id === 'ics' ? `${descId} ${noteId}` : descId;
+          return (
+            <div className="card" key={spec.id}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{spec.name}</div>
+              <div className="mono-dim" style={{ margin: '3px 0 9px' }}>
+                {spec.standard}
+              </div>
+              <div
+                id={descId}
+                style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.5, minHeight: 54 }}
               >
-                Download
-              </button>
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => setPreview({ format: spec.id, text: render(spec.id) })}
-              >
-                Preview
-              </button>
+                {spec.desc}
+              </div>
+              {spec.id === 'ics' && (
+                <div id={noteId} className="mono-dim" style={{ margin: '6px 0 0' }}>
+                  For {rootName} — change vantage on the Patterns view to export someone
+                  else&rsquo;s.
+                </div>
+              )}
+              <div className="row" style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  aria-label={`Download ${spec.name}`}
+                  aria-describedby={describedBy}
+                  onClick={() => download(spec.filename, render(spec.id), spec.mime)}
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  aria-label={`Preview ${spec.name}`}
+                  aria-describedby={describedBy}
+                  onClick={() => setPreview({ format: spec.id, text: render(spec.id) })}
+                >
+                  Preview
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {preview && (

@@ -83,6 +83,18 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 - **Append-only history** with a visible "what changed" diff.
 - **Care coordination**: screenings as a schedule with overdue flags, calendar export
   (`.ics`), and a printable "bring to your appointment" sheet.
+  - ✅ **Screening schedule + advisory "may be due" flags** (`scheduleFor` in
+    `src/domain/screening.ts`): each recurring, age-bound screen (mammogram, cervical,
+    colonoscopy, lipids, HbA1c) carries a guideline-sourced cadence (start/stop age +
+    interval, `medical-domain-expert`-verified against USPSTF / ACC-AHA); "last done" is
+    derived from a `TimelineEvent.screeningId`-linked screening event. Framing is advisory
+    (guardrail #2) — never an "Overdue" verdict; PSA (shared decision) and the BRCA panel
+    (one-time) deliberately carry no interval.
+  - ✅ **iCalendar `.ics` export** (`src/export/ics.ts`, RFC 5545): the current vantage's
+    upcoming/outstanding screens as all-day, year-only `STATUS:TENTATIVE` events, each
+    carrying the clinical boundary (guardrail #3); generated client-side (guardrail #5).
+  - ✅ **Printable "bring to your appointment" sheet** — already shipped (see the
+    conversion-gap follow-up below).
 
 ### Phase 3 — Import pipelines (kill the retyping)
 - **GEDCOM import** ✅ (ideation §4) — reuse an existing family tree for the relationship graph.

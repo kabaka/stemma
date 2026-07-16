@@ -22,18 +22,14 @@ import { ORGAN_LABELS, ageOf, condEntry, genderLabel, organsOf, sabLabel } from 
 import { CATEGORY_LABELS } from '@/data/categories';
 import { PROV_LABEL } from '@/data/provenance';
 import { SEVERITY_META } from '@/data/severity';
+import { CLINICAL_BOUNDARY_TEXT } from '@/domain/boundary';
 import type { Person } from '@/domain/types';
-
-const BOUNDARY =
-  'Stemma is an organizing tool that surfaces family-history patterns worth a clinician’s ' +
-  'attention — not a diagnostic device. It reports published referral criteria, never a ' +
-  'computed risk number. Discuss anything here with a clinician or genetic counselor.';
 
 /** The clinical-boundary block repeated at the foot of every sheet (guardrail #3). */
 function BoundaryFooter() {
   return (
     <div className="print-boundary" role="note">
-      <b>Clinical boundary.</b> {BOUNDARY}
+      <b>Clinical boundary.</b> {CLINICAL_BOUNDARY_TEXT}
     </div>
   );
 }
