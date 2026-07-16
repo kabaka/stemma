@@ -82,14 +82,14 @@ export interface FhirBundleEntry {
 export interface FhirBundle {
   resourceType: 'Bundle';
   type: 'collection';
-  /** ISO generation timestamp; omitted when the caller injects no `now` (Bundle.timestamp is 0..1 in R4). */
-  timestamp?: string;
+  /** ISO generation timestamp, injected by the caller (the sanctioned wall-clock boundary). */
+  timestamp: string;
   entry: FhirBundleEntry[];
 }
 
 export interface FhirExportOptions {
-  /** ISO timestamp for `Bundle.timestamp`; when omitted the field is left off (no clock read — stays pure). */
-  now?: string;
+  /** ISO timestamp for `Bundle.timestamp`, injected by the caller (no clock read here — stays pure). */
+  now: string;
 }
 
 const SNOMED_SYSTEM = 'http://snomed.info/sct';
@@ -172,7 +172,7 @@ function onsetAge(onset: number | null | undefined): FhirAge | undefined {
 export function buildFhirBundle(
   record: FamilyRecord,
   catalog: Catalog,
-  opts: FhirExportOptions = {},
+  opts: FhirExportOptions,
 ): FhirBundle {
   const idx = indexPeople(record.people, record.unions);
   const probandId = record.probandId;
@@ -240,9 +240,9 @@ export function buildFhirBundle(
   return {
     resourceType: 'Bundle',
     type: 'collection',
-    // The generation timestamp is injected by the caller (the sanctioned wall-clock boundary);
-    // when absent it is omitted rather than read from the clock, keeping this serialiser pure.
-    ...(opts.now ? { timestamp: opts.now } : {}),
+    // The generation timestamp is injected by the caller (the sanctioned wall-clock boundary),
+    // never read from the clock here, keeping this serialiser pure/deterministic.
+    timestamp: opts.now,
     entry,
   };
 }

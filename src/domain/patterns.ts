@@ -180,7 +180,7 @@ export function detectPatterns(
         // clinician + validated model. Guardrail #2: the rec stays an advisory referral
         // prompt, and pancreatic surveillance is not overstated (specialist programs only).
         rec: isReferral
-          ? 'Meets common criteria to discuss BRCA1/2 (and related genes, e.g. PALB2) genetic counseling/testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage; pancreatic cancer and male breast cancer meet criteria at any age on their own. Consider a genetics referral; a clinician can advise on risk-appropriate screening. Pancreatic surveillance is offered only to confirmed high-risk individuals within specialist programs.'
+          ? 'Meets common criteria to discuss BRCA1/2 (and related genes, e.g. PALB2) genetic counseling/testing and a validated risk model (BOADICEA / CanRisk). Hereditary-cancer criteria are assessed per lineage; a single pancreatic or male-breast cancer at any age is a strong indication on its own to raise with a clinician — most strongly for a first-degree relative or when the affected relative can be tested. Consider a genetics referral; a clinician can advise on risk-appropriate screening. Pancreatic surveillance is offered only to confirmed high-risk individuals within specialist programs.'
           : 'Two or more breast cancers are present but not clustered on one lineage, so per-lineage BRCA1/2 testing criteria are not met. Still worth raising with a clinician, who can take a fuller history and run a validated risk model (Tyrer-Cuzick / CanRisk).',
         relatives: [...breast, ...ovarian, ...panc],
       });
