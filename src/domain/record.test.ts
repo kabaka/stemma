@@ -499,3 +499,79 @@ describe('isValidRecord — timeline event structured payloads (med/lab/vital/al
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR 3 — union `twins` (isValidTwinSets) and a type-checked `consanguineous`
+// ---------------------------------------------------------------------------
+
+describe('isValidRecord — union twins & consanguineous (PR 3 pedigree extras)', () => {
+  /** Two unions off the same proband: the first (children b, c, e) is the one twin fixtures
+   * patch; the second (child d) supplies a real person id that is NOT a child of the first
+   * union, for the "twin member outside this union's own children" negative case. */
+  const twinsBase = (): FamilyRecord => ({
+    people: [
+      mkPerson('a', { isProband: true }),
+      mkPerson('b'),
+      mkPerson('c'),
+      mkPerson('d'),
+      mkPerson('e'),
+    ],
+    unions: [
+      { parents: ['a'], children: ['b', 'c', 'e'] },
+      { parents: ['a'], children: ['d'] },
+    ],
+    timeline: [],
+    probandId: 'a',
+  });
+
+  it('accepts a well-formed twins entry', () => {
+    const rec = twinsBase();
+    rec.unions[0].twins = [{ members: ['b', 'c'], zygosity: 'di' }];
+    expect(isValidRecord(rec)).toBe(true);
+  });
+
+  it("rejects a twin member that is a real person but not among THIS union's own children", () => {
+    const rec = twinsBase();
+    // 'd' is a valid person and a child of the second union, but not of the first.
+    rec.unions[0].twins = [{ members: ['b', 'd'], zygosity: 'di' }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a TwinSet with fewer than two members', () => {
+    const rec = twinsBase();
+    rec.unions[0].twins = [{ members: ['b'], zygosity: 'di' }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects a child id claimed by two TwinSets in the same union', () => {
+    const rec = twinsBase();
+    rec.unions[0].twins = [
+      { members: ['b', 'c'], zygosity: 'di' },
+      { members: ['c', 'e'], zygosity: 'mono' },
+    ];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('rejects an out-of-enum zygosity', () => {
+    const rec = twinsBase();
+    rec.unions[0].twins = [{ members: ['b', 'c'], zygosity: 'identical' as never }];
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('a legacy union with no `twins` key at all still validates', () => {
+    expect(isValidRecord(twinsBase())).toBe(true);
+  });
+
+  it('rejects a non-boolean consanguineous flag', () => {
+    const rec = twinsBase();
+    (rec.unions[0] as unknown as Record<string, unknown>).consanguineous = 'yes';
+    expect(isValidRecord(rec)).toBe(false);
+  });
+
+  it('accepts consanguineous true and accepts it absent', () => {
+    const withFlag = twinsBase();
+    withFlag.unions[0].consanguineous = true;
+    expect(isValidRecord(withFlag)).toBe(true);
+    expect(isValidRecord(twinsBase())).toBe(true); // absent
+  });
+});

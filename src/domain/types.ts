@@ -142,6 +142,22 @@ export interface Person {
 }
 
 /**
+ * A set of children of a union who share one birth — a twin (or higher multiple) group.
+ * A genetic-structure fact keyed on the union's own children and layout geometry: it
+ * drives the pedigree's twin notation (diagonals converging on the sibship bus, with a
+ * connecting bar for monozygotic) and is never keyed off {@link Person.gender} (guardrail
+ * #4). Zygosity is a recorded fact, not a computed inference.
+ */
+export interface TwinSet {
+  /** ≥2 person ids, all a subset of the owning union's `children`, sharing one birth. A
+   * given child id appears in at most one TwinSet within its union. */
+  members: string[];
+  /** `'mono'` = monozygotic (identical, drawn with a connecting bar); `'di'` = dizygotic
+   * (fraternal, diagonals only). A recorded fact, never inferred. */
+  zygosity: 'mono' | 'di';
+}
+
+/**
  * A typed relationship edge: a union of `parents` producing `children`. Genetic
  * parentage is what the risk math walks; social-only relationships (adoption, donor)
  * are a future extension (roadmap §5).
@@ -151,6 +167,9 @@ export interface Union {
   children: string[];
   /** Consanguineous union (blood-related partners) — changes recessive risk. */
   consanguineous?: boolean;
+  /** Multiple-birth groups among this union's `children` (twins/triplets). Each entry's
+   * `members` are a subset of `children`, and a child id appears in at most one entry. */
+  twins?: TwinSet[];
 }
 
 /** The kind of a {@link TimelineEvent}. */

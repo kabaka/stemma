@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStore, CURRENT_YEAR, type Relation } from '@/store/useStore';
 import { ORGAN_LABELS, ORGANS, genderLabel, organsOf, sabLabel, sabOf } from '@/domain/person';
 import { degreeLong, indexPeople, parentsOf } from '@/domain/graph';
@@ -6,6 +6,7 @@ import { MAX_PARENTS } from '@/domain/record';
 import { useRelations } from '../hooks';
 import { ConditionPicker } from './ConditionPicker';
 import type { PersonFormState } from './PersonForm';
+import type { Person, TwinSet, Union } from '@/domain/types';
 
 /** The element focused just before the drawer opened (the pedigree node that triggered
  * it, for mouse or keyboard activation) — module-level so focus can return there on
@@ -44,11 +45,20 @@ export function PersonDrawer({
   const selectPerson = useStore((s) => s.selectPerson);
   const toggleOrgan = useStore((s) => s.toggleOrgan);
   const deletePerson = useStore((s) => s.deletePerson);
+  const updateUnion = useStore((s) => s.updateUnion);
   const relations = useRelations(probandId);
   const headingId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
 
   const idx = useMemo(() => indexPeople(people, unions), [people, unions]);
+  // Unions this person co-parents with exactly one other parent — the union-level
+  // pedigree-structure facts (consanguinity, twin sets) only make sense for a two-parent
+  // union, and there's no UI anywhere else to set them. Guarded for `personId` possibly
+  // not resolving to a live `person` yet (this runs before the early-return below).
+  const personUnions = useMemo(
+    () => unions.filter((u) => u.parents.length === 2 && u.parents.includes(personId)),
+    [unions, personId],
+  );
 
   // Move focus into the dialog on open, and hand it back to whatever triggered it
   // (typically a pedigree node) on close, so keyboard/screen-reader focus is never
@@ -156,6 +166,15 @@ export function PersonDrawer({
 
         <ConditionPicker personId={person.id} />
 
+        {personUnions.length > 0 && (
+          <UnionDetails
+            unions={personUnions}
+            people={people}
+            personId={person.id}
+            updateUnion={updateUnion}
+          />
+        )}
+
         <div>
           <h3 className="overline" style={{ marginBottom: 9 }}>
             Add connected relative
@@ -209,6 +228,258 @@ export function PersonDrawer({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The store's `updateUnion` action signature, named here so `UnionDetails`/`UnionCard`
+ * don't have to import `useStore` just to spell out the prop type. */
+type UpdateUnion = (
+  parents: string[],
+  patch: Partial<Pick<Union, 'consanguineous' | 'twins'>>,
+) => void;
+
+/**
+ * Union-level pedigree-structure facts (consanguinity, twin/multiple-birth grouping) for
+ * every two-parent union the drawer's person co-parents. There's no other UI surface for
+ * these — unlike the per-person facts (organs, conditions) the sections above cover — so
+ * this only appears when at least one qualifying union exists (see `personUnions` above).
+ * One {@link UnionCard} per union: a person with more than one union (e.g. remarriage,
+ * or a second union recorded after a prior partner) gets one card each.
+ */
+function UnionDetails({
+  unions,
+  people,
+  personId,
+  updateUnion,
+}: {
+  unions: Union[];
+  people: Person[];
+  personId: string;
+  updateUnion: UpdateUnion;
+}) {
+  return (
+    <div>
+      <h3 className="overline" style={{ marginBottom: 8 }}>
+        Union details
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {unions.map((u) => (
+          <UnionCard
+            // Sorted parents *and* children, not parents alone: `updateUnion` itself
+            // matches a union by its parents set only (see the doc comment on `UnionCard`
+            // below), so two distinct unions that happen to share the same two parents
+            // but different children — e.g. malformed/duplicate-FAM GEDCOM import data;
+            // the app's own record-mutating actions never produce this — would otherwise
+            // collide onto one React key here too, on top of `updateUnion` itself patching
+            // whichever of the two it finds first. Folding in `children` fixes the *key*
+            // collision (so each such union still gets its own `UnionCard` instance and
+            // local twin-selection state); the `updateUnion` match itself stays a known,
+            // documented limitation pending a stable `Union.id` (a domain/store change,
+            // out of scope here).
+            key={`${u.parents.slice().sort().join(',')}|${u.children.slice().sort().join(',')}`}
+            union={u}
+            people={people}
+            personId={personId}
+            updateUnion={updateUnion}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One union's consanguinity checkbox and twin-set editor, styled like the drawer's other
+ * card-based sections (organ inventory / conditions): `.card` wrapper, `.chip` pills,
+ * `.lbl`/`.row`/`.btn` for structure and controls.
+ *
+ * Twin-set membership is local, uncommitted selection state — nothing is written to the
+ * record until "Mark as twins" is pressed, and it lives here (not lifted to the drawer)
+ * so it resets per-union automatically: `UnionDetails` keys each card by the union's own
+ * parent set, so switching between a multi-union person's cards can never leak a
+ * half-made selection from one union into another.
+ */
+function UnionCard({
+  union,
+  people,
+  personId,
+  updateUnion,
+}: {
+  union: Union;
+  people: Person[];
+  personId: string;
+  updateUnion: UpdateUnion;
+}) {
+  const baseId = useId();
+  const coParentId = union.parents.find((id) => id !== personId);
+  const coParent = people.find((p) => p.id === coParentId);
+  const children = union.children
+    .map((id) => people.find((p) => p.id === id))
+    .filter((p): p is Person => p != null);
+  const twins = union.twins ?? [];
+  // A child already recorded in a twin set can't join a second one — the domain validator
+  // enforces "member of at most one TwinSet"; disabling it here just keeps the UI from
+  // ever offering the invalid choice in the first place.
+  const alreadyTwinned = new Set(twins.flatMap((t) => t.members));
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [zygosity, setZygosity] = useState<TwinSet['zygosity']>('di');
+
+  // Every `updateUnion(union.parents, …)` call below (the consanguineous checkbox, and
+  // `markTwins`/`removeTwinSet` further down) identifies its target union purely by an
+  // order-independent match on `parents` — there's no `Union.id` yet. That's exact for
+  // every union this app's own actions can produce (a person has at most one union per
+  // co-parent). It's only ambiguous for two distinct unions sharing the same parents pair
+  // but different children, which only malformed/duplicate-FAM GEDCOM import data could
+  // produce today; `updateUnion` would then patch whichever union it finds first. A
+  // stable `Union.id` (domain/store change) is the real fix and is out of scope here —
+  // this comment, plus the key fix on `UnionDetails` above, address the two symptoms a
+  // UI-only pass can reach.
+  const toggleChild = (id: string): void => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const markTwins = (): void => {
+    if (selected.size < 2) return; // guarded again below (disabled button); belt and braces
+    updateUnion(union.parents, { twins: [...twins, { members: [...selected], zygosity }] });
+    setSelected(new Set());
+  };
+
+  const removeTwinSet = (i: number): void => {
+    updateUnion(union.parents, { twins: twins.filter((_, idx) => idx !== i) });
+  };
+
+  const nameOf = (id: string): string => people.find((p) => p.id === id)?.name ?? 'Unknown';
+
+  return (
+    <div
+      className="card"
+      style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600 }}>
+        With {coParent?.name ?? 'unknown partner'}
+      </div>
+
+      <label className="row" style={{ gap: 8, fontSize: 12.5 }}>
+        <input
+          type="checkbox"
+          checked={union.consanguineous === true}
+          onChange={(e) => updateUnion(union.parents, { consanguineous: e.target.checked })}
+        />
+        Consanguineous union (blood-related partners)
+      </label>
+
+      {/* A twin set needs ≥2 children to group, so the whole editor is pointless (and
+          would just show a single disabled checkbox) below that. */}
+      {children.length >= 2 && (
+        <div>
+          <span className="lbl" id={`${baseId}-twin-label`}>
+            Twin / multiple-birth grouping
+          </span>
+
+          {twins.length > 0 && (
+            <ul
+              className="plain-list"
+              style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}
+            >
+              {twins.map((ts, i) => {
+                const label = `${ts.members.map(nameOf).join(' & ')} · ${
+                  ts.zygosity === 'mono' ? 'identical' : 'fraternal'
+                }`;
+                return (
+                  <li key={i} className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+                    <span className="chip" style={{ cursor: 'default' }}>
+                      {label}
+                    </span>
+                    <button
+                      type="button"
+                      className="chip-remove"
+                      aria-label={`Remove twin set: ${label}`}
+                      onClick={() => removeTwinSet(i)}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <div
+            role="group"
+            aria-labelledby={`${baseId}-twin-label`}
+            className="row wrap"
+            style={{ gap: 6, marginBottom: 8 }}
+          >
+            {children.map((child) => {
+              const disabled = alreadyTwinned.has(child.id);
+              const checked = selected.has(child.id);
+              return (
+                <label
+                  key={child.id}
+                  className="chip"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    opacity: disabled ? 0.5 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    borderColor: checked ? 'var(--accent)' : undefined,
+                    color: checked ? 'var(--accent)' : undefined,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    style={{ margin: 0 }}
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => toggleChild(child.id)}
+                  />
+                  {child.name}
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="row wrap" style={{ gap: 12 }}>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', gap: 10 }}>
+              <legend className="visually-hidden">Zygosity</legend>
+              <label className="row" style={{ gap: 4, fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name={`${baseId}-zygosity`}
+                  checked={zygosity === 'di'}
+                  onChange={() => setZygosity('di')}
+                />
+                Fraternal (dizygotic)
+              </label>
+              <label className="row" style={{ gap: 4, fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name={`${baseId}-zygosity`}
+                  checked={zygosity === 'mono'}
+                  onChange={() => setZygosity('mono')}
+                />
+                Identical (monozygotic)
+              </label>
+            </fieldset>
+            <button
+              type="button"
+              className="btn btn--sm"
+              disabled={selected.size < 2}
+              onClick={markTwins}
+            >
+              Mark as twins
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

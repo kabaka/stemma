@@ -78,3 +78,92 @@ describe('buildPedigreeSvg', () => {
     expect(svg).toContain('A&amp;B &lt;script&gt;&quot;x&quot;&lt;/script&gt;');
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR 3 — the export must reflect segments()' consanguinity/twin truth, not diverge from it.
+// ---------------------------------------------------------------------------
+
+describe('consanguinity and twin notation export (PR 3 pedigree extras)', () => {
+  const countLines = (svg: string): number => (svg.match(/<line/g) ?? []).length;
+
+  function coupleRecord(consanguineous: boolean): FamilyRecord {
+    const p1: Person = {
+      id: 'p1',
+      name: 'P1',
+      sab: 'f',
+      gender: 'woman',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: 1970,
+      death: null,
+      conds: [],
+      isProband: true,
+    };
+    const p2: Person = {
+      id: 'p2',
+      name: 'P2',
+      sab: 'm',
+      gender: 'man',
+      gen: 0,
+      x: 96,
+      dead: false,
+      birth: 1970,
+      death: null,
+      conds: [],
+    };
+    return {
+      people: [p1, p2],
+      unions: [{ parents: ['p1', 'p2'], children: [], consanguineous }],
+      timeline: [],
+      probandId: 'p1',
+    };
+  }
+
+  it('draws a consanguineous relationship line as two parallel <line>s where a plain union draws one', () => {
+    const plain = buildPedigreeSvg(coupleRecord(false), catalog);
+    const consang = buildPedigreeSvg(coupleRecord(true), catalog);
+    expect(countLines(plain)).toBe(1);
+    expect(countLines(consang)).toBe(2);
+  });
+
+  function twinFamilyRecord(twins?: FamilyRecord['unions'][number]['twins']): FamilyRecord {
+    const mk = (id: string, gen: number, overrides: Partial<Person> = {}): Person => ({
+      id,
+      name: id,
+      sab: 'u',
+      gender: 'nb',
+      gen,
+      x: 0,
+      dead: false,
+      birth: 2000,
+      death: null,
+      conds: [],
+      ...overrides,
+    });
+    return {
+      people: [mk('p1', 0), mk('p2', 0), mk('t1', 1, { isProband: true }), mk('t2', 1)],
+      unions: [{ parents: ['p1', 'p2'], children: ['t1', 't2'], twins }],
+      timeline: [],
+      probandId: 't1',
+    };
+  }
+
+  it('renders the twin diagonals, and the monozygotic bar as one extra <line> over the equivalent non-twin sibship', () => {
+    const plain = buildPedigreeSvg(twinFamilyRecord(undefined), catalog);
+    const di = buildPedigreeSvg(
+      twinFamilyRecord([{ members: ['t1', 't2'], zygosity: 'di' }]),
+      catalog,
+    );
+    const mono = buildPedigreeSvg(
+      twinFamilyRecord([{ members: ['t1', 't2'], zygosity: 'mono' }]),
+      catalog,
+    );
+    // Dizygotic diagonals 1-for-1 replace the two ordinary verticals segments() would have
+    // drawn — same total line count as the non-twin sibship.
+    expect(countLines(di)).toBe(countLines(plain));
+    // Monozygotic adds exactly the connecting bar on top of that — so the export can't
+    // silently diverge from segments() truth (e.g. by dropping the bar, or the diagonals).
+    expect(countLines(mono)).toBe(countLines(plain) + 1);
+  });
+});

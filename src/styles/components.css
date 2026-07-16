@@ -596,13 +596,100 @@ textarea.field {
   display: flex;
   overflow: hidden;
 }
+/* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is now a
+   fixed-size, overflow:hidden window, and `.pedigree-canvas` inside it carries a single
+   `translate()/scale()` transform (set inline by PedigreeView) that moves/zooms the node
+   divs and the SVG connector overlay together as one coordinate space. No padding here —
+   the inset it used to provide (room for the generation ▲/▼ labels) is baked into the
+   pan/zoom view's own default/fit math (`LABEL_GUTTER` in PedigreeView) instead. */
 .pedigree-scroll {
   flex: 1;
-  overflow: auto;
-  padding: 34px 40px 34px 70px;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  /* Panning is driven entirely by our own pointer handlers, not the browser's native
+     touch scroll/pinch-zoom — without this a touch drag fights the page for the gesture. */
+  touch-action: none;
+}
+.pedigree-scroll:active {
+  cursor: grabbing;
 }
 .pedigree-canvas {
   position: relative;
+  transition: none;
+}
+/* Applied only transiently (Reset / Zoom to fit buttons) — wheel/drag/keyboard pan and
+   zoom stay unanimated so they track the input 1:1. */
+.pedigree-canvas--eased {
+  transition: transform 220ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pedigree-canvas--eased {
+    transition: none;
+  }
+}
+
+/* Zoom controls float over the top-right of the viewport, outside the transformed
+   `.pedigree-canvas` (so they never pan/scale with the chart) — real <button>s plus a
+   visible text percentage readout (WCAG 1.4.1: never icon/colour-only). */
+.pedigree-zoom-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px;
+}
+.pedigree-zoom-readout {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 38px;
+  text-align: center;
+}
+
+/* Button-operable pan fallback (a mini D-pad) beside the zoom buttons — for the same
+   reason the zoom buttons exist alongside +/-/0: a screen reader in browse mode can
+   switch Arrow keys off an interactive `role="group"` before they reach our own keydown
+   handler, so panning needs a button-based path too, not just the keyboard one. Visually
+   separated from the zoom cluster by a thin divider. */
+.pedigree-pan-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.pedigree-pan-dpad__btn {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+}
+.pedigree-pan-dpad__btn--up {
+  grid-column: 2;
+  grid-row: 1;
+}
+.pedigree-pan-dpad__btn--left {
+  grid-column: 1;
+  grid-row: 2;
+}
+.pedigree-pan-dpad__btn--right {
+  grid-column: 3;
+  grid-row: 2;
+}
+.pedigree-pan-dpad__btn--down {
+  grid-column: 2;
+  grid-row: 3;
 }
 .pedigree-footer {
   flex: none;
@@ -977,9 +1064,18 @@ textarea.field {
 .clinical-boundary__toggle:focus-visible,
 .pedigree-guide__toggle:focus-visible,
 .pedigree-hl-row:focus-visible,
-.pedigree-node:focus-visible {
+.pedigree-scroll:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+/* `.pedigree-node` sits *inside* `.pedigree-canvas`'s pan/zoom `scale()` transform, so a
+   plain 2px outline would shrink to ~0.6px on screen at `SCALE_MIN` (0.3) — dividing by
+   the canvas's own `--pedigree-scale` custom property (set inline by PedigreeView,
+   inherited through the transformed subtree unaffected by the transform itself) cancels
+   that out, keeping the ring a constant ~2px regardless of zoom. */
+.pedigree-node:focus-visible {
+  outline: calc(2px / var(--pedigree-scale, 1)) solid var(--accent);
+  outline-offset: calc(2px / var(--pedigree-scale, 1));
 }
 
 @media (max-width: 720px) {

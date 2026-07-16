@@ -202,6 +202,53 @@ describe('updatePerson', () => {
   });
 });
 
+describe('updateUnion (PR 3 pedigree extras)', () => {
+  beforeEach(reset);
+
+  it("patches the union matched by its parents set, independent of the caller's array order", () => {
+    const before = useStore
+      .getState()
+      .record.unions.find((u) => u.parents.includes('robert') && u.parents.includes('susan'))!;
+    expect(before.consanguineous).toBeUndefined();
+
+    // Parents passed in REVERSED order from how the union itself stores them (['robert','susan']).
+    useStore.getState().updateUnion(['susan', 'robert'], { consanguineous: true });
+
+    const after = useStore
+      .getState()
+      .record.unions.find((u) => u.parents.includes('robert') && u.parents.includes('susan'))!;
+    expect(after.consanguineous).toBe(true);
+  });
+
+  it('sets twins on the matched union', () => {
+    const twins = [{ members: ['jack', 'you'], zygosity: 'di' as const }];
+    useStore.getState().updateUnion(['robert', 'susan'], { twins });
+    const union = useStore
+      .getState()
+      .record.unions.find((u) => u.parents.includes('robert') && u.parents.includes('susan'))!;
+    expect(union.twins).toEqual(twins);
+  });
+
+  it('is immutable — the record reference changes and the pre-update union object is untouched', () => {
+    const beforeRecord = useStore.getState().record;
+    const beforeUnion = beforeRecord.unions.find(
+      (u) => u.parents.includes('robert') && u.parents.includes('susan'),
+    )!;
+
+    useStore.getState().updateUnion(['robert', 'susan'], { consanguineous: true });
+
+    expect(useStore.getState().record).not.toBe(beforeRecord);
+    // The object graph captured before the call was never mutated in place.
+    expect(beforeUnion.consanguineous).toBeUndefined();
+  });
+
+  it('is a no-op (record left referentially unchanged) when no union matches the parents set', () => {
+    const before = useStore.getState().record;
+    useStore.getState().updateUnion(['ghost1', 'ghost2'], { consanguineous: true });
+    expect(useStore.getState().record).toBe(before);
+  });
+});
+
 describe('replaceRecord', () => {
   beforeEach(reset);
 
