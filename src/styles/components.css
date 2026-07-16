@@ -582,6 +582,53 @@ textarea.field {
   margin: 8px 0 0;
 }
 
+/* ---- History (edit-audit trail) ----
+   Each entry is its own <details>/<summary> disclosure (native keyboard operability,
+   no custom toggle-state wiring needed) styled with the same hide-the-UA-marker +
+   custom ::before caret treatment as .pedigree-guide__toggle, but laid out as a row
+   (timestamp + label) since each summary carries real per-entry information rather
+   than a static "show reference material" caption.
+
+   The `open` attribute lives on <details> itself, so the `[open]` selector below MUST
+   target `.history-entry__details` (not the outer `.card` <li>, which never carries the
+   attribute) or the caret silently never flips. */
+.history-entry__details {
+  padding: 15px 16px;
+}
+.history-entry__summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.history-entry__summary::-webkit-details-marker {
+  display: none;
+}
+.history-entry__summary::before {
+  content: '▸';
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.history-entry__details[open] .history-entry__summary::before {
+  content: '▾';
+}
+/* Defensive (WCAG 1.4.10), mirroring .data-table td: a long unbroken label token (e.g. a
+   pasted name with no spaces) must wrap inside the flex row rather than overflowing the
+   card at 200% zoom. min-width: 0 lets the flex item actually shrink below its content
+   size so overflow-wrap can take effect. */
+.history-entry__summary-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-entry__diff {
+  margin: 10px 0 0 18px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
 /* ---- Pedigree ----
    Rebuilt as a natural-size, scrollable DOM canvas (never scaled to fit): a pinned
    header (title + Highlight controls) above a flexible body that either scrolls the
@@ -1063,6 +1110,7 @@ textarea.field {
 .field:focus-visible,
 .clinical-boundary__toggle:focus-visible,
 .pedigree-guide__toggle:focus-visible,
+.history-entry__summary:focus-visible,
 .pedigree-hl-row:focus-visible,
 .pedigree-scroll:focus-visible {
   outline: 2px solid var(--accent);

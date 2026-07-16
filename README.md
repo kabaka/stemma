@@ -147,6 +147,12 @@ Stemma is **not limited to a fixed condition list.** The catalog has two layers:
 
 - **Your data stays in your browser.** The whole record persists to `localStorage` (key
   `stemma-record`). There is no account, no server, and no upload.
+- **Edit history keeps past snapshots on your device.** Stemma's append-only history (the
+  **History** view) records a snapshot of your record before each change, under a separate
+  `stemma-history` key. This means deleting a person, condition, or event removes it from your
+  current record but **not** from the history log — use **Clear history** to purge those past
+  snapshots from this device. The history is capped (most-recent changes only) and, like the
+  record, is stored unencrypted at rest (below).
 - **Stored unencrypted at rest.** Because the record lives in `localStorage`, it is held in
   plaintext in your browser profile — readable by anyone with access to your device/profile or by
   a malicious browser extension. Device security is your responsibility for now; an

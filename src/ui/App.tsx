@@ -6,6 +6,7 @@ import { PedigreeView } from './views/PedigreeView';
 import { PatternsView } from './views/PatternsView';
 import { TimelineView } from './views/TimelineView';
 import { ReportsView } from './views/ReportsView';
+import { HistoryView } from './views/HistoryView';
 import { PrintReports } from './components/PrintReports';
 
 /** Root shell: a fixed sidebar and the active view. */
@@ -45,6 +46,7 @@ export function App() {
           {view === 'patterns' && <PatternsView />}
           {view === 'timeline' && <TimelineView />}
           {view === 'reports' && <ReportsView />}
+          {view === 'history' && <HistoryView />}
         </main>
       </div>
       {/* Rendered as a sibling of the app shell so `@media print` can hide the dark chrome

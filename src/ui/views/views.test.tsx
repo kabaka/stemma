@@ -2,11 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
+import type { HistoryEntry } from '@/domain/history';
+import type { FamilyRecord } from '@/domain/types';
+import { emptyRecord } from '@/data/seed';
 import { OverviewView } from './OverviewView';
 import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
 import { PedigreeView } from './PedigreeView';
 import { ReportsView } from './ReportsView';
+import { HistoryView } from './HistoryView';
 import { PrintReports } from '../components/PrintReports';
 import { GedcomImport } from '../components/GedcomImport';
 
@@ -1634,5 +1639,110 @@ describe('PrintReports', () => {
     const h1s = screen.getAllByRole('heading', { level: 1 });
     expect(h1s).toHaveLength(1);
     expect(h1s[0]).toHaveAccessibleName(/stemma clinical print reports/i);
+  });
+});
+
+describe('HistoryView', () => {
+  /** A copy of the empty record with the proband renamed — enough to give diffRecords a
+   * single, unambiguous field-level change to report. */
+  const renamedRecord = (name: string): FamilyRecord => {
+    const r = emptyRecord();
+    r.people = [{ ...r.people[0], name }];
+    return r;
+  };
+
+  // The outer file-wide `beforeEach(() => useStore.getState().loadSample())` is itself a
+  // history-worthy commit (it pushes a real "Loaded sample family" entry with a real
+  // Date.now() timestamp) — clear it and seed each test with its own fixed, deterministic
+  // entries (fixed `ts` numbers, never the wall clock) so these assertions never depend on
+  // when the suite happens to run.
+  beforeEach(() => useHistoryStore.setState({ entries: [] }));
+
+  it('renders the empty state when no history has been recorded', () => {
+    render(<HistoryView />);
+    expect(screen.getByText(/no changes recorded yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: /edit history/i })).not.toBeInTheDocument();
+  });
+
+  it('renders entries reverse-chronological — newest first', () => {
+    const entries: HistoryEntry[] = [
+      { id: 'h1', ts: 1000, label: 'Loaded sample family', record: emptyRecord() },
+      { id: 'h2', ts: 2000, label: 'Edited: Renamed', record: renamedRecord('Renamed') },
+      { id: 'h3', ts: 3000, label: 'Deleted event', record: renamedRecord('Renamed') },
+    ];
+    useHistoryStore.setState({ entries });
+    render(<HistoryView />);
+
+    const list = screen.getByRole('list', { name: /edit history, newest first/i });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    // Newest push (h3, ts 3000) renders first; oldest (h1, ts 1000) renders last.
+    expect(rows[0]).toHaveTextContent(/deleted event/i);
+    expect(rows[1]).toHaveTextContent(/edited: renamed/i);
+    expect(rows[2]).toHaveTextContent(/loaded sample family/i);
+  });
+
+  it('expanding an entry computes and shows its "what changed" diff against the entry before it', async () => {
+    const user = userEvent.setup();
+    const entries: HistoryEntry[] = [
+      { id: 'h1', ts: 1000, label: 'Loaded sample family', record: emptyRecord() },
+      { id: 'h2', ts: 2000, label: 'Edited: Renamed', record: renamedRecord('Renamed') },
+    ];
+    useHistoryStore.setState({ entries });
+    render(<HistoryView />);
+
+    await user.click(screen.getByText('Edited: Renamed'));
+
+    // diffRecords(h1.record, h2.record) is a single proband name change ("You" → "Renamed");
+    // summarizeDiff renders it as "Edited <after-name>: name" — the diff bullet text this
+    // view is responsible for surfacing.
+    const diffList = screen.getByRole('list', { name: /what changed/i });
+    expect(within(diffList).getByText(/edited renamed: name/i)).toBeInTheDocument();
+  });
+
+  it('shows the "oldest change" message for the earliest retained entry (no predecessor to diff against)', async () => {
+    const user = userEvent.setup();
+    useHistoryStore.setState({
+      entries: [{ id: 'h1', ts: 1000, label: 'Loaded sample family', record: emptyRecord() }],
+    });
+    render(<HistoryView />);
+
+    await user.click(screen.getByText('Loaded sample family'));
+
+    expect(
+      screen.getByText(/diff unavailable — this is the oldest change stemma retained/i),
+    ).toBeInTheDocument();
+    // No diff list is rendered — there is nothing to diff the oldest retained entry against.
+    expect(screen.queryByRole('list', { name: /what changed/i })).not.toBeInTheDocument();
+  });
+
+  it('renders no ClinicalBoundary — this is a mechanical edit log, not a clinical-analysis surface', () => {
+    useHistoryStore.setState({
+      entries: [{ id: 'h1', ts: 1000, label: 'Loaded sample family', record: emptyRecord() }],
+    });
+    render(<HistoryView />);
+    expect(screen.queryByRole('note', { name: /clinical boundary/i })).not.toBeInTheDocument();
+  });
+
+  it('Clear history moves focus to the page heading and announces the empty state via a status region (accessibility finding)', async () => {
+    // "Clear history" only renders while entries.length > 0, so it unmounts itself the
+    // moment it's activated — without an explicit focus target, keyboard/AT focus would
+    // silently drop to <body> (WCAG 2.4.3), and the empty-state message needs a live
+    // region so it's announced rather than only focused (WCAG 4.1.3).
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    useHistoryStore.setState({
+      entries: [{ id: 'h1', ts: 1000, label: 'Loaded sample family', record: emptyRecord() }],
+    });
+    render(<HistoryView />);
+
+    await user.click(screen.getByRole('button', { name: /clear history/i }));
+
+    expect(useHistoryStore.getState().entries).toEqual([]);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole('heading', { name: /^history$/i, level: 1 })).toHaveFocus();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/no changes recorded yet/i);
   });
 });

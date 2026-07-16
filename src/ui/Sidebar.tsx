@@ -8,6 +8,7 @@ const NAV: { id: View; label: string }[] = [
   { id: 'patterns', label: 'Family Patterns' },
   { id: 'timeline', label: 'My Timeline' },
   { id: 'reports', label: 'Reports & Export' },
+  { id: 'history', label: 'History' },
 ];
 
 /** Left rail: brand, navigation, proband summary, and the palette toggle. */

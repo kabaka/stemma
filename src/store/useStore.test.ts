@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from './useStore';
+import { useHistoryStore } from './useHistoryStore';
 import { buildCatalog } from '@/domain/catalog';
 import { seedRecord } from '@/data/seed';
+import { HISTORY_MAX_ENTRIES } from '@/domain/history';
 import type { FamilyRecord } from '@/domain/types';
 
 // Most mutation tests operate on the example family, so load it explicitly (the app's
 // real default is now an empty record — see the "default record" block below).
 const reset = () => useStore.getState().loadSample();
+
+// The separate edit-history store persists independently of `useStore` (see
+// useHistoryStore.ts) and is never reset by `reset()` above (loadSample itself is a
+// history-worthy commit) — clear it before every test in this file so history assertions
+// never see leakage from a prior test or from the record-loading beforeEach itself.
+beforeEach(() => useHistoryStore.setState({ entries: [] }));
 
 describe('default record', () => {
   it('starts empty (proband only) — never the fictional example family', () => {
@@ -551,6 +559,16 @@ describe('mutator no-op guards on an unknown id', () => {
     useStore.getState().updateEvent('nonexistent-event', { title: 'Should not apply' });
     expect(useStore.getState().record).toBe(before);
   });
+
+  it('deleteEvent no-ops for an unknown event id (code-review finding 2 regression)', () => {
+    // Before the fix, `record.timeline.filter(...)` always returns a FRESH array (even on
+    // no match), so a delete of an unknown id would still commit a content-identical
+    // "Deleted event" history entry. The guard added a not-found check mirroring
+    // updateEvent's `if (idx === -1) return;` above.
+    const before = useStore.getState().record;
+    useStore.getState().deleteEvent('nonexistent-event');
+    expect(useStore.getState().record).toBe(before);
+  });
 });
 
 describe('deletePerson (vantage-reset asymmetry)', () => {
@@ -574,5 +592,332 @@ describe('deletePerson (vantage-reset asymmetry)', () => {
     useStore.getState().setTlPerson('you');
     useStore.getState().deletePerson('leo');
     expect(useStore.getState().tlPerson).toBe('you');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History logging — the `commit` choke point (roadmap Phase 2, PR 4)
+// ---------------------------------------------------------------------------
+
+describe('history logging — history-worthy actions append exactly one labeled entry', () => {
+  // Local reset that does NOT go through the shared `reset()` helper: loadSample() is
+  // itself a history-worthy commit, so composing it with the file-wide
+  // `beforeEach(() => useHistoryStore.setState({ entries: [] }))` (which runs first,
+  // being declared outside every describe) would still leave a stray "Loaded sample
+  // family" entry when a describe-level `beforeEach(reset)` runs afterwards. Load the
+  // sample, THEN clear history, so every test here starts from a genuinely empty log.
+  beforeEach(() => {
+    useStore.getState().loadSample();
+    useHistoryStore.setState({ entries: [] });
+  });
+
+  const labels = () => useHistoryStore.getState().entries.map((e) => e.label);
+
+  it('addRelative → "Added relative: <name>"', () => {
+    useStore.getState().addRelative('you', 'child', {
+      name: 'Newkid',
+      sab: 'f',
+      gender: 'woman',
+      dead: false,
+      birth: 2024,
+      death: null,
+      condIds: [],
+    });
+    expect(labels()).toEqual(['Added relative: Newkid']);
+  });
+
+  it('updatePerson → "Edited: <name>"', () => {
+    useStore.getState().updatePerson('robert', {
+      name: 'Bob',
+      sab: 'm',
+      gender: 'man',
+      dead: false,
+      birth: 1965,
+      death: null,
+      condIds: [],
+    });
+    expect(labels()).toEqual(['Edited: Bob']);
+  });
+
+  it('deletePerson → "Deleted: <name>"', () => {
+    useStore.getState().deletePerson('leo');
+    expect(labels()).toEqual(['Deleted: Leo']);
+  });
+
+  it('updateUnion → "Updated family union"', () => {
+    useStore.getState().updateUnion(['robert', 'susan'], { consanguineous: true });
+    expect(labels()).toEqual(['Updated family union']);
+  });
+
+  it('toggleCondition → "Added condition on <name>" then "Removed condition on <name>"', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    useStore.getState().toggleCondition('alex', 't2d');
+    expect(labels()).toEqual(['Added condition on Alex', 'Removed condition on Alex']);
+  });
+
+  it('setConditionField → "Edited condition on <name>"', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    useStore.getState().setConditionField('alex', 't2d', 'onset', '55');
+    expect(labels()).toEqual(['Added condition on Alex', 'Edited condition on Alex']);
+  });
+
+  it('toggleOrgan → "Updated organs for <name>"', () => {
+    useStore.getState().toggleOrgan('you', 'prostate');
+    expect(labels()).toEqual(['Updated organs for Maya']);
+  });
+
+  it('addEvent → "Added event: <title>"', () => {
+    useStore
+      .getState()
+      .addEvent({ person: 'you', year: 2027, type: 'visit', title: 'Checkup', detail: '' });
+    expect(labels()).toEqual(['Added event: Checkup']);
+  });
+
+  it('updateEvent → "Edited event: <title>" (the post-update title)', () => {
+    const ev = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Started Levothyroxine')!;
+    useStore.getState().updateEvent(ev.id, { title: 'Adjusted levothyroxine dose' });
+    expect(labels()).toEqual(['Edited event: Adjusted levothyroxine dose']);
+  });
+
+  it('deleteEvent → "Deleted event"', () => {
+    const ev = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Started Levothyroxine')!;
+    useStore.getState().deleteEvent(ev.id);
+    expect(labels()).toEqual(['Deleted event']);
+  });
+
+  it('resetRecord → "Reset to empty record" and does NOT clear prior history entries', () => {
+    useStore.getState().toggleCondition('alex', 't2d'); // seed a prior entry
+    useStore.getState().resetRecord();
+    expect(labels()).toEqual(['Added condition on Alex', 'Reset to empty record']);
+  });
+
+  it('loadSample → "Loaded sample family" and does NOT clear prior history entries', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    useStore.getState().loadSample();
+    expect(labels()).toEqual(['Added condition on Alex', 'Loaded sample family']);
+  });
+
+  it('replaceRecord → the given label, or "Replaced record" by default, and does NOT clear prior history entries', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    const minimal: FamilyRecord = {
+      people: [
+        {
+          id: 'p1',
+          name: 'P1',
+          sab: 'f',
+          gender: 'woman',
+          gen: 0,
+          x: 0,
+          dead: false,
+          birth: 2000,
+          death: null,
+          conds: [],
+          isProband: true,
+        },
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    useStore.getState().replaceRecord(minimal);
+    expect(labels()).toEqual(['Added condition on Alex', 'Replaced record']);
+
+    useStore.getState().replaceRecord(minimal, [], 'Imported GEDCOM file');
+    expect(labels()).toEqual([
+      'Added condition on Alex',
+      'Replaced record',
+      'Imported GEDCOM file',
+    ]);
+  });
+
+  it('the stored snapshot equals the resulting record (deep-equal, independently cloned)', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    const liveRecord = useStore.getState().record;
+    const snapshot = useHistoryStore.getState().entries.at(-1)!.record;
+    expect(snapshot).toEqual(liveRecord);
+    expect(snapshot).not.toBe(liveRecord); // independently cloned, not a shared reference
+  });
+
+  it('caps the log at HISTORY_MAX_ENTRIES after more than 50 history-worthy mutations', () => {
+    for (let i = 0; i < HISTORY_MAX_ENTRIES + 5; i++) {
+      useStore.getState().toggleCondition('alex', 't2d'); // toggles on/off — always history-worthy
+    }
+    expect(useHistoryStore.getState().entries).toHaveLength(HISTORY_MAX_ENTRIES);
+  });
+});
+
+describe('history logging — no-op mutations record nothing', () => {
+  beforeEach(() => {
+    useStore.getState().loadSample();
+    useHistoryStore.setState({ entries: [] });
+  });
+
+  const entries = () => useHistoryStore.getState().entries;
+
+  it('deleting the proband is a no-op — no history entry', () => {
+    useStore.getState().deletePerson('you');
+    expect(entries()).toEqual([]);
+  });
+
+  it('refusing a third parent is a no-op — no history entry', () => {
+    // 'you' already has two parents (robert, susan) in the seed family.
+    useStore.getState().addRelative('you', 'parent', {
+      name: 'ThirdParent',
+      sab: 'f',
+      gender: 'woman',
+      dead: false,
+      birth: 1960,
+      death: null,
+      condIds: [],
+    });
+    expect(entries()).toEqual([]);
+  });
+
+  // NOTE: an addRelative call with an unresolvable anchor id is NOT a no-op case — linkRelative
+  // falls back to the record's proband as the anchor (`record.ts`: `next.people.find((p) =>
+  // p.id === anchorId) ?? next.people.find((p) => p.isProband)`), so it still links the new
+  // relative (and so still commits) unless there is truly no proband in the record at all,
+  // which can't happen for a record that passed isValidRecord.
+
+  it('updateUnion with no matching union is a no-op — no history entry', () => {
+    useStore.getState().updateUnion(['ghost1', 'ghost2'], { consanguineous: true });
+    expect(entries()).toEqual([]);
+  });
+
+  it('updatePerson on an unknown id is a no-op — no history entry', () => {
+    useStore.getState().updatePerson('nonexistent', {
+      name: 'Ghost',
+      sab: 'u',
+      gender: 'nb',
+      dead: false,
+      birth: null,
+      death: null,
+      condIds: [],
+    });
+    expect(entries()).toEqual([]);
+  });
+
+  it('toggleCondition on an unknown person id is a no-op — no history entry', () => {
+    useStore.getState().toggleCondition('nonexistent', 'brca');
+    expect(entries()).toEqual([]);
+  });
+
+  it('setConditionField on an unknown person id is a no-op — no history entry', () => {
+    useStore.getState().setConditionField('nonexistent', 'brca', 'onset', '50');
+    expect(entries()).toEqual([]);
+  });
+
+  it('toggleOrgan on an unknown person id is a no-op — no history entry', () => {
+    useStore.getState().toggleOrgan('nonexistent', 'breasts');
+    expect(entries()).toEqual([]);
+  });
+
+  it('updateEvent on an unknown event id is a no-op — no history entry', () => {
+    useStore.getState().updateEvent('nonexistent-event', { title: 'Should not apply' });
+    expect(entries()).toEqual([]);
+  });
+
+  it('deleteEvent on an unknown event id is a no-op — no history entry (code-review finding 2 regression)', () => {
+    useStore.getState().deleteEvent('nonexistent-event');
+    expect(entries()).toEqual([]);
+  });
+
+  it('replaceRecord with an invalid record is a no-op — no history entry', () => {
+    const invalid = {
+      people: [],
+      unions: [],
+      timeline: [],
+      probandId: 'ghost',
+    } as unknown as FamilyRecord;
+    useStore.getState().replaceRecord(invalid);
+    expect(entries()).toEqual([]);
+  });
+});
+
+describe('history logging — non-record UI actions record nothing', () => {
+  beforeEach(() => {
+    useStore.getState().loadSample();
+    useHistoryStore.setState({ entries: [] });
+  });
+
+  const entries = () => useHistoryStore.getState().entries;
+
+  it('registerCondition does not touch history', () => {
+    useStore
+      .getState()
+      .registerCondition({ id: 'X1', name: 'X', cat: 'other', base: 0, pattern: '—' });
+    expect(entries()).toEqual([]);
+  });
+
+  it('setView does not touch history', () => {
+    useStore.getState().setView('tree');
+    expect(entries()).toEqual([]);
+  });
+
+  it('setPalette does not touch history', () => {
+    useStore.getState().setPalette('colorblind');
+    expect(entries()).toEqual([]);
+  });
+
+  it('selectPerson does not touch history', () => {
+    useStore.getState().selectPerson('robert');
+    expect(entries()).toEqual([]);
+  });
+
+  it('setRiskRoot does not touch history', () => {
+    useStore.getState().setRiskRoot('robert');
+    expect(entries()).toEqual([]);
+  });
+
+  it('setTlPerson does not touch history', () => {
+    useStore.getState().setTlPerson('robert');
+    expect(entries()).toEqual([]);
+  });
+
+  it('setTlType does not touch history', () => {
+    useStore.getState().setTlType('lab');
+    expect(entries()).toEqual([]);
+  });
+});
+
+describe('history logging — persistence stays separate from the record store (no regression)', () => {
+  beforeEach(() => {
+    useStore.getState().loadSample();
+    useHistoryStore.setState({ entries: [] });
+  });
+
+  it('persists under its own "stemma-history" localStorage key, distinct from "stemma-record"', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+
+    const recordRaw = localStorage.getItem('stemma-record');
+    const historyRaw = localStorage.getItem('stemma-history');
+    expect(recordRaw).toBeTruthy();
+    expect(historyRaw).toBeTruthy();
+
+    const recordPersisted = JSON.parse(recordRaw!) as { state: Record<string, unknown> };
+    // The record store's own persisted state is untouched by history — no bleed-through.
+    expect(recordPersisted.state).not.toHaveProperty('entries');
+
+    const historyPersisted = JSON.parse(historyRaw!) as { state: { entries: unknown[] } };
+    expect(historyPersisted.state.entries).toHaveLength(1);
+  });
+
+  it('the record store itself still round-trips record/extensions/palette as before (regression guard)', () => {
+    useStore.getState().toggleCondition('alex', 't2d');
+    expect(
+      useStore
+        .getState()
+        .record.people.find((p) => p.id === 'alex')!
+        .conds.some((c) => c.id === 't2d'),
+    ).toBe(true);
+    const raw = localStorage.getItem('stemma-record');
+    const persisted = JSON.parse(raw!) as { state: Record<string, unknown> };
+    expect(persisted.state).toHaveProperty('record');
+    expect(persisted.state).toHaveProperty('extensions');
+    expect(persisted.state).toHaveProperty('palette');
   });
 });

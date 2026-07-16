@@ -73,7 +73,7 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
   conformance validators assert every export against the standards' structural rules (bound
   value sets, datatype formats, CURIE/reference integrity), each with negative controls.
 
-### Phase 2 — Pedigree & records depth
+### Phase 2 — Pedigree & records depth ✅
 - **Full 2022 NSGC pedigree** (ideation §5): union nodes, multiple partners, half-siblings,
   consanguinity (double line), adoption/donor (social vs genetic parent), twins (mono/di).
   Pan/zoom/collapse over a real graph.
@@ -110,7 +110,15 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
     surface (labs get the trend view). FHIR/Phenopacket enrichment of the new fields (the
     native backup already round-trips them losslessly). See
     [`../.ai-dlc/records/DR-0004-phase2-timeline-depth-merge.md`](../.ai-dlc/records/DR-0004-phase2-timeline-depth-merge.md).
-- **Append-only history** with a visible "what changed" diff.
+- ✅ **Append-only history** with a visible "what changed" diff. Every record-changing
+  mutation now routes through a single `commit()` choke point that snapshots the record with a
+  human label into a bounded ring buffer (50 entries / ~2 MB, oldest evicted), held in a
+  **separate `stemma-history` store** so a corrupt log can never break the record. A new
+  **History** view lists changes newest-first; expanding one renders a pure
+  `diffRecords`/`summarizeDiff` "what changed" (added/removed/changed people, conditions,
+  unions, events). View-only — restore-to-a-past-version is a named follow-up (it re-enters
+  through the existing validated `replaceRecord` boundary). See
+  [`../.ai-dlc/records/DR-0006-phase2-append-only-history-merge.md`](../.ai-dlc/records/DR-0006-phase2-append-only-history-merge.md).
 - **Care coordination**: screenings as a schedule with overdue flags, calendar export
   (`.ics`), and a printable "bring to your appointment" sheet.
   - ✅ **Screening schedule + advisory "may be due" flags** (`scheduleFor` in
