@@ -194,13 +194,25 @@ describe('PedigreeView', () => {
     expect(robert.tagName).toBe('BUTTON');
   });
 
-  it("names affected nodes with every recorded condition and the first condition's category, not colour alone", () => {
+  it('names affected nodes with every recorded condition AND every condition’s own category, not colour alone', () => {
     render(<PedigreeView />);
-    // Seed data: Robert has cad, htn, chol (in that order) — all three must be named,
-    // not just the first, so a highlight matching on any of them is self-explanatory.
+    // Seed data: Robert has cad, htn, chol (in that order) — all three must carry their
+    // own category, not just the first, so a highlight matching on any of them is
+    // self-explanatory. But all three of Robert's conditions are "Cardiovascular", so this
+    // alone couldn't catch a regression that folds in only the FIRST condition's category
+    // for every entry (a plausible half-fix) — it would coincidentally render the same
+    // string for Robert.
     expect(
       screen.getByRole('button', {
-        name: /Robert.*affected: Coronary heart disease \(cardiovascular\), Hypertension, High cholesterol/i,
+        name: /Robert.*affected: Coronary heart disease \(cardiovascular\), Hypertension \(cardiovascular\), High cholesterol \(cardiovascular\)/i,
+      }),
+    ).toBeInTheDocument();
+    // George (seed) carries t2d then stroke — two DIFFERENT categories (Metabolic &
+    // endocrine, then Cardiovascular) — so only a fix that resolves each condition's own
+    // category, not the first condition's category reused for every entry, can pass this.
+    expect(
+      screen.getByRole('button', {
+        name: /George.*affected: Type 2 diabetes \(metabolic & endocrine\), Stroke \(cardiovascular\)/i,
       }),
     ).toBeInTheDocument();
   });

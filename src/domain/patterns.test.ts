@@ -270,7 +270,7 @@ describe('detectPatterns (HBOC same-lineage refinement)', () => {
 
 // ---------------------------------------------------------------------------
 // HBOC sensitivity extension — pancreatic + male breast cancer (audit clinical-sensitivity
-// finding; see hboc-impl-spec.md). Both are any-age, single-case, side-independent standalone
+// finding; see docs/AUDIT.md). Both are any-age, single-case, side-independent standalone
 // testing indications per NCCN Genetic/Familial High-Risk Assessment (Breast/Ovarian/
 // Pancreatic). Strictly additive: the unmodified seed carries no panc and no male brca.
 // ---------------------------------------------------------------------------

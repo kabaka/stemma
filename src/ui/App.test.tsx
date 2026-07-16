@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -56,6 +57,41 @@ describe('App — navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'My Timeline' }));
     // Every subsequent navigation moves focus to the new view's own <h1>.
+    expect(screen.getByRole('heading', { name: /my health timeline/i, level: 1 })).toHaveFocus();
+  });
+});
+
+describe('App — StrictMode focus safety (regression)', () => {
+  // [HIGH, review-gate] The old code tracked "is this the first render" with a plain
+  // `useRef(true)` boolean latch, flipped to false inside the focus effect. React 18
+  // StrictMode (dev only) mounts every effect-bearing component, immediately fake-
+  // unmounts it (running cleanups) and fake-remounts it (rerunning effects) once, all
+  // using the SAME component instance and hook state — so that boolean flipped to
+  // `false` during the throwaway cycle, and the real mount that followed (still the same
+  // initial `view`) found the latch already spent and wrongly focused the page heading on
+  // first load. A plain, non-StrictMode `render(<App/>)` (see the "does not steal focus…"
+  // test above) never exercises this — only wrapping in `<React.StrictMode>` reproduces
+  // dev-mode's double-invoke and would have caught the regression.
+  beforeEach(() => useStore.getState().setView('overview'));
+
+  it('does not steal focus to the page heading on initial mount under StrictMode', () => {
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    expect(document.body).toHaveFocus();
+    expect(screen.getByRole('heading', { name: /health overview/i, level: 1 })).not.toHaveFocus();
+  });
+
+  it('still moves focus to the new view’s heading on a real navigation under StrictMode', async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    await user.click(screen.getByRole('button', { name: 'My Timeline' }));
     expect(screen.getByRole('heading', { name: /my health timeline/i, level: 1 })).toHaveFocus();
   });
 });

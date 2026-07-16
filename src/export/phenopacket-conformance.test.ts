@@ -78,8 +78,7 @@ export function validatePhenopacket(pp: Phenopacket): string[] {
     errs.push('Phenopacket.metaData is required');
     return errs;
   }
-  if (md.created !== undefined && !TIMESTAMP.test(md.created))
-    errs.push('metaData.created is not an RFC3339 timestamp');
+  if (!TIMESTAMP.test(md.created)) errs.push('metaData.created is not an RFC3339 timestamp');
   if (!nonEmpty(md.createdBy)) errs.push('metaData.createdBy is required');
   if (md.phenopacketSchemaVersion !== '2.0')
     errs.push(`metaData.phenopacketSchemaVersion "${md.phenopacketSchemaVersion}" must be "2.0"`);
