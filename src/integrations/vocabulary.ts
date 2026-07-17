@@ -10,6 +10,7 @@
  * FHIR `$expand`) by implementing the same interface. See roadmap §3.
  */
 import type { Condition } from '@/domain/types';
+import { conditionFromCode } from '@/domain/catalog';
 
 export interface VocabularyHit {
   /** ICD-10-CM code, e.g. `'C50.911'`. */
@@ -74,14 +75,13 @@ export class NlmClinicalTablesProvider implements VocabularyProvider {
  * category and prevalence; the pattern engine treats them accordingly.
  */
 export function hitToCondition(hit: VocabularyHit): Condition {
-  return {
-    id: hit.code,
-    name: hit.name,
-    cat: 'other',
-    base: 0,
-    pattern: '—',
-    icd10: hit.system === 'ICD-10-CM' ? hit.code : undefined,
-  };
+  // An ICD-10-CM hit carries its code as the `icd10` coding via the shared long-tail builder;
+  // a hit from any other terminology (the provider's free-text `system` label isn't our
+  // canonical `'SNOMED-CT'`) resolves to a bare generic keyed by its code, unchanged from the
+  // prior behaviour so no `snomed` coding is fabricated from an unverified label.
+  return hit.system === 'ICD-10-CM'
+    ? conditionFromCode('ICD-10-CM', hit.code, hit.name)
+    : { id: hit.code, name: hit.name, cat: 'other', base: 0, pattern: '—' };
 }
 
 /** The provider the app uses by default. */
