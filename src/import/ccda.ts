@@ -152,6 +152,14 @@ export interface CcdaSelections {
  * couple of MB; the cap bounds an accidental / hostile giant document). */
 const MAX_INPUT_CHARS = 16 * 1024 * 1024;
 
+/** Upper bounds on the number of items materialised from a single document. The input-size cap
+ * ({@link MAX_INPUT_CHARS}) bounds the raw bytes, but a pathological in-bounds document (many tiny
+ * observations / organizers) could still expand into an unbounded staging structure; these caps
+ * keep the parsed result bounded. Well above any realistic CCD, so real documents are unaffected;
+ * anything beyond is truncated deterministically (document order) with a warning naming the drop. */
+const MAX_PARSED_PROBLEMS = 5000;
+const MAX_PARSED_FAMILY_MEMBERS = 2000;
+
 // Section / entry template `@root`s — matched on `@root` only (extensions vary across C-CDA
 // R1.1 / R2.0 / R2.1 / Companion Guide; roots are stable). Verified against the C-CDA IG.
 const PROBLEM_SECTION_ROOTS = [
@@ -226,7 +234,14 @@ const CODE_SAB: Record<string, Sab> = {
 // Conservative auto-placement sets (DR-0017). Anything not covered here is surfaced ambiguous.
 const PARENT_CODES = new Set(['MTH', 'FTH', 'NMTH', 'NFTH']);
 const SIBLING_CODES = new Set(['BRO', 'SIS', 'NBRO', 'NSIS', 'SIB', 'TWINBRO', 'TWINSIS']);
-const CHILD_CODES = new Set(['SON', 'DAU', 'CHILD', 'NCHILD']);
+// Biological/natural children only — SON, DAU (natural son/daughter) and NCHILD (natural child)
+// carry genetic offspring geometry. The generic HL7 codes CHILD, SONC, and DAUC subsume adopted,
+// foster, and step children, so auto-placing them into genetic parentage could corrupt the
+// inheritance geometry; they fall through to `ambiguous` and are surfaced for a manual choice.
+// (Parents and siblings intentionally keep their generic MTH/FTH/BRO/SIS per the Family History
+// section convention that a listed parent/sibling is the genetic one — that asymmetry is on
+// purpose: a generic "child" is far likelier to be non-genetic than a generic "mother".)
+const CHILD_CODES = new Set(['SON', 'DAU', 'NCHILD']);
 /** Side-specified grandparents: parent of the proband's existing mother (`'f'`) or father
  * (`'m'`) — placed only when that linking parent already exists in the record. */
 const SIDED_GRANDPARENT: Record<string, Sab> = {
@@ -254,6 +269,8 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   HSIS: 'Half-sister',
   SON: 'Son',
   DAU: 'Daughter',
+  SONC: 'Son',
+  DAUC: 'Daughter',
   CHILD: 'Child',
   NCHILD: 'Child',
   GRMTH: 'Grandmother',
@@ -263,11 +280,25 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   MGRFTH: 'Maternal grandfather',
   PGRMTH: 'Paternal grandmother',
   PGRFTH: 'Paternal grandfather',
+  GGRMTH: 'Great-grandmother',
+  GGRFTH: 'Great-grandfather',
   AUNT: 'Aunt',
   UNCLE: 'Uncle',
+  MAUNT: 'Maternal aunt',
+  PAUNT: 'Paternal aunt',
+  MUNCLE: 'Maternal uncle',
+  PUNCLE: 'Paternal uncle',
   NIECE: 'Niece',
   NEPHEW: 'Nephew',
   COUSN: 'Cousin',
+  MTHINLAW: 'Mother-in-law',
+  FTHINLAW: 'Father-in-law',
+  STPMTH: 'Stepmother',
+  STPFTH: 'Stepfather',
+  FSTRMTH: 'Foster mother',
+  FSTRFTH: 'Foster father',
+  WIFE: 'Wife',
+  HUSB: 'Husband',
 };
 
 // ---------------------------------------------------------------------------
@@ -417,6 +448,11 @@ export function parseCcda(xmlText: string): ParsedCcda {
 
   const warnings: string[] = [];
   let negatedCount = 0;
+  // Item-count caps (see MAX_PARSED_* above). `problemCount` spans the proband problem list AND
+  // every relative's conditions (the whole staging structure), so one shared budget bounds them.
+  let problemCount = 0;
+  let problemsTruncated = false;
+  let familyTruncated = false;
 
   const sections = els(doc, 'section');
   const problemSections = sections.filter((s) =>
@@ -428,6 +464,7 @@ export function parseCcda(xmlText: string): ParsedCcda {
   const probandProblems: CcdaProblemEntry[] = [];
   let probIndex = 0;
   for (const section of problemSections) {
+    if (problemsTruncated) break;
     for (const obs of els(section, 'observation')) {
       if (!hasTemplateId(obs, PROBLEM_OBS_ROOT)) continue;
       const valueEl = childEls(obs, 'value')[0];
@@ -437,11 +474,16 @@ export function parseCcda(xmlText: string): ParsedCcda {
       }
       const coded = extractCoded(valueEl, obs, idMap);
       if (coded.system === null && !coded.displayName) continue; // nothing to show
+      if (problemCount >= MAX_PARSED_PROBLEMS) {
+        problemsTruncated = true;
+        break;
+      }
       probandProblems.push({
         parseId: `ccda-prob-${probIndex++}`,
         coded,
         onsetYear: probandOnsetAge(obs, patientBirthYear),
       });
+      problemCount++;
     }
   }
 
@@ -449,10 +491,15 @@ export function parseCcda(xmlText: string): ParsedCcda {
   const familyMembers: CcdaFamilyMember[] = [];
   let fhIndex = 0;
   for (const section of fhSections) {
+    if (familyTruncated) break;
     for (const organizer of els(section, 'organizer')) {
       if (!hasTemplateId(organizer, FH_ORGANIZER_ROOT)) continue;
       const relatedSubject = firstChild(firstChild(organizer, 'subject'), 'relatedSubject');
       if (!relatedSubject) continue;
+      if (familyMembers.length >= MAX_PARSED_FAMILY_MEMBERS) {
+        familyTruncated = true;
+        break;
+      }
 
       const relCodeEl = firstChild(relatedSubject, 'code');
       const relationshipCode = attr(relCodeEl, 'code').toUpperCase();
@@ -489,11 +536,16 @@ export function parseCcda(xmlText: string): ParsedCcda {
         }
         const coded = extractCoded(valueEl, obs, idMap);
         if (coded.system === null && !coded.displayName) continue;
+        if (problemCount >= MAX_PARSED_PROBLEMS) {
+          problemsTruncated = true;
+          break;
+        }
         problems.push({
           parseId: `${parseId}-prob-${pk++}`,
           coded,
           onsetYear: ageAtOnset(obs),
         });
+        problemCount++;
       }
 
       familyMembers.push({
@@ -519,6 +571,16 @@ export function parseCcda(xmlText: string): ParsedCcda {
       } not imported as a condition.`,
     );
   }
+  if (problemsTruncated) {
+    warnings.push(
+      `This document listed more than ${MAX_PARSED_PROBLEMS} conditions; the additional conditions beyond that limit were not imported.`,
+    );
+  }
+  if (familyTruncated) {
+    warnings.push(
+      `This document listed more than ${MAX_PARSED_FAMILY_MEMBERS} family members; the additional relatives beyond that limit were not imported.`,
+    );
+  }
 
   return { proband: { problems: probandProblems }, familyMembers, warnings };
 }
@@ -527,7 +589,15 @@ export function parseCcda(xmlText: string): ParsedCcda {
  * a positive condition). */
 function isNegatedOrAbsent(obs: Element, valueEl: Element | undefined): boolean {
   if (attr(obs, 'negationInd').toLowerCase() === 'true') return true;
-  if (valueEl && ABSENCE_SNOMED.has(attr(valueEl, 'code'))) return true;
+  if (valueEl) {
+    // Check the primary coding AND every translation for an "absence" concept — a CCD may carry
+    // the "no known family history" SNOMED code only in a `value/translation` (e.g. a primary
+    // ICD-10 coding with a SNOMED translation), and that must still read as an absence assertion.
+    if (ABSENCE_SNOMED.has(attr(valueEl, 'code'))) return true;
+    for (const tr of childEls(valueEl, 'translation')) {
+      if (ABSENCE_SNOMED.has(attr(tr, 'code'))) return true;
+    }
+  }
   return false;
 }
 
@@ -694,21 +764,29 @@ function stageFamilyMember(
   let matchedPersonId: string | null = null;
   let candidates: { personId: string; name: string; rel: string }[] = [];
 
+  const asCandidate = (p: Person): { personId: string; name: string; rel: string } => ({
+    personId: p.id,
+    name: p.name,
+    rel: relationInfo(idx, p.id, probandId).rel,
+  });
+
   if (placement) {
     const samePos = personsAtPosition(idx, placement);
     const norm = normName(m.name);
-    const exact = norm ? samePos.find((p) => normName(p.name) === norm) : undefined;
-    if (exact) {
+    const sameName = norm ? samePos.filter((p) => normName(p.name) === norm) : [];
+    if (sameName.length === 1) {
+      // Exactly one same-position person shares this name — an unambiguous merge target.
       matchStatus = 'matched-existing';
-      matchedPersonId = exact.id;
+      matchedPersonId = sameName[0].id;
+    } else if (sameName.length > 1) {
+      // Two or more same-position people share the identical normalised name — never silently
+      // attach to whichever appears first in traversal order; surface all of them to reconcile.
+      matchStatus = 'ambiguous';
+      candidates = sameName.map(asCandidate);
     } else if (samePos.length) {
       // Same-position people exist but none is a confident name match — reconcile manually.
       matchStatus = 'ambiguous';
-      candidates = samePos.map((p) => ({
-        personId: p.id,
-        name: p.name,
-        rel: relationInfo(idx, p.id, probandId).rel,
-      }));
+      candidates = samePos.map(asCandidate);
     } else {
       matchStatus = 'new-person';
     }
