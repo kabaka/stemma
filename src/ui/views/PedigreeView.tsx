@@ -484,7 +484,9 @@ export function PedigreeView() {
   // so the browser's own native scroll-into-view can't (and must not) do it. Reads `pos`
   // via a ref rather than a dependency, so callers don't re-create this every layout pass.
   const posRef = useRef(pos);
-  posRef.current = pos;
+  useEffect(() => {
+    posRef.current = pos;
+  });
   const nudgeToPerson = useCallback((id: string): void => {
     const node = posRef.current[id];
     const el = scrollRef.current;

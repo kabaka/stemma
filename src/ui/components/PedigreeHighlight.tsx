@@ -124,10 +124,14 @@ export function HighlightBar({
   const popoverWrapRef = useRef<HTMLDivElement>(null);
 
   // Switching mode swaps the popover's contents and clears the active highlight in the
-  // parent (see PedigreeView's `setHlMode`), so close it on any mode flip.
-  useEffect(() => {
+  // parent (see PedigreeView's `setHlMode`), so close it on any mode flip. Reset during
+  // render (React's canonical "adjust state when a prop changes" pattern) rather than in
+  // an effect, so the popover never paints open-then-closed for one frame.
+  const [prevMode, setPrevMode] = useState(mode);
+  if (mode !== prevMode) {
+    setPrevMode(mode);
     setOpen(false);
-  }, [mode]);
+  }
 
   // Dismiss on an outside pointer-down (a click on the tree, elsewhere in the header, …).
   // Deliberately does NOT pull focus back to the trigger — the user is interacting
