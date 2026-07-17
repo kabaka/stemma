@@ -83,10 +83,14 @@ export function OverviewView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title" tabIndex={-1}>
-          Health Overview
-        </h1>
-        <span className="mono-dim">as of {asOf}</span>
+        <div className="page-head__main">
+          <h1 className="page-title" tabIndex={-1}>
+            Health Overview
+          </h1>
+          <span className="mono-dim">
+            As of {asOf} · {relCount} {relCount === 1 ? 'relative' : 'relatives'}
+          </span>
+        </div>
       </div>
       <ClinicalBoundary />
       {/* View-specific value only (the stat framing) — ClinicalBoundary directly above

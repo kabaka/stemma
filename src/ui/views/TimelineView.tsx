@@ -6,6 +6,7 @@ import { SCREENING_DEFS } from '@/domain/screening';
 import { labTitles } from '@/domain/timeline';
 import { CurrentMedications } from '../components/CurrentMedications';
 import { LabTrend } from '../components/LabTrend';
+import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import type {
   AllergyInfo,
   AttachmentRef,
@@ -85,13 +86,13 @@ export function TimelineView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title" tabIndex={-1}>
-          {isProband ? 'My Health Timeline' : `${person.name}’s Timeline`}
-        </h1>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="page-head__main">
+          <h1 className="page-title" tabIndex={-1}>
+            {isProband ? 'My Health Timeline' : `${person.name}’s Timeline`}
+          </h1>
           {/* Visible label, matching PatternsView's vantage selector treatment (both
               re-root a per-person view; a visually-hidden label here was the odd one out). */}
-          <label className="row" style={{ gap: 8 }}>
+          <label className="row wrap" style={{ gap: 8 }}>
             <span className="mono-dim">Viewing</span>
             <select
               id={personSelectId}
@@ -109,6 +110,8 @@ export function TimelineView() {
               ))}
             </select>
           </label>
+        </div>
+        <div className="page-head__actions">
           <button
             type="button"
             className="btn btn--primary btn--sm"
@@ -119,6 +122,7 @@ export function TimelineView() {
           </button>
         </div>
       </div>
+      <ClinicalBoundary />
       <p className="lede">
         {isProband
           ? 'Personal record — diagnoses, medications, procedures, labs, screenings and immunizations.'

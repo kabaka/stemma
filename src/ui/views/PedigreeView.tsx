@@ -273,6 +273,12 @@ export function PedigreeView() {
   const layout = computeLayout(record.people, record.unions);
   const { pos, cw, ch, gens, minGen } = layout;
   const segs = segments(record.unions, layout.pos);
+  const peopleCount = record.people.length;
+  // Generation SPAN (max − min + 1), matching OverviewView's "Generations" stat — not
+  // `gens.length` (the count of *occupied* generations), which diverges from Overview for
+  // a disconnected graph (e.g. a GEDCOM import with isolated people), showing two
+  // different "N generations" numbers for the same record on two screens.
+  const genCount = layout.maxGen - layout.minGen + 1;
 
   // Tab order follows DOM order, not the absolute positioning below — sort by the
   // computed layout position (generation, then horizontal position) so keyboard users
@@ -612,14 +618,22 @@ export function PedigreeView() {
     >
       <div className="pedigree-header">
         <div className="page-head">
-          <h1 className="page-title" tabIndex={-1} ref={titleRef}>
-            Family Pedigree
-          </h1>
+          <div className="page-head__main">
+            <h1 className="page-title" tabIndex={-1} ref={titleRef}>
+              Family Pedigree
+            </h1>
+            {!isEmpty && (
+              <span className="mono-dim">
+                {peopleCount} {peopleCount === 1 ? 'person' : 'people'} · {genCount}{' '}
+                {genCount === 1 ? 'generation' : 'generations'}
+              </span>
+            )}
+          </div>
           {/* The empty state below has its own, more prominent "+ Add relative" /
               "Load example family" affordances, so this cluster only adds value once
               there's a tree to manage — showing both here and there would be redundant. */}
           {!isEmpty && (
-            <div className="row wrap" style={{ gap: 8 }}>
+            <div className="page-head__actions">
               {/* The rarely-used trio (import / load sample / reset) collapses behind one
                   overflow control so "+ add relative" — the one action most people reach
                   for — reads as the row's actual primary, matching its .btn--primary
@@ -652,22 +666,7 @@ export function PedigreeView() {
         {/* The notation key and the Highlight controls share one row — two small pieces
             of chart chrome that both fit comfortably alongside each other, rather than
             each claiming a full-width row of their own before the canvas even starts. */}
-        <div className="row wrap" style={{ gap: 20, marginTop: 12, alignItems: 'flex-start' }}>
-          {/* The notation key is reference material a frequent user already knows, so it
-              sits in a disclosure collapsed by default rather than as a permanent
-              paragraph — one small toggle instead of three lines of chrome, still one
-              click away for anyone learning to read the chart. */}
-          <details className="pedigree-guide" style={{ marginTop: 6 }}>
-            <summary className="pedigree-guide__toggle">How to read this pedigree</summary>
-            <p className="pedigree-guide__text">
-              2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary;
-              sex assigned at birth is noted when it differs. Filled = affected, coloured by
-              condition category; diagonal = deceased. A doubled line marks a consanguineous union;
-              converging diagonal lines mark a twin/multiple-birth set, with a horizontal bar for
-              identical (monozygotic) twins. Click any relative to view or edit their record.
-            </p>
-          </details>
-
+        <div className="pedigree-toolbar">
           {!isEmpty && (
             <HighlightBar
               mode={hlMode}
@@ -681,6 +680,20 @@ export function PedigreeView() {
               palette={palette}
             />
           )}
+          {/* The notation key is reference material a frequent user already knows, so it
+              sits in a disclosure collapsed by default rather than as a permanent
+              paragraph — one small toggle instead of three lines of chrome, still one
+              click away for anyone learning to read the chart. */}
+          <details className="pedigree-guide" style={{ margin: 0 }}>
+            <summary className="pedigree-guide__toggle">How to read this pedigree</summary>
+            <p className="pedigree-guide__text">
+              2022 gender-inclusive notation — circle = woman, square = man, diamond = nonbinary;
+              sex assigned at birth is noted when it differs. Filled = affected, coloured by
+              condition category; diagonal = deceased. A doubled line marks a consanguineous union;
+              converging diagonal lines mark a twin/multiple-birth set, with a horizontal bar for
+              identical (monozygotic) twins. Click any relative to view or edit their record.
+            </p>
+          </details>
         </div>
         {catBreakdown && (
           <p className="mono-dim" role="status" style={{ marginTop: 8, lineHeight: 1.5 }}>

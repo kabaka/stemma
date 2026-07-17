@@ -135,10 +135,25 @@
 }
 .page-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  flex-wrap: wrap;
   gap: 16px;
+  min-height: 36px;
+  margin: 0 0 16px;
+}
+.page-head__main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
 }
 .page-title {
   font-size: 23px;
@@ -149,7 +164,7 @@
 .lede {
   color: var(--text-dim);
   font-size: 13px;
-  margin: 0 0 24px;
+  margin: 0 0 20px;
   max-width: 680px;
   line-height: 1.5;
 }
@@ -634,9 +649,16 @@ textarea.field {
    header (title + Highlight controls) above a flexible body that either scrolls the
    canvas or shows the empty-state prompt, then a pinned footer for the category legend. */
 .pedigree-header {
-  padding: 22px 34px 16px;
+  padding: 28px 34px 16px;
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+.pedigree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .pedigree-body {
   flex: 1;

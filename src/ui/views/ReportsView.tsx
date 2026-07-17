@@ -133,17 +133,22 @@ export function ReportsView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title" tabIndex={-1}>
-          Reports &amp; Export
-        </h1>
-        <button
-          type="button"
-          className="btn btn--sm"
-          onClick={() => window.print()}
-          title="Print three clinician-ready sheets: pedigree, red-flag summary, and personal health summary"
-        >
-          Print clinical sheets
-        </button>
+        <div className="page-head__main">
+          <h1 className="page-title" tabIndex={-1}>
+            Reports &amp; Export
+          </h1>
+          <span className="mono-dim">Generated in your browser · nothing uploaded</span>
+        </div>
+        <div className="page-head__actions">
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={() => window.print()}
+            title="Print three clinician-ready sheets: pedigree, red-flag summary, and personal health summary"
+          >
+            Print clinical sheets
+          </button>
+        </div>
       </div>
       {/* The live SVG/FHIR/Phenopacket preview below is an analysis surface like any
           other — every such surface restates the boundary (guardrail #3). */}

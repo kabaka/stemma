@@ -35,26 +35,28 @@ export function PatternsView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title" tabIndex={-1}>
-          Family Patterns
-        </h1>
-        <label className="row" style={{ gap: 8 }}>
-          <span className="mono-dim">Vantage</span>
-          <select
-            className="field"
-            style={{ width: 'auto' }}
-            value={riskRoot}
-            onChange={(e) => setRiskRoot(e.target.value)}
-            title="Re-roots pattern detection on this person. Overview always shows your own perspective."
-          >
-            {record.people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.id === record.probandId ? ' (you)' : ` · ${relations.get(p.id)?.rel ?? ''}`}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="page-head__main">
+          <h1 className="page-title" tabIndex={-1}>
+            Family Patterns
+          </h1>
+          <label className="row wrap" style={{ gap: 8 }}>
+            <span className="mono-dim">Vantage</span>
+            <select
+              className="field"
+              style={{ width: 'auto' }}
+              value={riskRoot}
+              onChange={(e) => setRiskRoot(e.target.value)}
+              title="Re-roots pattern detection on this person. Overview always shows your own perspective."
+            >
+              {record.people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.id === record.probandId ? ' (you)' : ` · ${relations.get(p.id)?.rel ?? ''}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
       <ClinicalBoundary />
       {/* View-specific value only — ClinicalBoundary above already states "surfaces
