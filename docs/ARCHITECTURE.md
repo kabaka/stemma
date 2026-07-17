@@ -434,6 +434,64 @@ requiring manual condition entry after a GEDCOM import. `store.replaceRecord`, t
 externally-built record, now validates against `isValidRecord` rather than trusting the shape, closing
 the same hydration hole a corrupt `localStorage` blob already guarded against. (roadmap Phase 3.)
 
+### ADR-009 — C-CDA import is merge-with-review; relationship placement is conservative by construction
+**Context:** Phase 3 ("kill the retyping") also targets the diagnoses and family history a user
+already has sitting in a patient portal. A live pull (SMART-on-FHIR / OAuth) was evaluated and
+rejected for now: production CORS support is inconsistent per vendor, most endpoints need a
+confidential client secret or per-organization app activation, and every mature auto-pull
+integration (Apple Health, CommonHealth, Fasten, Flexpa) resorts to a paid or copyleft server-side
+broker — all of which collide with guardrail #5 ("the only runtime network call is the optional
+vocabulary lookup") and belong to Phase 5 once a backend exists (DR-0016). A **C-CDA (CCD) XML**,
+by contrast, is what every certified EHR must already let a patient download (ONC 170.315(e)(1)
+"View, Download, Transmit"), and uniquely carries both a Problem list and a dedicated Family
+History section — Stemma's two data axes — so it can be parsed 100% client-side with the same
+trust model the GEDCOM and native-backup importers already established (DR-0016, DR-0017).
+**Decision:** Add [`src/import/ccda.ts`](../src/import/ccda.ts), mirroring the GEDCOM split into
+three pure, never-throw stages: **`parseCcda`** (XML text → a structural intermediate via
+`DOMParser`, no new dependency), **`stageCcdaImport`** (read-only reconciliation of the parse
+against the live record + catalog into per-item suggestions), and **`applyCcdaImport`** (a pure
+merge to a complete new `FamilyRecord`), handed to the existing `replaceRecord` boundary — zero
+store changes. Unlike GEDCOM's wholesale structural replace, this is Stemma's first
+**merge-with-review** import: every parsed condition and relative is a suggestion the user checks
+or unchecks individually before anything is written, and accepted conditions carry `prov: 'record'`.
+Code extraction prefers a curated ICD-10-CM match, then a curated SNOMED-CT match, then a real
+(uncurated) ICD-10-CM code as a long-tail suggestion, then a SNOMED-only `cat: 'other'` entry
+preserving the code and display name verbatim — an uncoded or legacy ICD-9-CM entry is surfaced
+narrative-only, never crosswalked or fabricated into a code it doesn't have (shared
+`conditionFromCode` with the vocabulary port, so the long-tail shape can't drift — see
+[ADR-005](#adr-005--two-layer-condition-catalog-with-a-vocabulary-port)). Relationship placement
+is **conservative by construction**: only `MTH`/`FTH` (and the explicit "natural" synonyms
+`NMTH`/`NFTH`/`NBRO`/`NSIS`) → parent, full `BRO`/`SIS`/`SIB` → sibling, a biological-specific
+`SON`/`DAU`/`NCHILD` → child, and a side-specified grandparent (`MGRMTH`/`MGRFTH`/`PGRMTH`/`PGRFTH`)
+only once the linking parent already exists in the record, are auto-placed. Everything else — the
+generic `CHILD` role code, the civil-union-partner `SONC`/`DAUC`, half-siblings,
+aunts/uncles/nieces/nephews/cousins, in-law/step/adoptive/foster relatives, spouses, and
+side-unknown grandparents — is surfaced for the user to place manually; a wrong guess here would
+corrupt per-lineage HBOC/Lynch counting, so the review screen defaults these items **unchecked**.
+**Consequence:** the placement rule rests on an HL7 convention, not a certainty, and the honest
+caveats have to travel with it. For parents and siblings, Family History `RoleCode`s are used
+generically in real CCDs — the sex-unspecified `SIB` code is still the common way an EHR records an
+ordinary biological sibling, not just a genuinely sex-unknown one — so this importer treats `SIB`
+(alongside `MTH`/`FTH`/`BRO`/`SIS`) as a first-degree biological relative (sex assigned at birth
+resolves to `'u'` for `SIB` until the user edits it). Children get the more conservative treatment,
+fixed after a medical-review finding: a generic `CHILD` role doesn't carry that same
+"assume-biological" FH-section convention — real CCDs use it for step/foster/adopted children too,
+not only genuinely sex-unknown ones — so only the biological-specific `SON`/`DAU`/`NCHILD` codes
+auto-place; `CHILD` itself (and `SONC`/`DAUC`) is always surfaced for the user to place manually,
+never auto-attached into genetic parentage. Either way, this is a suggestion the review step
+requires the user to confirm, never a silent write. Real-world Family History coding quality is
+often poor — ages at onset are frequently missing and many problems are SNOMED-only or narrative
+text with no code at all — so match yield on an actual patient export will often be partial; the
+review UI is framed to the user as a draft to check, not a completed import. Absence detection is
+heuristic: `negationInd="true"` plus two specific SNOMED "no known family history" concept codes,
+checked against an entry's value coding **and every `translation` on it** (a primary ICD-10 coding
+can carry the absence concept only in a SNOMED translation) — still limited to those two codes, not
+general negation-language understanding. And when a proband has two parents of the same sex
+assigned at birth (e.g. two mothers), the maternal/paternal grandparent line each `MGRxx`/`PGRxx`
+code attaches to is resolved to whichever matching parent is found first — an arbitrary but
+user-reviewable choice, since a `FamilyRecord` carries no notion of a designated "maternal" vs
+"paternal" side beyond genetics. (roadmap Phase 3; DR-0016; DR-0017.)
+
 ---
 
 _See also:_ [`README.md`](../README.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) ·
