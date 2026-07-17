@@ -40,13 +40,18 @@ export function HistoryView() {
   return (
     <div className="scroll">
       <div className="page-head">
-        <h1 className="page-title" tabIndex={-1} ref={titleRef}>
-          History
-        </h1>
+        <div className="page-head__main">
+          <h1 className="page-title" tabIndex={-1} ref={titleRef}>
+            History
+          </h1>
+          <span className="mono-dim">Edit log · this device only</span>
+        </div>
         {entries.length > 0 && (
-          <button type="button" className="btn btn--sm btn--danger" onClick={handleClear}>
-            Clear history
-          </button>
+          <div className="page-head__actions">
+            <button type="button" className="btn btn--sm btn--danger" onClick={handleClear}>
+              Clear history
+            </button>
+          </div>
         )}
       </div>
       <p className="lede">

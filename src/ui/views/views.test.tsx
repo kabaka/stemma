@@ -136,6 +136,11 @@ describe('PatternsView', () => {
     expect(screen.getByText(/per-condition family findings/i)).toBeInTheDocument();
   });
 
+  it('labels the "Vantage" select visibly — the header restructure moved it into the left column, but its <label> association must survive (accessibility)', () => {
+    render(<PatternsView />);
+    expect(screen.getByRole('combobox', { name: /^vantage$/i })).toBeInTheDocument();
+  });
+
   it('renders the clinical boundary as a first-class callout, not lede body text (guardrail #3)', () => {
     render(<PatternsView />);
     const boundary = screen.getByRole('note', { name: /clinical boundary/i });
@@ -435,6 +440,16 @@ describe('TimelineView', () => {
     expect(screen.queryByRole('heading', { name: /lab trend/i })).not.toBeInTheDocument();
   });
 
+  it('renders the clinical boundary at the page level (guardrail #3), unambiguously when there are no labs', () => {
+    // The sample family's timeline events are all legacy flat events with no lab
+    // reading, so LabTrend (which renders its own, separate ClinicalBoundary) never
+    // mounts here — exactly one boundary note exists, unambiguously the page-level one.
+    render(<TimelineView />);
+    expect(screen.queryByRole('heading', { name: /lab trend/i })).not.toBeInTheDocument();
+    const boundary = screen.getByRole('note', { name: /clinical boundary/i });
+    expect(boundary).toHaveTextContent(/not a diagnostic device/i);
+  });
+
   it('renders the lab-trend surface — with the clinical boundary — when a lab title exists for the person', () => {
     act(() =>
       useStore.getState().replaceRecord({
@@ -470,7 +485,16 @@ describe('TimelineView', () => {
     );
     render(<TimelineView />);
     expect(screen.getByRole('heading', { name: /lab trend/i })).toBeInTheDocument();
-    expect(screen.getByRole('note', { name: /clinical boundary/i })).toBeInTheDocument();
+    // Two distinct boundary notes now coexist by design: TimelineView's own page-level
+    // standing disclaimer (guardrail #3, present on every visit regardless of labs — see
+    // the no-labs test above) plus LabTrend's own contextual one rendered alongside the
+    // lab-specific read-model it documents (see LabTrend's docstring). Both must state the
+    // core boundary text.
+    const boundaries = screen.getAllByRole('note', { name: /clinical boundary/i });
+    expect(boundaries).toHaveLength(2);
+    boundaries.forEach((boundary) =>
+      expect(boundary).toHaveTextContent(/not a diagnostic device/i),
+    );
     expect(screen.getByRole('combobox', { name: /test/i })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '2020' })).toBeInTheDocument();
     expect(screen.getByText(/130 mg\/dL/)).toBeInTheDocument();
@@ -713,6 +737,75 @@ describe('PedigreeView', () => {
     const boundary = screen.getByRole('note', { name: /clinical boundary/i });
     expect(boundary).toHaveClass('clinical-boundary');
     expect(boundary).toHaveTextContent(/not a diagnostic device/i);
+  });
+
+  it('shows a "N people · N generations" meta line in the header for a non-empty pedigree', () => {
+    render(<PedigreeView />);
+    // Distinct from the highlight-driven catBreakdown string ("N people · Breast cancer
+    // (N)", asserted separately below) — this is the always-present header meta, keyed
+    // only on digits either side of the separator, never a condition name.
+    expect(
+      screen.getByText(/^\d+ (person|people) · \d+ (generation|generations)$/),
+    ).toBeInTheDocument();
+  });
+
+  it('agrees with OverviewView\'s "Generations" stat on a disconnected pedigree with a gap in occupied generations (regression)', () => {
+    // Two people with NO union linking them, at gen 0 and gen 3 — occupied generations
+    // are {0, 3} (gens.length === 2, a gap at 1 and 2), while the SPAN maxGen - minGen + 1
+    // is 4. OverviewView's "Generations" stat has always used the span. PedigreeView's
+    // header meta must use the same span formula — not `gens.length` — or the two
+    // surfaces show two different generation counts for the identical record.
+    const disconnectedRecord: FamilyRecord = {
+      people: [
+        {
+          id: 'you',
+          name: 'Robin',
+          sab: 'f',
+          gender: 'woman',
+          gen: 0,
+          x: 0,
+          dead: false,
+          birth: 1980,
+          death: null,
+          isProband: true,
+          conds: [],
+        },
+        {
+          id: 'isolated',
+          name: 'Isolated Ancestor',
+          sab: 'm',
+          gender: 'man',
+          gen: 3,
+          x: 0,
+          dead: false,
+          birth: 1900,
+          death: null,
+          isProband: false,
+          conds: [],
+        },
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'you',
+    };
+
+    act(() => useStore.getState().replaceRecord(disconnectedRecord));
+
+    const { unmount } = render(<OverviewView />);
+    const overviewCard = screen.getByText('Generations').closest('.card');
+    expect(overviewCard).not.toBeNull();
+    // The span (4), not the occupied count (2) — pins the value OverviewView has always
+    // shown, so the test also catches a regression on the Overview side.
+    expect(within(overviewCard as HTMLElement).getByText('4')).toBeInTheDocument();
+    unmount();
+
+    render(<PedigreeView />);
+    const pedigreeMeta = screen.getByText(/^\d+ (person|people) · \d+ (generation|generations)$/);
+    // Must read "4 generations" — the same span PedigreeView shows here — never
+    // "2 generations" (gens.length, the occupied-generation count this regression guards
+    // against reverting to).
+    expect(pedigreeMeta).toHaveTextContent(/4 generations$/);
+    expect(pedigreeMeta).not.toHaveTextContent(/2 generations$/);
   });
 
   it('labels generations relative to the proband (YOU / ▲ / ▼), not absolute Gen numbers (M5)', () => {
