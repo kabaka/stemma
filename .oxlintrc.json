@@ -11,7 +11,7 @@
     "browser": true,
     "es2024": true
   },
-  "ignorePatterns": ["dist", "coverage", "prototype", "node_modules"],
+  "ignorePatterns": ["dist", "coverage", "prototype", "node_modules", ".design-sync"],
   "rules": {
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "react/rules-of-hooks": "error",

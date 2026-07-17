@@ -1,0 +1,34 @@
+{
+  "projectId": "e2a65126-82a6-4613-bdcf-ea4bf35854eb",
+  "shape": "package",
+  "pkg": "stemma",
+  "globalName": "Stemma",
+  "entry": ".design-sync/entry.tsx",
+  "srcDir": "src",
+  "tsconfig": ".design-sync/tsconfig.build.json",
+  "cssEntry": ".design-sync/ds-styles.css",
+  "extraFonts": [".design-sync/fonts/ibm-plex.css"],
+  "provider": { "component": "ThemeSurface" },
+  "guidelinesGlob": [],
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "PrintReports": { "cardMode": "single", "viewport": "1200x2400" },
+    "PersonDrawer": { "cardMode": "single", "viewport": "800x1200" },
+    "PersonForm": { "cardMode": "single", "viewport": "900x1100" }
+  },
+  "componentSrcMap": {
+    "ThemeSurface": null,
+    "ClinicalBoundary": "src/ui/components/ClinicalBoundary.tsx",
+    "ConditionPicker": "src/ui/components/ConditionPicker.tsx",
+    "CurrentMedications": "src/ui/components/CurrentMedications.tsx",
+    "FlagCard": "src/ui/components/FlagCard.tsx",
+    "GedcomImport": "src/ui/components/GedcomImport.tsx",
+    "LabTrend": "src/ui/components/LabTrend.tsx",
+    "NativeRestore": "src/ui/components/NativeRestore.tsx",
+    "HighlightBar": "src/ui/components/PedigreeHighlight.tsx",
+    "PersonDrawer": "src/ui/components/PersonDrawer.tsx",
+    "PersonForm": "src/ui/components/PersonForm.tsx",
+    "PrintReports": "src/ui/components/PrintReports.tsx",
+    "ProvenanceMark": "src/ui/components/ProvenanceMark.tsx"
+  }
+}
