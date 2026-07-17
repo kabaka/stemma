@@ -14,7 +14,7 @@ import type { RelationInfo } from '@/domain/graph';
  * Mirrors the pattern in `PersonDrawer`; return the ref and spread it onto the element
  * that should receive focus (typically the first field). WCAG 2.4.3.
  */
-export function useDisclosureFocus<T extends HTMLElement>(): RefObject<T> {
+export function useDisclosureFocus<T extends HTMLElement>(): RefObject<T | null> {
   const ref = useRef<T>(null);
   useEffect(() => {
     const trigger = document.activeElement;
