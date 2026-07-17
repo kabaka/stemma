@@ -84,7 +84,7 @@ npm run check    # format:check + lint + typecheck + test:run
 | Build / dev server | Vite 5 |
 | State | Zustand (persisted to `localStorage`) |
 | Tests | Vitest + Testing Library (jsdom) |
-| Lint / format | ESLint 9 (flat config) + Prettier |
+| Lint / format | oxlint (type-aware, via tsgolint) + Prettier |
 | Hosting | GitHub Pages — <https://kabaka.github.io/stemma/> |
 
 ## Project structure

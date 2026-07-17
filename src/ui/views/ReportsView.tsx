@@ -265,7 +265,7 @@ export function ReportsView() {
               <button
                 type="button"
                 className="btn btn--sm"
-                onClick={() => navigator.clipboard?.writeText(preview.text)}
+                onClick={() => void navigator.clipboard?.writeText(preview.text)}
               >
                 Copy
               </button>

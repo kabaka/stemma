@@ -80,7 +80,7 @@ function foldLine(line: string): string {
  * new line and forge an iCalendar property. A no-op for the ids Stemma generates itself.
  */
 function icsUid(raw: string): string {
-  // eslint-disable-next-line no-control-regex
+  // oxlint-disable-next-line no-control-regex
   return raw.replace(/[\u0000-\u001f\u007f]/g, '');
 }
 
@@ -97,7 +97,11 @@ function advisoryPhrase(status: ScheduleStatus): string {
       return 'May be due based on typical guideline intervals — worth raising at your next visit';
     case 'due':
       return 'May be due this year — worth discussing with your clinician';
-    default:
+    // `notYet` screens are filtered out before export (see buildIcsCalendar), so only
+    // `upToDate` reaches here in practice; both carry the neutral on-track phrasing.
+    // Enumerated (no `default`) so a new ScheduleStatus can't silently fall through.
+    case 'upToDate':
+    case 'notYet':
       return 'On track per typical guideline interval';
   }
 }

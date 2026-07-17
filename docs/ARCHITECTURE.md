@@ -366,7 +366,7 @@ Lightweight architecture decision records. Each: context → decision → conseq
 
 ### ADR-001 — React 18 + Vite 5 + TypeScript (strict)
 **Context:** productionalizing a single-file prototype into a maintainable static SPA.
-**Decision:** React 18 + TypeScript in `strict` mode, built with Vite 5; ESLint 9 flat config +
+**Decision:** React 18 + TypeScript in `strict` mode, built with Vite 5; oxlint (type-aware) +
 Prettier; Vitest for tests. **Consequence:** fast dev/build, a typed model that documents itself, and
 a single quality gate (`npm run check`). `verbatimModuleSyntax` mandates `import type`; `base` is set
 to `/stemma/` for GitHub Pages builds.

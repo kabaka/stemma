@@ -88,7 +88,7 @@ export function NativeRestore({ onRestore, onCancel }: NativeRestoreProps) {
           type="file"
           accept=".json,application/json"
           aria-describedby={hintId}
-          onChange={handleFile}
+          onChange={(e) => void handleFile(e)}
         />
         <p id={hintId} className="mono-dim" style={{ marginTop: 6 }}>
           A file you previously downloaded with “Download backup”. Read and validated in your

@@ -26,9 +26,8 @@
     "noImplicitOverride": true,
 
     /* Paths */
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src", "vitest.setup.ts"]

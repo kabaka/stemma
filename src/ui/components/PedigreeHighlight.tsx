@@ -349,7 +349,7 @@ function HighlightPopover({
         // Close when focus leaves the popover subtree entirely (e.g. Tab past the last
         // row). `relatedTarget` is the element gaining focus — null when focus leaves the
         // window; a node still inside means focus merely moved between rows, so stay open.
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onDismiss();
+        if (!e.currentTarget.contains(e.relatedTarget)) onDismiss();
       }}
     >
       <div className="overline" style={{ marginBottom: 7 }}>
