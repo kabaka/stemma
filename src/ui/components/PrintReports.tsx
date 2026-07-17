@@ -113,8 +113,10 @@ export function PrintReports() {
           dangerouslySetInnerHTML={{ __html: pedigreeSvg }}
         />
         <p className="print-note">
-          Squares = assigned male at birth · circles = assigned female · diamond = unknown; a shaded
-          glyph is affected, a slash is deceased, the arrow marks {proband.name}.
+          Circle = woman · square = man · diamond = nonbinary (2022 gender-inclusive notation); sex
+          assigned at birth (AFAB/AMAB) is noted beneath a glyph when it differs. A shaded glyph is
+          affected (coloured by condition category), a slash marks deceased, and the arrow marks{' '}
+          {proband.name}.
         </p>
       </section>
 
