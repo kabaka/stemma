@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { useDisclosureFocus, useRelations } from '../hooks';
 import { EVENT_META, EVENT_TYPES } from '@/data/events';
@@ -52,20 +52,16 @@ export function TimelineView() {
     record.people.find((p) => p.id === tlPerson) ??
     record.people.find((p) => p.isProband) ??
     record.people[0];
-  const events = useMemo(
-    () => record.timeline.filter((e) => e.person === tlPerson).sort((a, b) => b.year - a.year),
-    [record.timeline, tlPerson],
-  );
+  const events = record.timeline
+    .filter((e) => e.person === tlPerson)
+    .sort((a, b) => b.year - a.year);
   const shown = tlType === 'all' ? events : events.filter((e) => e.type === tlType);
   const presentTypes = EVENT_TYPES.filter((t) => events.some((e) => e.type === t));
   // Keyed off the same resolved `person?.id` passed to <CurrentMedications>/<LabTrend>
   // below (falling back to `tlPerson` only because this runs before the `!person` guard
   // and hooks can't follow an early return) — so this gate can never disagree with what
   // those components actually render against.
-  const hasLabs = useMemo(
-    () => labTitles(record, person?.id ?? tlPerson).length > 0,
-    [record, person?.id, tlPerson],
-  );
+  const hasLabs = labTitles(record, person?.id ?? tlPerson).length > 0;
 
   if (!person) return <div className="scroll">No record loaded.</div>;
 

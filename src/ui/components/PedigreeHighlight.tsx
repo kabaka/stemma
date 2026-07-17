@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Catalog } from '@/domain/catalog';
 import type { CategoryKey, Person } from '@/domain/types';
 import type { Palette } from '@/data/categories';
@@ -110,13 +110,10 @@ export function HighlightBar({
   catalog: Catalog;
   palette: Palette;
 }) {
-  const chips = useMemo(
-    () =>
-      mode === 'cond'
-        ? conditionChipsFor(people, catalog, palette)
-        : categoryChipsFor(people, catalog, palette),
-    [mode, people, catalog, palette],
-  );
+  const chips =
+    mode === 'cond'
+      ? conditionChipsFor(people, catalog, palette)
+      : categoryChipsFor(people, catalog, palette);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const condModeRef = useRef<HTMLButtonElement>(null);
@@ -169,15 +166,19 @@ export function HighlightBar({
   // metadata directly (not `chips`), so it still shows a name when the active id came
   // from full-catalog search and isn't present in the family — `catalog.get` always
   // resolves, falling back to a generic record for an unknown id.
-  const activeSummary = useMemo((): { name: string; color: string } | null => {
-    if (activeId == null) return null;
+  let activeSummary: { name: string; color: string } | null = null;
+  if (activeId != null) {
     if (mode === 'cat') {
       const key = activeId as CategoryKey;
-      return { name: CATEGORIES[key]?.label ?? activeId, color: categoryColor(key, palette) };
+      activeSummary = {
+        name: CATEGORIES[key]?.label ?? activeId,
+        color: categoryColor(key, palette),
+      };
+    } else {
+      const meta = catalog.get(activeId);
+      activeSummary = { name: meta.name, color: categoryColor(meta.cat, palette) };
     }
-    const meta = catalog.get(activeId);
-    return { name: meta.name, color: categoryColor(meta.cat, palette) };
-  }, [activeId, mode, catalog, palette]);
+  }
 
   return (
     <div

@@ -5,7 +5,7 @@
  * clinician's job, not this table's (guardrail #1). Carries its own {@link ClinicalBoundary}
  * because a trend, more than most surfaces, invites a self-read diagnosis (guardrail #3).
  */
-import { useId, useMemo, useState } from 'react';
+import { useId, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { labSeries, labTitles } from '@/domain/timeline';
 import { ClinicalBoundary } from './ClinicalBoundary';
@@ -17,7 +17,7 @@ function formatRange(low: number | undefined, high: number | undefined): string 
 
 export function LabTrend({ personId }: { personId: string }) {
   const record = useStore((s) => s.record);
-  const titles = useMemo(() => labTitles(record, personId), [record, personId]);
+  const titles = labTitles(record, personId);
   const [selected, setSelected] = useState(titles[0] ?? '');
   const pickerId = useId();
   const headingId = useId();
@@ -26,10 +26,7 @@ export function LabTrend({ personId }: { personId: string }) {
   // so fall back to the first available title rather than querying one that no longer
   // exists (and never render a <select> with a value that has no matching <option>).
   const activeTitle = titles.includes(selected) ? selected : (titles[0] ?? '');
-  const points = useMemo(
-    () => (activeTitle ? labSeries(record, personId, activeTitle) : []),
-    [record, personId, activeTitle],
-  );
+  const points = activeTitle ? labSeries(record, personId, activeTitle) : [];
 
   if (titles.length === 0) return null;
 

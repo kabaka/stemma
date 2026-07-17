@@ -4,17 +4,14 @@
  * never infers or interprets them). Mirrors OverviewView's screening-list semantics
  * (`role="list"`) so assistive tech announces "list, N items".
  */
-import { useId, useMemo } from 'react';
+import { useId } from 'react';
 import { CURRENT_YEAR, useStore } from '@/store/useStore';
 import { currentMedications } from '@/domain/timeline';
 
 export function CurrentMedications({ personId }: { personId: string }) {
   const record = useStore((s) => s.record);
   const headingId = useId();
-  const meds = useMemo(
-    () => currentMedications(record, personId, CURRENT_YEAR),
-    [record, personId],
-  );
+  const meds = currentMedications(record, personId, CURRENT_YEAR);
 
   return (
     <section>
