@@ -94,6 +94,18 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * The four-generation window of people centred on the proband that the pedigree renders,
+ * matching the prototype: two generations up through one generation down. Falls back to a
+ * generation-0 window when there is no proband. Pure; shared with the print colour key so the
+ * legend covers exactly the drawn people.
+ */
+export function windowedPeople(record: FamilyRecord): Person[] {
+  const proband = record.people.find((p) => p.id === record.probandId);
+  const g0 = proband ? proband.gen : 0;
+  return record.people.filter((p) => p.gen >= g0 - 2 && p.gen <= g0 + 1);
+}
+
 /** Serialise a family record into a self-contained pedigree SVG string. */
 export function buildPedigreeSvg(
   record: FamilyRecord,
@@ -101,10 +113,8 @@ export function buildPedigreeSvg(
   opts: PedigreeSvgOptions = {},
 ): string {
   const palette: Palette = opts.palette ?? 'default';
-  const proband = record.people.find((p) => p.id === record.probandId);
-  const g0 = proband ? proband.gen : 0;
   // A four-generation window centred on the proband, matching the prototype.
-  const included = record.people.filter((p) => p.gen >= g0 - 2 && p.gen <= g0 + 1);
+  const included = windowedPeople(record);
   // Lay out only the windowed people, but with the full union set — `computeLayout` and
   // `segments` both ignore union members that fall outside `included`, so cross-window
   // parentage links are simply not drawn rather than crashing.

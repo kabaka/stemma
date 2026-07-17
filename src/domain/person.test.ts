@@ -64,6 +64,10 @@ describe('defaultOrgans', () => {
   it('derives an empty set for unknown sab', () => {
     expect(defaultOrgans('u')).toEqual([]);
   });
+
+  it('derives an empty set for UAAB sab (no assumed organs, like unknown)', () => {
+    expect(defaultOrgans('x')).toEqual([]);
+  });
 });
 
 describe('organsOf', () => {
@@ -104,6 +108,7 @@ describe('label / symbol helpers', () => {
     expect(sabLabel('f')).toBe('AFAB');
     expect(sabLabel('m')).toBe('AMAB');
     expect(sabLabel('u')).toBe('unknown');
+    expect(sabLabel('x')).toBe('UAAB');
   });
 
   it('labels gender identity', () => {

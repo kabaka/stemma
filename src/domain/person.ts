@@ -39,7 +39,7 @@ export function organsOf(p: Person): Organ[] {
 }
 
 export function sabLabel(sab: Sab): string {
-  return sab === 'f' ? 'AFAB' : sab === 'm' ? 'AMAB' : 'unknown';
+  return sab === 'f' ? 'AFAB' : sab === 'm' ? 'AMAB' : sab === 'x' ? 'UAAB' : 'unknown';
 }
 
 export function genderLabel(g: Gender): string {

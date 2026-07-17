@@ -8,10 +8,28 @@ import type {
 } from './fhir';
 import { seedRecord } from '@/data/seed';
 import { buildCatalog } from '@/domain/catalog';
+import type { FamilyRecord, Person } from '@/domain/types';
 
 const NOW = '2026-07-14T12:00:00.000Z';
 const catalog = buildCatalog([]);
 const build = () => buildFhirBundle(seedRecord(), catalog, { now: NOW });
+
+/** Minimal fixture person for edge cases the seed family doesn't cover. */
+function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
+  return {
+    id,
+    name: id,
+    sab: 'f',
+    gender: 'woman',
+    gen: 0,
+    x: 0,
+    dead: false,
+    birth: null,
+    death: null,
+    conds: [],
+    ...overrides,
+  };
+}
 
 describe('buildFhirBundle', () => {
   it('produces a collection Bundle carrying the given timestamp', () => {
@@ -116,5 +134,44 @@ describe('buildFhirBundle', () => {
     const ray = fmhs.find((f) => f.name === 'Ray');
     expect(ray).toBeDefined();
     expect(ray!.sex.coding[0].code).toBe('female');
+  });
+
+  it('codes the us-core-birthsex extension for a UAAB (sab "x") proband as "OTH", distinct from unknown\'s "UNK"', () => {
+    const xRecord: FamilyRecord = {
+      people: [mkPerson('p1', { sab: 'x', isProband: true })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const uRecord: FamilyRecord = {
+      people: [mkPerson('p1', { sab: 'u', isProband: true })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const xPatient = buildFhirBundle(xRecord, catalog, { now: NOW })
+      .entry.map((e) => e.resource)
+      .find((r): r is FhirPatient => r.resourceType === 'Patient')!;
+    const uPatient = buildFhirBundle(uRecord, catalog, { now: NOW })
+      .entry.map((e) => e.resource)
+      .find((r): r is FhirPatient => r.resourceType === 'Patient')!;
+    expect(xPatient.extension[0].valueCode).toBe('OTH');
+    expect(uPatient.extension[0].valueCode).toBe('UNK');
+    expect(xPatient.extension[0].valueCode).not.toBe(uPatient.extension[0].valueCode);
+  });
+
+  it('leaves administrative-gender for a UAAB (sab "x") relative as "unknown" — gender identity, not sab, drives it', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true }), mkPerson('rel', { sab: 'x', gen: -1 })],
+      unions: [{ parents: ['rel'], children: ['p1'] }],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const fmhs = buildFhirBundle(record, catalog, { now: NOW })
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirFamilyMemberHistory => r.resourceType === 'FamilyMemberHistory');
+    const rel = fmhs.find((f) => f.name === 'rel');
+    expect(rel).toBeDefined();
+    expect(rel!.sex.coding[0].code).toBe('unknown');
   });
 });

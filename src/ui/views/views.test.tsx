@@ -1757,6 +1757,26 @@ describe('PrintReports', () => {
     expect(legendText).not.toContain('assigned male at birth');
     expect(legendText).not.toContain('assigned female');
     expect(legendText).not.toContain('diamond = unknown');
+    // The shape-legend copy itself now spells out all three sab labels, including UAAB.
+    expect(legend!.textContent).toContain('AFAB/AMAB/UAAB');
+  });
+
+  it('renders a category colour key on Sheet 1 listing the categories present in the pedigree window, each with a swatch', () => {
+    const { container } = render(<PrintReports />);
+    const sheet1 = container.querySelectorAll('.print-sheet')[0];
+    const key = sheet1.querySelector('.print-catkey');
+    expect(key).not.toBeNull();
+    const items = within(key as HTMLElement).getAllByRole('listitem');
+    expect(items.length).toBeGreaterThan(0);
+    // Every entry carries a visible swatch alongside its text label (never colour alone).
+    for (const item of items) {
+      expect(item.querySelector('.print-catkey__swatch')).not.toBeNull();
+    }
+    // The loadSample seed family carries cardiovascular and cancer diagnoses within the
+    // proband's four-generation print window — both categories' labels must appear.
+    const labels = items.map((i) => i.textContent);
+    expect(labels.some((t) => t?.includes('Cardiovascular'))).toBe(true);
+    expect(labels.some((t) => t?.includes('Cancer'))).toBe(true);
   });
 
   it('roots the printed document with a single h1 so the outline is well-formed', () => {
@@ -1917,6 +1937,69 @@ describe('PrintReports', () => {
       screen.getByRole('heading', { name: 'Screening-relevant organ inventory', level: 3 }),
     ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Conditions', level: 3 })).toBeInTheDocument();
+  });
+
+  /** A proband diagnosed with breast cancer, plus four affected siblings sharing a
+   * cardiovascular condition — degree-1 relatives via a shared parental union — so
+   * Sheet 2's per-condition "who has it" sub-line has both a proband-diagnosed row
+   * (must show "You") and a >3-affected row (must cap at 3 with a "+N more" tail). */
+  function recordWithManyAffected(): FamilyRecord {
+    const proband = mkProband({ conds: [{ id: 'brca', onset: 41, prov: 'self' }] });
+    const mkSib = (id: string, onset: number): Person => ({
+      id,
+      name: id,
+      sab: 'u',
+      gender: 'nb',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: 1980,
+      death: null,
+      conds: [{ id: 'cad', onset, prov: 'self' }],
+    });
+    const parent = (id: string): Person => ({
+      id,
+      name: id,
+      sab: 'u',
+      gender: 'nb',
+      gen: -1,
+      x: 0,
+      dead: false,
+      birth: 1950,
+      death: null,
+      conds: [],
+    });
+    const sibs = [mkSib('sib1', 50), mkSib('sib2', 55), mkSib('sib3', 60), mkSib('sib4', 65)];
+    return {
+      people: [proband, parent('mom'), parent('dad'), ...sibs],
+      unions: [{ parents: ['mom', 'dad'], children: [proband.id, ...sibs.map((s) => s.id)] }],
+      timeline: [],
+      probandId: proband.id,
+    };
+  }
+
+  it('renders a capped, closest-first "who has it" sub-line under each condition on Sheet 2', () => {
+    act(() => useStore.getState().replaceRecord(recordWithManyAffected()));
+    render(<PrintReports />);
+
+    const findingsTable = screen.getByRole('heading', { name: 'Conditions in the family' })
+      .nextElementSibling as HTMLElement;
+
+    const brcaCell = within(findingsTable).getByText('Breast cancer').closest('td') as HTMLElement;
+    const brcaAffected = brcaCell.querySelector('.print-affected');
+    expect(brcaAffected).not.toBeNull();
+    // The proband is diagnosed — the sub-line must show "You" with her own onset.
+    expect(brcaAffected!.textContent).toContain('You (onset 41)');
+
+    const cadCell = within(findingsTable)
+      .getByText('Coronary heart disease')
+      .closest('td') as HTMLElement;
+    const cadAffected = cadCell.querySelector('.print-affected') as HTMLElement;
+    expect(cadAffected).not.toBeNull();
+    // Four siblings are affected but the line is capped at 3 entries plus a "+1 more" tail.
+    expect(cadAffected.textContent).toMatch(/\+1 more/);
+    const shownCount = (cadAffected.textContent!.match(/Sibling/g) ?? []).length;
+    expect(shownCount).toBe(3);
   });
 });
 

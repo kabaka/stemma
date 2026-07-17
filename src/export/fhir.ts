@@ -155,11 +155,15 @@ function fhirGender(g: Gender): string {
 
 /** us-core-birthsex value code from sex assigned at birth. */
 function birthSex(sab: Sab): string {
-  return sab === 'f' ? 'F' : sab === 'm' ? 'M' : 'UNK';
+  // UAAB ('x') → 'OTH' (v3-NullFlavor: "actual value not in the permitted M/F set") — a
+  // real, distinct code carrying UAAB faithfully, NOT the same as unknown ('u') → 'UNK'.
+  return sab === 'f' ? 'F' : sab === 'm' ? 'M' : sab === 'x' ? 'OTH' : 'UNK';
 }
 
 /** administrative-gender code from sex assigned at birth. */
 function adminGender(sab: Sab): string {
+  // UAAB ('x') intentionally falls through to 'unknown' here: gender is not birth sex, so we
+  // never derive administrative-gender 'other' from SAB.
   return sab === 'f' ? 'female' : sab === 'm' ? 'male' : 'unknown';
 }
 

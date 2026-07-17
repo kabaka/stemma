@@ -23,7 +23,7 @@ export type Provenance =
  * Sex assigned at birth. Drives the genetics and the pedigree geometry — kept
  * separate from {@link Gender} per the 2022 NSGC gender-inclusive nomenclature.
  */
-export type Sab = 'm' | 'f' | 'u';
+export type Sab = 'm' | 'f' | 'u' | 'x';
 
 /** Gender identity. Drives display (symbol, relationship label), never the genetics. */
 export type Gender = 'man' | 'woman' | 'nb';

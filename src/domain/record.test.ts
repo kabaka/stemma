@@ -260,11 +260,26 @@ describe('isValidRecord — deep validation', () => {
 
   it('rejects a person with an out-of-enum sab or gender', () => {
     const badSab = base();
-    (badSab.people[0] as unknown as Record<string, unknown>).sab = 'x';
+    // 'x' (UAAB) is a valid sab now — use a genuinely out-of-enum sentinel.
+    (badSab.people[0] as unknown as Record<string, unknown>).sab = 'z';
     expect(isValidRecord(badSab)).toBe(false);
     const badGender = base();
     (badGender.people[0] as unknown as Record<string, unknown>).gender = 'other';
     expect(isValidRecord(badGender)).toBe(false);
+  });
+
+  it('accepts sab "x" (UAAB) as a valid enum member', () => {
+    const rec = base();
+    rec.people[0].sab = 'x';
+    expect(isValidRecord(rec)).toBe(true);
+  });
+
+  it('REGRESSION: legacy sab values ({m,f,u}) still validate now that "x" (UAAB) has widened the enum', () => {
+    for (const sab of ['m', 'f', 'u'] as const) {
+      const rec = base();
+      rec.people[0].sab = sab;
+      expect(isValidRecord(rec)).toBe(true);
+    }
   });
 
   it('rejects a malformed condition entry (bad prov / non-string id)', () => {

@@ -1260,6 +1260,29 @@ textarea.field {
     line-height: 1.5;
     margin: 6px 0;
   }
+  .print-catkey {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    list-style: none;
+    margin: 2px 0 6px;
+    padding: 0;
+    font-size: 11px;
+    color: #333;
+  }
+  .print-catkey li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .print-catkey__swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border: 1px solid #111;
+    flex: none;
+  }
   .print-pedigree {
     text-align: center;
     margin: 8px 0;
@@ -1309,6 +1332,14 @@ textarea.field {
   }
   .print-flag-rec {
     color: #333;
+  }
+  .print-affected {
+    font-size: 11px;
+    color: #555;
+    line-height: 1.35;
+    margin-top: 2px;
+    font-weight: 400;
+    white-space: normal;
   }
   .print-table {
     width: 100%;

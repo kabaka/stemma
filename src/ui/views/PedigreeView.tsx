@@ -12,7 +12,7 @@ import { useStore } from '@/store/useStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, offsetParallel, segments } from '@/domain/graph';
 import { condIds, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
-import { CATEGORIES, categoryColor } from '@/data/categories';
+import { CATEGORIES, categoryColor, legendCategories } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import { GedcomImport } from '../components/GedcomImport';
 import { PersonForm, type PersonFormState } from '../components/PersonForm';
@@ -1095,15 +1095,6 @@ function categoryBreakdown(people: Person[], catalog: Catalog, cat: CategoryKey)
     )
     .map(([id, n]) => `${catalog.get(id).name} (${n})`);
   return `${count} ${count === 1 ? 'person' : 'people'} · ${parts.join(', ')}`;
-}
-
-/** Condition categories actually present in the record, in the catalog's canonical order. */
-function legendCategories(people: Person[], catalog: Catalog): CategoryKey[] {
-  const present = new Set<CategoryKey>();
-  for (const p of people) {
-    for (const id of condIds(p)) present.add(catalog.get(id).cat);
-  }
-  return (Object.keys(CATEGORIES) as CategoryKey[]).filter((k) => present.has(k));
 }
 
 /** Per-person text alternative for the two union-level pedigree-structure notations that
