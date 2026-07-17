@@ -1645,6 +1645,27 @@ describe('PrintReports', () => {
     expect(screen.getByText(/screening keys off organs present, not gender/i)).toBeInTheDocument();
   });
 
+  it('keys Sheet 1’s pedigree legend off gender identity, not sex assigned at birth (regression)', () => {
+    const { container } = render(<PrintReports />);
+    // Sheet 1 is the family pedigree; its .print-note is the shape-key legend (Sheet 3 also
+    // has a .print-note — the organ-vs-gender copy above — so scope to the first sheet).
+    const sheet1 = container.querySelectorAll('.print-sheet')[0];
+    const legend = sheet1.querySelector('.print-note');
+    expect(legend).not.toBeNull();
+    const legendText = legend!.textContent!.toLowerCase();
+    // Corrected wording: shape is keyed off gender identity (2022 NSGC gender-inclusive
+    // notation), with sex-assigned-at-birth noted beneath the glyph only when it differs.
+    expect(legendText).toContain('circle = woman');
+    expect(legendText).toContain('square = man');
+    expect(legendText).toContain('diamond = nonbinary');
+    expect(legendText).toContain('sex assigned at birth');
+    // Guard against regressing to the old, factually-wrong sex-based phrasing that
+    // described shape by sex-assigned-at-birth and mislabeled the diamond as "unknown".
+    expect(legendText).not.toContain('assigned male at birth');
+    expect(legendText).not.toContain('assigned female');
+    expect(legendText).not.toContain('diamond = unknown');
+  });
+
   it('roots the printed document with a single h1 so the outline is well-formed', () => {
     render(<PrintReports />);
     const h1s = screen.getAllByRole('heading', { level: 1 });
