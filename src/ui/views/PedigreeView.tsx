@@ -15,12 +15,14 @@ import { condIds, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
 import { CATEGORIES, categoryColor, legendCategories } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import { GedcomImport } from '../components/GedcomImport';
+import { CcdaImport } from '../components/CcdaImport';
 import { PersonForm, type PersonFormState } from '../components/PersonForm';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
 import type { Catalog } from '@/domain/catalog';
 import type {
   CategoryKey,
+  Condition,
   FamilyRecord,
   Gender,
   Person,
@@ -133,6 +135,11 @@ function nudgeIntoView(
 
 const CONFIRM_LOAD_SAMPLE = 'Load the example family? This replaces your current record.';
 const CONFIRM_IMPORT = 'Import this family tree? This replaces your current record.';
+// Deliberately worded as an addition, not a replacement (unlike the two confirms above) —
+// applyCcdaImport only ever merges onto the current record: it never removes an existing
+// person or condition, so the risk being confirmed here is "adds data", not "loses data".
+const CONFIRM_CCDA =
+  'Import the selected items from this health record? This adds people and conditions to your current record — nothing already recorded is removed.';
 
 /** True only for the record's untouched default shape — a single proband still named
  * "You", with no birth year and no conditions recorded. The one case where swapping it
@@ -222,9 +229,17 @@ export function PedigreeView() {
   const loadSample = useStore((s) => s.loadSample);
   const resetRecord = useStore((s) => s.resetRecord);
   const replaceRecord = useStore((s) => s.replaceRecord);
+  // Read only for the C-CDA merge below (see handleCcdaImport) — applyCcdaImport returns
+  // just the newly-registered long-tail extensions from *this* import, so they must be
+  // folded in alongside whatever the store already has, not swapped in wholesale (unlike
+  // GEDCOM/native restore, this importer merges onto the current record rather than
+  // replacing it, and the pre-existing record's own long-tail conditions still need their
+  // catalog entries after the swap).
+  const extensions = useStore((s) => s.extensions);
   const catalog = useCatalog();
 
   const [importing, setImporting] = useState(false);
+  const [importingCcda, setImportingCcda] = useState(false);
   const [formState, setFormState] = useState<PersonFormState | null>(null);
   const [hlMode, setHlModeRaw] = useState<HlMode>('cond');
   // The active condition id (mode 'cond') or category key (mode 'cat'). The prototype
@@ -239,7 +254,10 @@ export function PedigreeView() {
 
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIsEmpty = useRef(isEmpty);
-  const prevImporting = useRef(importing);
+  // Either import panel counts as "the import panel" for this focus-return purpose — only
+  // one is ever open at a time (see openImporting/openImportingCcda below).
+  const anyImporting = importing || importingCcda;
+  const prevImporting = useRef(anyImporting);
   // loadSample()/resetRecord()/import swap the record without unmounting this view, so
   // whatever was focused — the header's own "Reset to empty"/"Load example family", or
   // the empty state's — can vanish out from under the user, dropping focus to <body>.
@@ -249,11 +267,11 @@ export function PedigreeView() {
   // PersonForm is a modal that manages its own open/close focus (see PersonForm.tsx).
   useEffect(() => {
     const emptyChanged = prevIsEmpty.current !== isEmpty;
-    const importClosed = prevImporting.current && !importing;
+    const importClosed = prevImporting.current && !anyImporting;
     if (emptyChanged || importClosed) titleRef.current?.focus();
     prevIsEmpty.current = isEmpty;
-    prevImporting.current = importing;
-  }, [isEmpty, importing]);
+    prevImporting.current = anyImporting;
+  }, [isEmpty, anyImporting]);
 
   // Deleting a person unmounts their pedigree node AND its drawer/modal in the same commit,
   // so the focus-return refs those layers captured now point at detached nodes — .focus()
@@ -560,12 +578,21 @@ export function PedigreeView() {
     setActiveId(null);
     setFormState(null);
     setImporting(false);
+    setImportingCcda(false);
     needsViewReset.current = true;
   };
 
   // Toggle the import panel. Add/edit is a blocking modal (not a header panel), so there's
-  // no sibling panel to close here.
-  const openImporting = (): void => setImporting((v) => !v);
+  // no sibling panel to close here. The two importers are mutually exclusive — opening one
+  // closes the other, so only one panel is ever visible in the header at a time.
+  const openImporting = (): void => {
+    setImporting((v) => !v);
+    setImportingCcda(false);
+  };
+  const openImportingCcda = (): void => {
+    setImportingCcda((v) => !v);
+    setImporting(false);
+  };
 
   const handleLoadSample = (): void => {
     if (window.confirm(CONFIRM_LOAD_SAMPLE)) swapRecord(loadSample);
@@ -586,6 +613,23 @@ export function PedigreeView() {
   const handleGedcomImport = (imported: FamilyRecord): void => {
     if (isPristineRecord(record) || window.confirm(CONFIRM_IMPORT)) {
       swapRecord(() => replaceRecord(imported));
+    }
+  };
+  // C-CDA import MERGES onto the current record (see CcdaImport's doc comment) rather than
+  // replacing it, so this never takes the isPristineRecord short-circuit the two swaps
+  // above use — that guard exists to skip confirming a *lossless* replace, which isn't the
+  // shape of the decision being confirmed here. The new extensions are folded in alongside
+  // whatever the store already has (see the `extensions` selector above) so a pre-existing
+  // long-tail condition elsewhere in the record keeps its catalog entry after the merge.
+  const handleCcdaImport = (merged: FamilyRecord, newExtensions: Condition[]): void => {
+    if (window.confirm(CONFIRM_CCDA)) {
+      swapRecord(() =>
+        replaceRecord(
+          merged,
+          [...extensions, ...newExtensions],
+          'Imported from health record (C-CDA)',
+        ),
+      );
     }
   };
 
@@ -641,6 +685,8 @@ export function PedigreeView() {
               <RecordActionsMenu
                 importing={importing}
                 onToggleImport={openImporting}
+                importingCcda={importingCcda}
+                onToggleImportCcda={openImportingCcda}
                 onLoadSample={handleLoadSample}
                 onResetToEmpty={handleResetToEmpty}
               />
@@ -661,6 +707,14 @@ export function PedigreeView() {
 
         {importing && (
           <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
+        )}
+        {importingCcda && (
+          <CcdaImport
+            record={record}
+            catalog={catalog}
+            onImport={handleCcdaImport}
+            onCancel={() => setImportingCcda(false)}
+          />
         )}
 
         {/* The notation key and the Highlight controls share one row — two small pieces
@@ -708,6 +762,7 @@ export function PedigreeView() {
             onAdd={() => setFormState({ mode: 'add', anchor: record.probandId, relation: 'child' })}
             onEditSelf={() => setFormState({ mode: 'edit', id: record.probandId })}
             onImport={openImporting}
+            onImportCcda={openImportingCcda}
             onLoadSample={handleEmptyLoadSample}
           />
         ) : (
@@ -915,11 +970,13 @@ function EmptyState({
   onAdd,
   onEditSelf,
   onImport,
+  onImportCcda,
   onLoadSample,
 }: {
   onAdd: () => void;
   onEditSelf: () => void;
   onImport: () => void;
+  onImportCcda: () => void;
   onLoadSample: () => void;
 }) {
   return (
@@ -927,8 +984,9 @@ function EmptyState({
       <h2 style={{ fontSize: 17, fontWeight: 600 }}>Start your family history</h2>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 380, lineHeight: 1.5 }}>
         Add relatives one at a time — parents, siblings, children — fill in your own details first,
-        or import a family tree you already have (GEDCOM, e.g. from Ancestry). Stemma looks for
-        hereditary patterns as the tree grows.
+        import a family tree you already have (GEDCOM, e.g. from Ancestry), or bring in your own
+        conditions and family history from a health record (C-CDA, from your patient portal). Stemma
+        looks for hereditary patterns as the tree grows.
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 6 }}>
         <button type="button" className="btn btn--primary" aria-haspopup="dialog" onClick={onAdd}>
@@ -939,6 +997,9 @@ function EmptyState({
         </button>
         <button type="button" className="btn" onClick={onImport}>
           Import GEDCOM
+        </button>
+        <button type="button" className="btn" onClick={onImportCcda}>
+          Import health record
         </button>
         <button type="button" className="btn" onClick={onLoadSample}>
           Load example family
@@ -960,11 +1021,15 @@ function EmptyState({
 function RecordActionsMenu({
   importing,
   onToggleImport,
+  importingCcda,
+  onToggleImportCcda,
   onLoadSample,
   onResetToEmpty,
 }: {
   importing: boolean;
   onToggleImport: () => void;
+  importingCcda: boolean;
+  onToggleImportCcda: () => void;
   onLoadSample: () => void;
   onResetToEmpty: () => void;
 }) {
@@ -1037,6 +1102,15 @@ function RecordActionsMenu({
             onClick={() => runAndClose(onToggleImport)}
           >
             {importing ? '✕ close import' : 'Import GEDCOM'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm"
+            style={{ justifyContent: 'flex-start' }}
+            aria-expanded={importingCcda}
+            onClick={() => runAndClose(onToggleImportCcda)}
+          >
+            {importingCcda ? '✕ close import' : 'Import health record'}
           </button>
           <button
             type="button"
