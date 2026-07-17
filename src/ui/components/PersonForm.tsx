@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, type Relation } from '@/store/useStore';
 import { useCatalog, useRelations } from '../hooks';
@@ -89,10 +89,7 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const palette = useStore((s) => s.palette);
   const relations = useRelations(record.probandId);
 
-  const idx = useMemo(
-    () => indexPeople(record.people, record.unions),
-    [record.people, record.unions],
-  );
+  const idx = indexPeople(record.people, record.unions);
 
   // Lazy initial values — read once at mount (this component is only ever mounted for
   // the lifetime of one open→close cycle; PedigreeView re-mounts it fresh per open).

@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { useId } from 'react';
 import { useStore } from '@/store/useStore';
 import { useFlags, useScreenings, useSchedule, useAsOfYear } from '../hooks';
 import { FlagCard } from '../components/FlagCard';
@@ -52,7 +52,7 @@ export function OverviewView() {
   const screeningHeadingId = useId();
   const activityHeadingId = useId();
 
-  const scheduleById = useMemo(() => new Map(schedule.map((s) => [s.id, s])), [schedule]);
+  const scheduleById = new Map(schedule.map((s) => [s.id, s]));
 
   const relCount = record.people.length - 1;
   const layout = computeLayout(record.people, record.unions);
@@ -73,16 +73,12 @@ export function OverviewView() {
   // The proband's three newest timeline events (restored from the prototype). Same-year
   // ties break newest-added-first — later array position is the more recently logged
   // event, mirroring the prototype's insertion-index tiebreaker.
-  const recentActivity = useMemo(
-    () =>
-      record.timeline
-        .map((e, i) => ({ e, i }))
-        .filter(({ e }) => e.person === record.probandId)
-        .sort((a, b) => b.e.year - a.e.year || b.i - a.i)
-        .slice(0, 3)
-        .map(({ e }) => e),
-    [record.timeline, record.probandId],
-  );
+  const recentActivity = record.timeline
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => e.person === record.probandId)
+    .sort((a, b) => b.e.year - a.e.year || b.i - a.i)
+    .slice(0, 3)
+    .map(({ e }) => e);
 
   return (
     <div className="scroll">

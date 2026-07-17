@@ -14,7 +14,6 @@
  * Presentational only: it reads the proband's computed engine outputs (never re-deriving
  * a number the engine didn't produce, guardrail #1) and renders them.
  */
-import { useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { useAsOfYear, useCatalog, useFindings, useFlags, useScreenings } from '../hooks';
 import { buildPedigreeSvg } from '@/export';
@@ -70,12 +69,9 @@ export function PrintReports() {
 
   const proband = record.people.find((p) => p.id === record.probandId) ?? record.people[0] ?? null;
   // This component stays mounted (a sibling of the app shell) behind `display:none`, so it
-  // re-renders on every store change even off-screen — memoise the SVG layout so a person
-  // edit while on another view doesn't recompute the whole pedigree drawing.
-  const pedigreeSvg = useMemo(
-    () => buildPedigreeSvg(record, catalog, { palette }),
-    [record, catalog, palette],
-  );
+  // re-renders on every store change even off-screen — the React Compiler memoises the SVG
+  // layout so a person edit while on another view doesn't recompute the whole pedigree drawing.
+  const pedigreeSvg = buildPedigreeSvg(record, catalog, { palette });
   const affectedFindings = findings.filter((f) => f.affCount > 0 || f.diagnosed);
   const timeline = proband
     ? record.timeline
