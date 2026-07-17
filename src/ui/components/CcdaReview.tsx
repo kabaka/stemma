@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { Relation } from '@/store/useStore';
 import { ClinicalBoundary } from './ClinicalBoundary';
 import type {
@@ -280,17 +280,28 @@ function FamilyMemberCard({
       )}
 
       {member.conditions.length > 0 && (
-        <div style={{ marginLeft: 26, opacity: selected ? 1 : 0.55 }}>
+        <div style={{ marginLeft: 26 }}>
           <span className="lbl">Conditions for this relative</span>
-          {member.conditions.map((c) => (
-            <ConditionRow
-              key={c.parseId}
-              cond={c}
-              checked={conditionSelected(c.parseId)}
-              disabled={!selected || c.status === 'duplicate' || c.suggestedConditionId == null}
-              onToggle={() => onToggleCondition(c.parseId)}
-            />
-          ))}
+          {/* No wrapper-level opacity here: ConditionRow's own `disabled`-driven dim
+              (below) is the ONLY dimming layer for this list. Stacking a second opacity
+              on top of it used to compound (0.55 × 0.6 ≈ 0.33), sinking the condition
+              name/onset/badge text to ~1.6–2.7:1 against --bg-panel — well under WCAG
+              1.4.3's 4.5:1 — for every unselected relative, the default rendering. A
+              single `disabled` control's own dim is the legitimate WCAG exemption
+              (matching `.btn:disabled` in components.css); a second, non-disabled
+              opacity layered on top of it is not. */}
+          <ul className="plain-list" role="list">
+            {member.conditions.map((c) => (
+              <li key={c.parseId}>
+                <ConditionRow
+                  cond={c}
+                  checked={conditionSelected(c.parseId)}
+                  disabled={!selected || c.status === 'duplicate' || c.suggestedConditionId == null}
+                  onToggle={() => onToggleCondition(c.parseId)}
+                />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
@@ -378,6 +389,21 @@ export function CcdaReview({
     onConfirm({ selectedParseIds: selected, overrides });
   };
 
+  // The "N of M selected" status text, committed one tick after the count it describes
+  // changes (rather than read directly off selectedTopLevel/totalTopLevel during render).
+  // This component mounts already carrying a live selection (initialSelection runs before
+  // first paint), so rendering the role="status" region pre-populated on that very first
+  // render is the same "inserted into the DOM already populated" bug the persistent
+  // regions in GedcomImport/CcdaImport avoid — some screen readers don't announce a live
+  // region's initial content, only its subsequent mutations. Starting empty and setting
+  // the real text in an effect guarantees a mutation for the first count too.
+  const [selectionStatus, setSelectionStatus] = useState('');
+  useEffect(() => {
+    setSelectionStatus(
+      `${selectedTopLevel} of ${totalTopLevel} ${totalTopLevel === 1 ? 'item' : 'items'} selected to import.`,
+    );
+  }, [selectedTopLevel, totalTopLevel]);
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <p className="mono-dim" style={{ margin: 0, lineHeight: 1.5 }}>
@@ -399,9 +425,9 @@ export function CcdaReview({
       )}
 
       <section aria-labelledby={probandHeadingId}>
-        <h3 id={probandHeadingId} className="overline" style={{ marginBottom: 8 }}>
+        <h2 id={probandHeadingId} className="overline" style={{ marginBottom: 8 }}>
           Your conditions
-        </h3>
+        </h2>
         {staged.probandConditions.length === 0 ? (
           <p className="mono-dim">No conditions were found in the problem list.</p>
         ) : (
@@ -425,9 +451,9 @@ export function CcdaReview({
       </section>
 
       <section aria-labelledby={familyHeadingId}>
-        <h3 id={familyHeadingId} className="overline" style={{ marginBottom: 8 }}>
+        <h2 id={familyHeadingId} className="overline" style={{ marginBottom: 8 }}>
           Family members
-        </h3>
+        </h2>
         {staged.familyMembers.length === 0 ? (
           <p className="mono-dim">No family history section was found in this document.</p>
         ) : (
@@ -453,9 +479,8 @@ export function CcdaReview({
         )}
       </section>
 
-      <p role="status" className="mono-dim" style={{ margin: 0 }}>
-        {selectedTopLevel} of {totalTopLevel} {totalTopLevel === 1 ? 'item' : 'items'} selected to
-        import.
+      <p role="status" className="mono-dim" style={{ margin: 0, minHeight: 18 }}>
+        {selectionStatus}
       </p>
 
       <div className="row" style={{ gap: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>

@@ -127,7 +127,9 @@ export function CcdaImport({ record, catalog, onImport, onCancel }: CcdaImportPr
 
       {/* Persistent polite live region so the async parse result is announced on change,
           rather than inserted into the DOM already populated (some screen readers don't
-          announce that). */}
+          announce that). Folds in the warning count (mirrors GedcomImport) so a screen-
+          reader user learns adjustments happened even though the full list only appears
+          later, inside CcdaReview. */}
       <p role="status" style={{ fontSize: 13, margin: 0, lineHeight: 1.5, minHeight: 18 }}>
         {staged && (
           <>
@@ -136,6 +138,8 @@ export function CcdaImport({ record, catalog, onImport, onCancel }: CcdaImportPr
             <b>{staged.familyMembers.length}</b>{' '}
             {staged.familyMembers.length === 1 ? 'family member' : 'family members'}
             {fileName ? ` in ${fileName}` : ''}.
+            {staged.warnings.length > 0 &&
+              ` ${staged.warnings.length} ${staged.warnings.length === 1 ? 'adjustment' : 'adjustments'} (see below).`}
           </>
         )}
       </p>
