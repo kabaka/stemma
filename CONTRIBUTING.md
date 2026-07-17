@@ -121,8 +121,8 @@ fuller terminology server (SNOMED/UMLS, a FHIR `$expand`) in a self-hosted deplo
 - **`import type` for type-only imports** (`verbatimModuleSyntax` enforces the split). Use the `@/`
   alias for cross-layer imports (`@/domain/types`), relative paths within a layer (`./person`).
 - **Prettier owns formatting** — single quotes, semicolons, trailing commas, 100-column width,
-  2-space indent. Run `npm run format` (or `format:check` in the gate). ESLint (flat config, 9.x)
-  enforces the lint rules; keep it clean, don't disable rules to pass.
+  2-space indent. Run `npm run format` (or `format:check` in the gate). oxlint (type-aware, via
+  the `oxlint-tsgolint` companion) enforces the lint rules; keep it clean, don't disable rules to pass.
 
 ## Commit conventions
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useStore, CURRENT_YEAR, type Relation } from '@/store/useStore';
 import { ORGAN_LABELS, ORGANS, genderLabel, organsOf, sabLabel, sabOf } from '@/domain/person';
 import { degreeLong, indexPeople, parentsOf } from '@/domain/graph';
@@ -50,15 +50,12 @@ export function PersonDrawer({
   const headingId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const idx = useMemo(() => indexPeople(people, unions), [people, unions]);
+  const idx = indexPeople(people, unions);
   // Unions this person co-parents with exactly one other parent — the union-level
   // pedigree-structure facts (consanguinity, twin sets) only make sense for a two-parent
   // union, and there's no UI anywhere else to set them. Guarded for `personId` possibly
   // not resolving to a live `person` yet (this runs before the early-return below).
-  const personUnions = useMemo(
-    () => unions.filter((u) => u.parents.length === 2 && u.parents.includes(personId)),
-    [unions, personId],
-  );
+  const personUnions = unions.filter((u) => u.parents.length === 2 && u.parents.includes(personId));
 
   // Move focus into the dialog on open, and hand it back to whatever triggered it
   // (typically a pedigree node) on close, so keyboard/screen-reader focus is never

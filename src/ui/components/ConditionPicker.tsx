@@ -188,7 +188,7 @@ export function ConditionPicker({ personId }: { personId: string }) {
           <button
             type="button"
             className="btn btn--sm"
-            onClick={searchVocabulary}
+            onClick={() => void searchVocabulary()}
             disabled={vocab.loading}
           >
             {vocab.loading ? 'Searching ICD-10…' : `Search all ICD-10-CM for “${query}”`}

@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
 import { fileURLToPath, URL } from 'node:url';
 
 // The site is served from https://kabaka.github.io/stemma/ on GitHub Pages,
@@ -41,10 +42,25 @@ function contentSecurityPolicy(): Plugin {
   };
 }
 
-// https://vite.dev/config/
+// React Compiler — auto-memoizes components/hooks that follow the Rules of React,
+// so manual useMemo/useCallback/memo can be dropped where the compiler subsumes them.
+// @vitejs/plugin-react v6 transforms with oxc (no `babel` option), so the compiler is
+// run through @rolldown/plugin-babel using the plugin's own `reactCompilerPreset`. The
+// preset carries a per-file filter (only React code is handed to Babel) and targets
+// React 19's built-in `react/compiler-runtime`. `include` scopes Babel to the UI layer —
+// React lives only in src/ui/ (see the layering contract in CLAUDE.md), so the pure
+// domain/data/export layers are never handed to Babel. (The dedicated React Compiler
+// lint suite isn't in oxlint's rule set; oxlint still enforces react/rules-of-hooks and
+// react/exhaustive-deps — see .oxlintrc.json — which is what the kept useCallbacks below
+// satisfy.)
+// https://react.dev/learn/react-compiler/installation
 export default defineConfig({
   base,
-  plugins: [react(), contentSecurityPolicy()],
+  plugins: [
+    react(),
+    babel({ include: /[\\/]src[\\/]ui[\\/]/, presets: [reactCompilerPreset()] }),
+    contentSecurityPolicy(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

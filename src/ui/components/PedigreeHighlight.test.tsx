@@ -17,6 +17,7 @@
  * own (unexported, so not importable without touching product code) WCAG contrast math to
  * verify the fix is not just present but numerically sufficient.
  */
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';

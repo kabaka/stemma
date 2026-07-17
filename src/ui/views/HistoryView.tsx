@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { diffRecords, summarizeDiff, type HistoryEntry } from '@/domain/history';
 
@@ -21,9 +21,8 @@ export function HistoryView() {
   const entries = useHistoryStore((s) => s.entries);
   const clear = useHistoryStore((s) => s.clear);
 
-  // `entries` is chronological (oldest first); the view wants newest first. Reversing
-  // is cheap and only recomputed when the underlying array reference actually changes.
-  const newestFirst = useMemo(() => [...entries].reverse(), [entries]);
+  // `entries` is chronological (oldest first); the view wants newest first.
+  const newestFirst = [...entries].reverse();
 
   // "Clear history" only renders while entries.length > 0 (below), so it unmounts itself
   // the moment it's activated — with nothing else done, keyboard/AT focus would silently
@@ -110,10 +109,7 @@ interface HistoryRowProps {
 function HistoryRow({ entry, previous }: HistoryRowProps) {
   const [open, setOpen] = useState(false);
 
-  const lines = useMemo(() => {
-    if (!open || !previous) return null;
-    return summarizeDiff(diffRecords(previous.record, entry.record));
-  }, [open, previous, entry]);
+  const lines = open && previous ? summarizeDiff(diffRecords(previous.record, entry.record)) : null;
 
   const timestamp = new Date(entry.ts).toLocaleString();
 

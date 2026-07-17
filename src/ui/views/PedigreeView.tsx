@@ -1,8 +1,6 @@
 import {
-  memo,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -272,25 +270,20 @@ export function PedigreeView() {
     }
   }, [selectedId, record.people]);
 
-  const { pos, cw, ch, gens, minGen, segs } = useMemo(() => {
-    const layout = computeLayout(record.people, record.unions);
-    return { ...layout, segs: segments(record.unions, layout.pos) };
-  }, [record.people, record.unions]);
+  const layout = computeLayout(record.people, record.unions);
+  const { pos, cw, ch, gens, minGen } = layout;
+  const segs = segments(record.unions, layout.pos);
 
   // Tab order follows DOM order, not the absolute positioning below — sort by the
   // computed layout position (generation, then horizontal position) so keyboard users
   // move through the tree the way sighted users scan it, regardless of the order
   // relatives happen to sit in the underlying record (a newly-added relative is
   // appended to the array, not inserted by generation).
-  const orderedPeople = useMemo(
-    () => [...record.people].sort((a, b) => a.gen - b.gen || pos[a.id].x - pos[b.id].x),
-    [record.people, pos],
+  const orderedPeople = [...record.people].sort(
+    (a, b) => a.gen - b.gen || pos[a.id].x - pos[b.id].x,
   );
 
-  const presentCategories = useMemo(
-    () => legendCategories(record.people, catalog),
-    [record.people, catalog],
-  );
+  const presentCategories = legendCategories(record.people, catalog);
 
   // Generation labels are anchored to the proband's own generation, not an absolute
   // "Gen 1/2/3" — the you-centric orientation the prototype used (▲ = ancestors above,
@@ -301,11 +294,8 @@ export function PedigreeView() {
   // Text alternative for the doubled-line/twin-diagonal notation (see `nodeLabel` and
   // `PersonPedigreeNotes`) — built once per unions/people change and handed to every
   // node, rather than each node re-scanning `record.unions` itself.
-  const peopleById = useMemo(() => new Map(record.people.map((p) => [p.id, p])), [record.people]);
-  const pedigreeNotes = useMemo(
-    () => buildPedigreeNotes(record.unions, peopleById),
-    [record.unions, peopleById],
-  );
+  const peopleById = new Map(record.people.map((p) => [p.id, p]));
+  const pedigreeNotes = buildPedigreeNotes(record.unions, peopleById);
 
   // ---- Pan / zoom ----
   // Transient view state — deliberately not persisted with the record (see ViewState).
@@ -348,6 +338,10 @@ export function PedigreeView() {
     needsViewReset.current = false;
   }, [cw, ch]);
 
+  // Kept as useCallback (empty deps → stable identity): it's a dependency of the
+  // non-passive native `wheel` listener effect below, so a fresh identity each render
+  // would detach/reattach that listener. The compiler can't own effect-dep stability
+  // the exhaustive-deps lint enforces, so this manual memo stays.
   const zoomAt = useCallback((clientX: number, clientY: number, factor: number): void => {
     const el = scrollRef.current;
     if (!el) return;
@@ -487,6 +481,10 @@ export function PedigreeView() {
   useEffect(() => {
     posRef.current = pos;
   });
+  // Kept as useCallback (empty deps → stable identity, reading `pos` via posRef): it's a
+  // dependency of the selection-nudge effect below, so a fresh identity each render would
+  // re-fire that effect on every render. Effect-dep stability the exhaustive-deps lint
+  // enforces isn't something the compiler owns, so this manual memo stays.
   const nudgeToPerson = useCallback((id: string): void => {
     const node = posRef.current[id];
     const el = scrollRef.current;
@@ -509,13 +507,10 @@ export function PedigreeView() {
   // The payoff of category-highlight mode (restored from the prototype): a plain-language
   // breakdown of what the spotlit category actually contains — "N relatives · 2× Breast
   // cancer, 1× Colorectal cancer". Only meaningful with a category chip active.
-  const catBreakdown = useMemo(
-    () =>
-      hlMode === 'cat' && activeId != null
-        ? categoryBreakdown(record.people, catalog, activeId as CategoryKey)
-        : null,
-    [hlMode, activeId, record.people, catalog],
-  );
+  const catBreakdown =
+    hlMode === 'cat' && activeId != null
+      ? categoryBreakdown(record.people, catalog, activeId as CategoryKey)
+      : null;
 
   const setHlMode = (m: HlMode): void => {
     setHlModeRaw(m);
@@ -1017,7 +1012,7 @@ function RecordActionsMenu({
             // Tab out of the popover (not Escape, not a click on a row) — just close, since
             // focus is already moving on under the browser's own control; mirrors
             // HighlightPopover's onDismiss vs. onClose distinction.
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+            if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
           }}
         >
           <button
@@ -1268,12 +1263,11 @@ interface NodeProps {
   onSelect: (id: string) => void;
 }
 
-/** A single pedigree glyph, absolutely positioned at natural size. Memoized: `person` /
- * `pos` stay referentially stable across pure selection/highlight interactions (neither
- * mutates the record), so this skips re-rendering the (potentially many) nodes whose
- * visual state didn't actually change — `onSelect` is the store's `selectPerson` action
- * directly (already stable) rather than a per-node closure, to keep that comparison valid. */
-const PedigreeNode = memo(function PedigreeNode({
+/** A single pedigree glyph, absolutely positioned at natural size. `onSelect` is the
+ * store's `selectPerson` action directly (already stable) rather than a per-node
+ * closure — the React Compiler memoizes each node's props/render, so re-renders are
+ * still skipped for nodes whose visual state didn't actually change. */
+function PedigreeNode({
   person,
   x,
   cy,
@@ -1412,4 +1406,4 @@ const PedigreeNode = memo(function PedigreeNode({
       )}
     </div>
   );
-});
+}

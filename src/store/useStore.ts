@@ -224,7 +224,7 @@ export const useStore = create<Store>()(
           dead: input.dead,
           birth: input.birth,
           death: input.dead ? input.death : null,
-          conds: input.condIds.map((cid) => ({ id: cid, onset: null, prov: 'self' as Provenance })),
+          conds: input.condIds.map((cid) => ({ id: cid, onset: null, prov: 'self' })),
         };
         const record = get().record;
         const next = linkRelative(record, anchorId, relation, person);
