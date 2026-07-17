@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import type { HistoryEntry } from '@/domain/history';
-import type { FamilyRecord } from '@/domain/types';
+import type { FamilyRecord, Person, TimelineEvent } from '@/domain/types';
 import { emptyRecord } from '@/data/seed';
+import { CLINICAL_BOUNDARY_TEXT } from '@/domain/boundary';
 import { OverviewView } from './OverviewView';
 import { PatternsView } from './PatternsView';
 import { TimelineView } from './TimelineView';
@@ -1616,17 +1617,27 @@ describe('ReportsView', () => {
 });
 
 describe('PrintReports', () => {
-  it('renders three clinical sheets, each restating the clinical boundary (H1, guardrail #3)', () => {
-    render(<PrintReports />);
+  it('renders three clinical sheets, plus a single running clinical-boundary footer (H1, guardrail #3)', () => {
+    const { container } = render(<PrintReports />);
     // The three one-pagers.
     expect(screen.getByRole('heading', { name: /family pedigree/i })).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: /family-history red-flag summary/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /personal health summary/i })).toBeInTheDocument();
-    // Every sheet carries the boundary as a first-class element (one per sheet).
-    const boundaries = screen.getAllByText(/not a diagnostic device/i);
-    expect(boundaries).toHaveLength(3);
+    // Still three distinct printed sheets.
+    expect(container.querySelectorAll('.print-sheet')).toHaveLength(3);
+    // The clinical boundary is now a single running page footer (fixed, repeated by the
+    // browser on every physical printed page) rather than one block per sheet — but it must
+    // still be present as a first-class element carrying the canonical wording, not folded
+    // away or dropped. Exactly one such footer exists in the document.
+    const footers = screen.getAllByRole('note');
+    expect(footers).toHaveLength(1);
+    expect(footers[0]).toHaveClass('print-footer');
+    expect(footers[0]).toHaveTextContent(CLINICAL_BOUNDARY_TEXT);
+    // Guard against a regression back to per-sheet duplication or silent removal: the
+    // boundary's distinctive "not a diagnostic device" phrase appears exactly once.
+    expect(screen.getAllByText(/not a diagnostic device/i)).toHaveLength(1);
   });
 
   it('restores the organ-vs-gender screening guardrail copy (#4)', () => {
@@ -1639,6 +1650,159 @@ describe('PrintReports', () => {
     const h1s = screen.getAllByRole('heading', { level: 1 });
     expect(h1s).toHaveLength(1);
     expect(h1s[0]).toHaveAccessibleName(/stemma clinical print reports/i);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sheet 3's three new tables (code review: the loadSample seed carries no structured
+  // med/allergy/immunization payloads, so currentMedications()/allergies()/immunizations()
+  // all return [] against it and these tables never render under the outer beforeEach's
+  // loadSample() fixture — build a proband with real payload events instead.)
+  // ---------------------------------------------------------------------------
+
+  function mkProband(overrides: Partial<Person> = {}): Person {
+    return {
+      id: 'proband',
+      name: 'Proband',
+      sab: 'f',
+      gender: 'woman',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: 1980,
+      death: null,
+      conds: [],
+      isProband: true,
+      ...overrides,
+    };
+  }
+
+  /** A single proband carrying one event of each new structured-payload type. Years are
+   * fixed, safely-past values (never the wall clock) — `currentMedications` only filters
+   * on `asOfYear`, which the app derives from `CURRENT_YEAR`, so 2020 is `<=` it either way. */
+  function recordWithHealthPayloads(): FamilyRecord {
+    const proband = mkProband();
+    const timeline: TimelineEvent[] = [
+      {
+        id: 'med1',
+        person: proband.id,
+        year: 2020,
+        type: 'medication',
+        title: 'Started Metformin',
+        detail: '',
+        med: { dose: '10mg daily', ongoing: true },
+      },
+      {
+        id: 'all1',
+        person: proband.id,
+        year: 2015,
+        type: 'allergy',
+        title: 'Penicillin allergy',
+        detail: '',
+        allergy: { substance: 'Penicillin', reaction: 'Hives', severity: 'moderate' },
+      },
+      {
+        id: 'imm1',
+        person: proband.id,
+        year: 2019,
+        type: 'immunization',
+        title: 'Flu shot',
+        detail: '',
+        immunization: { vaccine: 'Influenza', doseLabel: 'Annual' },
+      },
+    ];
+    return { people: [proband], unions: [], timeline, probandId: proband.id };
+  }
+
+  it('renders the Current medications, Allergies & intolerances, and Immunizations tables with correct content', () => {
+    act(() => useStore.getState().replaceRecord(recordWithHealthPayloads()));
+    render(<PrintReports />);
+
+    const medsHeading = screen.getByRole('heading', { name: 'Current medications', level: 3 });
+    const medsTable = medsHeading.nextElementSibling as HTMLElement;
+    expect(within(medsTable).getByRole('columnheader', { name: 'Medication' })).toBeInTheDocument();
+    expect(within(medsTable).getByRole('columnheader', { name: 'Dose' })).toBeInTheDocument();
+    expect(within(medsTable).getByRole('columnheader', { name: 'Since' })).toBeInTheDocument();
+    expect(within(medsTable).getByText('Started Metformin')).toBeInTheDocument();
+    expect(within(medsTable).getByText('10mg daily')).toBeInTheDocument();
+    expect(within(medsTable).getByText('2020')).toBeInTheDocument();
+
+    const allergyHeading = screen.getByRole('heading', {
+      name: 'Allergies & intolerances',
+      level: 3,
+    });
+    const allergyTable = allergyHeading.nextElementSibling as HTMLElement;
+    expect(
+      within(allergyTable).getByRole('columnheader', { name: 'Substance' }),
+    ).toBeInTheDocument();
+    expect(
+      within(allergyTable).getByRole('columnheader', { name: 'Reaction' }),
+    ).toBeInTheDocument();
+    expect(
+      within(allergyTable).getByRole('columnheader', { name: 'Severity' }),
+    ).toBeInTheDocument();
+    expect(within(allergyTable).getByText('Penicillin')).toBeInTheDocument();
+    expect(within(allergyTable).getByText('Hives')).toBeInTheDocument();
+    expect(within(allergyTable).getByText('moderate')).toBeInTheDocument();
+
+    const immHeading = screen.getByRole('heading', { name: 'Immunizations', level: 3 });
+    const immTable = immHeading.nextElementSibling as HTMLElement;
+    expect(
+      within(immTable).getByRole('columnheader', { name: 'Immunization' }),
+    ).toBeInTheDocument();
+    expect(within(immTable).getByRole('columnheader', { name: 'Dose' })).toBeInTheDocument();
+    expect(within(immTable).getByRole('columnheader', { name: 'Year' })).toBeInTheDocument();
+    expect(within(immTable).getByText('Influenza')).toBeInTheDocument();
+    expect(within(immTable).getByText('Annual')).toBeInTheDocument();
+    expect(within(immTable).getByText('2019')).toBeInTheDocument();
+  });
+
+  it('orders Sheet 3: organ inventory → Conditions → Allergies → Current medications → Immunizations → Recommended screening → Health timeline', () => {
+    act(() => useStore.getState().replaceRecord(recordWithHealthPayloads()));
+    render(<PrintReports />);
+    const sheet3 = screen
+      .getByRole('heading', { name: /personal health summary/i })
+      .closest('.print-sheet') as HTMLElement;
+    const headings = Array.from(sheet3.querySelectorAll('.print-subhead')).map(
+      (h) => h.textContent,
+    );
+    expect(headings).toEqual([
+      'Screening-relevant organ inventory',
+      'Conditions',
+      'Allergies & intolerances',
+      'Current medications',
+      'Immunizations',
+      'Recommended screening',
+      'Health timeline',
+    ]);
+  });
+
+  it('omits the Current medications, Allergies & intolerances, and Immunizations headings when the proband has no structured payload events', () => {
+    const proband = mkProband();
+    const record: FamilyRecord = {
+      people: [proband],
+      unions: [],
+      timeline: [],
+      probandId: proband.id,
+    };
+    act(() => useStore.getState().replaceRecord(record));
+    render(<PrintReports />);
+
+    expect(
+      screen.queryByRole('heading', { name: 'Current medications', level: 3 }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Allergies & intolerances', level: 3 }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Immunizations', level: 3 }),
+    ).not.toBeInTheDocument();
+    // These two headings are unconditional (they render an empty-state message rather
+    // than disappearing), so this fixture's absence of the other three isn't just an
+    // empty record with nothing rendering at all.
+    expect(
+      screen.getByRole('heading', { name: 'Screening-relevant organ inventory', level: 3 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Conditions', level: 3 })).toBeInTheDocument();
   });
 });
 

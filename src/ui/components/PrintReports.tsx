@@ -8,8 +8,9 @@
  *
  * Rendered once as a sibling of the app shell (see App.tsx) and hidden on screen; the
  * `@media print` stylesheet hides the dark app chrome and reveals these black-on-white
- * sheets, one per page. Every sheet restates the clinical boundary as a first-class
- * element (guardrail #3), not incidental footer text.
+ * sheets, one per page. The clinical boundary runs as a single fixed footer repeated by
+ * the browser on every physical printed page (guardrail #3) — a first-class element, not
+ * incidental footer text, but now a running page footer rather than one block per sheet.
  *
  * Presentational only: it reads the proband's computed engine outputs (never re-deriving
  * a number the engine didn't produce, guardrail #1) and renders them.
@@ -18,20 +19,12 @@ import { useStore } from '@/store/useStore';
 import { useAsOfYear, useCatalog, useFindings, useFlags, useScreenings } from '../hooks';
 import { buildPedigreeSvg } from '@/export';
 import { ORGAN_LABELS, ageOf, condEntry, genderLabel, organsOf, sabLabel } from '@/domain/person';
+import { allergies, currentMedications, immunizations } from '@/domain/timeline';
 import { CATEGORY_LABELS } from '@/data/categories';
 import { PROV_LABEL } from '@/data/provenance';
 import { SEVERITY_META } from '@/data/severity';
 import { CLINICAL_BOUNDARY_TEXT } from '@/domain/boundary';
 import type { Person } from '@/domain/types';
-
-/** The clinical-boundary block repeated at the foot of every sheet (guardrail #3). */
-function BoundaryFooter() {
-  return (
-    <div className="print-boundary" role="note">
-      <b>Clinical boundary.</b> {CLINICAL_BOUNDARY_TEXT}
-    </div>
-  );
-}
 
 function SheetHead({ title, subtitle }: { title: string; subtitle: string }) {
   // UI layer may read the wall clock; the printed date is informational, not engine input.
@@ -82,6 +75,9 @@ export function PrintReports() {
 
   if (!proband) return null;
   const organs = organsOf(proband);
+  const meds = currentMedications(record, proband.id, asOfYear);
+  const allergyEntries = allergies(record, proband.id);
+  const immunizationEntries = immunizations(record, proband.id);
 
   return (
     // Hidden on screen via `display:none` (see components.css), which already removes it
@@ -91,6 +87,19 @@ export function PrintReports() {
           hidden in print, so without this the outline would start at <h2>. Visually hidden
           — the per-sheet <h2> titles carry the visible headers. */}
       <h1 className="visually-hidden">Stemma clinical print reports for {proband.name}</h1>
+      {/* The running clinical-boundary footer (guardrail #3): `.print-footer` is
+          `position: fixed`, so the browser repeats it at the bottom of every physical
+          printed page regardless of where it sits in the DOM — placed here, before the
+          sheets, rather than after them. A fixed element placed *after* the last
+          `.print-sheet` still claims its own slot in normal flow at the point Chromium's
+          paginator lays it out, which — even though the element paints nowhere near that
+          slot — pushes a spurious blank trailing page onto the printed output. Placing it
+          first avoids that: its flow slot lands before any content, so it never displaces
+          the sheets after it. Verified by rendering to PDF; don't move this back to the
+          end without re-checking for that trailing blank page. */}
+      <footer className="print-footer" role="note">
+        <b>Clinical boundary.</b> {CLINICAL_BOUNDARY_TEXT}
+      </footer>
       {/* Sheet 1 — three-generation pedigree */}
       <section className="print-sheet">
         <SheetHead
@@ -107,7 +116,6 @@ export function PrintReports() {
           Squares = assigned male at birth · circles = assigned female · diamond = unknown; a shaded
           glyph is affected, a slash is deceased, the arrow marks {proband.name}.
         </p>
-        <BoundaryFooter />
       </section>
 
       {/* Sheet 2 — family-history red-flag summary */}
@@ -174,7 +182,6 @@ export function PrintReports() {
             </table>
           </div>
         )}
-        <BoundaryFooter />
       </section>
 
       {/* Sheet 3 — IPS-style personal-health summary */}
@@ -220,6 +227,78 @@ export function PrintReports() {
               })}
             </tbody>
           </table>
+        )}
+
+        {allergyEntries.length > 0 && (
+          <>
+            <h3 className="print-subhead">Allergies &amp; intolerances</h3>
+            <table className="print-table">
+              <thead>
+                <tr>
+                  <th scope="col">Substance</th>
+                  <th scope="col">Reaction</th>
+                  <th scope="col">Severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allergyEntries.map(({ event, substance, reaction, severity }) => (
+                  <tr key={event.id}>
+                    <td>{substance}</td>
+                    <td>{reaction ?? '—'}</td>
+                    <td>{severity ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {meds.length > 0 && (
+          <>
+            <h3 className="print-subhead">Current medications</h3>
+            <table className="print-table">
+              <thead>
+                <tr>
+                  <th scope="col">Medication</th>
+                  <th scope="col">Dose</th>
+                  <th scope="col">Since</th>
+                </tr>
+              </thead>
+              <tbody>
+                {meds.map(({ event, startYear }) => (
+                  <tr key={event.id}>
+                    <td>{event.title}</td>
+                    <td>{event.med?.dose ?? '—'}</td>
+                    <td>{startYear}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {immunizationEntries.length > 0 && (
+          <>
+            <h3 className="print-subhead">Immunizations</h3>
+            <table className="print-table">
+              <thead>
+                <tr>
+                  <th scope="col">Immunization</th>
+                  <th scope="col">Dose</th>
+                  <th scope="col">Year</th>
+                </tr>
+              </thead>
+              <tbody>
+                {immunizationEntries.map(({ event, vaccine, doseLabel, year }) => (
+                  <tr key={event.id}>
+                    <td>{vaccine ?? event.title}</td>
+                    <td>{doseLabel ?? '—'}</td>
+                    <td>{year}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
 
         <h3 className="print-subhead">Recommended screening</h3>
@@ -274,7 +353,6 @@ export function PrintReports() {
             </table>
           </>
         )}
-        <BoundaryFooter />
       </section>
     </div>
   );

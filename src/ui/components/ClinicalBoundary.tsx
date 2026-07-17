@@ -11,8 +11,9 @@
  * callout stays compact (it previously ate 15%+ of shorter screens) without ever hiding
  * the essential message. `role="note"` marks it as ancillary standing content for
  * assistive tech; the icon is decorative. Print output states the full text
- * unconditionally via its own `BoundaryFooter` (see PrintReports.tsx) — a static sheet
- * has no disclosure to open, so the two surfaces intentionally differ.
+ * unconditionally via a single running `.print-footer` fixed to the bottom of every
+ * physical printed page (see PrintReports.tsx) — a static sheet has no disclosure to
+ * open, so the two surfaces intentionally differ.
  *
  * The visible summary text is sourced from the shared {@link CLINICAL_BOUNDARY_TEXT}
  * constant so this callout, the print one-pagers, and the exported calendar stay in lockstep.

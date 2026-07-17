@@ -230,7 +230,7 @@ export interface Layout {
 }
 
 /** Minimum horizontal centre-to-centre distance between two nodes in the same row. */
-const H_GAP = 96;
+export const H_GAP = 96;
 const GEN_HEIGHT = 170;
 /** Left margin for the leftmost node's centre, so the negative-x generation label and
  * the node's own half-width both clear the canvas edge. */

@@ -36,6 +36,70 @@ export function currentMedications(
   return out;
 }
 
+/** One recorded allergy/intolerance. */
+export interface AllergyEntry {
+  event: TimelineEvent;
+  substance: string;
+  reaction?: string;
+  /** A recorded fact, never a computed risk (guardrail #1). */
+  severity?: 'mild' | 'moderate' | 'severe';
+}
+
+/**
+ * Allergies recorded for a person: `allergy`-type events carrying a structured `allergy`
+ * payload. The type check is defence-in-depth against a hand-crafted/corrupt backup that
+ * attaches an `allergy` payload to some other event type (as {@link labSeries} guards).
+ * Pure and not as-of-dependent — an allergy is a standing fact, not a time-relative event,
+ * so nothing is filtered by year. Projects the recorded fields as-is, no interpretation
+ * (guardrail #1).
+ */
+export function allergies(record: FamilyRecord, personId: string): AllergyEntry[] {
+  return record.timeline
+    .filter((e) => e.person === personId && e.type === 'allergy' && e.allergy !== undefined)
+    .map((e) => {
+      const allergy = e.allergy as NonNullable<TimelineEvent['allergy']>;
+      return {
+        event: e,
+        substance: allergy.substance,
+        reaction: allergy.reaction,
+        severity: allergy.severity,
+      };
+    });
+}
+
+/** One recorded immunization. */
+export interface ImmunizationEntry {
+  event: TimelineEvent;
+  vaccine?: string;
+  doseLabel?: string;
+  year: number;
+}
+
+/**
+ * Immunizations recorded for a person: `immunization`-type events carrying a structured
+ * `immunization` payload, sorted ascending by year (a vaccination history reads
+ * oldest→newest, mirroring {@link labSeries}' same-type series convention). The type check
+ * is defence-in-depth against a corrupt backup that attaches an `immunization` payload to
+ * some other event type. Pure; projects the recorded fields as-is, no interpretation
+ * (guardrail #1).
+ */
+export function immunizations(record: FamilyRecord, personId: string): ImmunizationEntry[] {
+  return record.timeline
+    .filter(
+      (e) => e.person === personId && e.type === 'immunization' && e.immunization !== undefined,
+    )
+    .map((e) => {
+      const immunization = e.immunization as NonNullable<TimelineEvent['immunization']>;
+      return {
+        event: e,
+        vaccine: immunization.vaccine,
+        doseLabel: immunization.doseLabel,
+        year: e.year,
+      };
+    })
+    .sort((a, b) => a.year - b.year);
+}
+
 /** One sample in a lab time series. Reference bounds are user-entered, never a shipped band. */
 export interface LabPoint {
   eventId: string;
