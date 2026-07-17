@@ -1,18 +1,67 @@
 # Dependabot version updates keep two ecosystems current so the app's dependencies
 # and the SHA-pinned GitHub Actions (see .github/workflows/) don't silently drift.
-# Security alerts are separate and always on; this file adds scheduled version PRs.
+# Security (Dependabot alert) updates are separate and always on; this file only adds
+# scheduled *version* PRs.
+#
+# Design goal: the fewest, most reviewable PRs. `groups` batch related bumps into a
+# single PR per ecosystem instead of one-PR-per-package (which previously produced 10
+# open PRs at once). Runtime dependencies are grouped apart from dev tooling so a
+# React/Zustand bump — the only changes that affect what ships to users — lands in its
+# own reviewable PR rather than being buried among linter/type bumps.
+#
 # Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
 version: 2
 updates:
-  # Application + tooling dependencies (root package.json / package-lock.json).
+  # ── Application + tooling dependencies (root package.json / package-lock.json) ──
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    # Bump the package.json range too (not just the lockfile) so declared deps stay honest.
+    versioning-strategy: increase
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      # Conventional Commits, matching the repo history. Dependabot uses `prefix` for
+      # production deps and `prefix-development` for devDependencies.
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
+    groups:
+      # Runtime deps (react, react-dom, zustand): grouped together but kept apart from
+      # tooling because these are the only bumps that change the shipped app. Majors still
+      # land here — Dependabot flags the group PR, the maintainer reviews the migration.
+      production-dependencies:
+        applies-to: version-updates
+        dependency-type: production
+        patterns:
+          - '*'
+      # All dev tooling (eslint stack, typescript, vite/vitest, testing-library, types):
+      # one PR for the whole toolchain, including majors, since they move together and are
+      # verified as a set by `npm run check` + build in CI.
+      dev-dependencies:
+        applies-to: version-updates
+        dependency-type: development
+        patterns:
+          - '*'
 
-  # The workflow actions pinned by commit SHA in .github/workflows/ — Dependabot
-  # bumps each pinned SHA and its trailing "# vX.Y.Z" comment together.
+  # ── The workflow actions pinned by commit SHA in .github/workflows/ ──
+  # Dependabot bumps each pinned SHA and its trailing "# vX.Y.Z" comment together.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+    groups:
+      # Action bumps (incl. majors) are frequent and low-risk here — batch them into one PR.
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - '*'
