@@ -643,16 +643,38 @@ textarea.field {
   display: flex;
   overflow: hidden;
 }
-/* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is now a
-   fixed-size, overflow:hidden window, and `.pedigree-canvas` inside it carries a single
+/* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is a
+   fixed-size, clipped window, and `.pedigree-canvas` inside it carries a single
    `translate()/scale()` transform (set inline by PedigreeView) that moves/zooms the node
    divs and the SVG connector overlay together as one coordinate space. No padding here —
    the inset it used to provide (room for the generation ▲/▼ labels) is baked into the
-   pan/zoom view's own default/fit math (`LABEL_GUTTER` in PedigreeView) instead. */
+   pan/zoom view's own default/fit math (`LABEL_GUTTER` in PedigreeView) instead.
+
+   `overflow: clip`, deliberately NOT `hidden`: an overflow:hidden box is still a *scroll
+   container*, so the browser's "scroll a newly-focused element into view" fires whenever a
+   pedigree node <button> gains focus (on click, on Tab, and on the drawer's focus-return
+   when it closes) and that node's box sits near a viewport edge — silently setting
+   scrollTop/scrollLeft to reveal it. Because panning here is a CSS transform, not native
+   scroll, that stray offset is unaccounted for and lurches the whole chart, so the node
+   you clicked jumps elsewhere or out of view (worse the deeper/wider the tree, since more
+   nodes sit near an edge). `overflow: clip` clips identically but is NOT a scroll
+   container, so there is nothing for the browser to scroll — the transform stays the one
+   source of truth. `min-width/height: 0` is required alongside it: `clip` (unlike `hidden`)
+   doesn't zero a flex item's `min-width: auto`, so without these the item would grow to the
+   full (huge) canvas width instead of staying the viewport-sized window.
+
+   No `overflow: hidden` fallback for browsers too old to know the `clip` keyword (which
+   would drop this to `visible`): the parent `.pedigree-body` is itself `overflow: hidden`,
+   so the canvas is still bounded there and can't spill over the header/footer — such a
+   browser just wouldn't get the focus-scroll fix. (A same-rule `overflow: hidden; overflow:
+   clip;` pair doesn't survive anyway — esbuild's CSS minifier drops the overridden first
+   declaration in production.) `clip` is supported by every actively-updated 2026 browser. */
 .pedigree-scroll {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   cursor: grab;
   /* Panning is driven entirely by our own pointer handlers, not the browser's native
      touch scroll/pinch-zoom — without this a touch drag fights the page for the gesture. */

@@ -309,7 +309,8 @@ export function PedigreeView() {
 
   // ---- Pan / zoom ----
   // Transient view state — deliberately not persisted with the record (see ViewState).
-  // `scrollRef` is the fixed-size, overflow:hidden viewport (`.pedigree-scroll`); the
+  // `scrollRef` is the fixed-size, clipped viewport (`.pedigree-scroll`, `overflow: clip`
+  // — deliberately not a scroll container; see the rule's comment in components.css); the
   // transform below is applied to `.pedigree-canvas` inside it, so nodes and the SVG
   // connector overlay pan/zoom atomically in one coordinate space.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -478,7 +479,9 @@ export function PedigreeView() {
   // the selection effect below (covers a click/Enter select, and any future programmatic
   // selection) and `onNodeFocus` (covers plain Tab focus with no selection change, e.g. a
   // sighted keyboard user tabbing past a node that's currently panned out of the
-  // `overflow:hidden` viewport with no visible focus indicator — WCAG 2.4.7). Reads `pos`
+  // clipped viewport with no visible focus indicator — WCAG 2.4.7). This is the sole
+  // mechanism that reveals an off-screen focused node: the viewport is `overflow: clip`,
+  // so the browser's own native scroll-into-view can't (and must not) do it. Reads `pos`
   // via a ref rather than a dependency, so callers don't re-create this every layout pass.
   const posRef = useRef(pos);
   posRef.current = pos;
