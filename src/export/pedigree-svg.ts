@@ -17,7 +17,7 @@ import type { Palette } from '@/data/categories';
 import type { LayoutNode } from '@/domain/graph';
 import { categoryColor } from '@/data/categories';
 import { condIds, genderOf, sabLabel, sabOf } from '@/domain/person';
-import { computeLayout, offsetParallel, segments } from '@/domain/graph';
+import { H_GAP, computeLayout, offsetParallel, segments } from '@/domain/graph';
 
 export interface PedigreeSvgOptions {
   palette?: Palette;
@@ -31,6 +31,57 @@ const UNAFFECTED_FILL = '#ffffff';
 // same coordinate space as the layout (NODE radius 15, H_GAP 96) — ~3.5px reads as two
 // distinct parallel lines at this node scale without the tracks touching.
 const CONSANG_GAP = 3.5;
+// Per-line character budget for a wrapped person-name label. Derived from the row spacing:
+// at the 600-weight 10.5px sans-serif this label uses, an average glyph advances ~6.5px, so
+// H_GAP (96px centre-to-centre) fits ⌊96 / 6.5⌋ ≈ 14 chars before a name would overrun into
+// a neighbouring node. Pure/DOM-free — the serializer never measures text, so this budget is
+// the deterministic stand-in for measureText and must track H_GAP.
+const LABEL_BUDGET = Math.floor(H_GAP / 6.5);
+
+/**
+ * Fit a name to at most two lines within `budget` chars each, without measuring text.
+ * Greedily packs whitespace-split words onto line 1 up to `budget`, the remainder onto
+ * line 2. A first word that alone exceeds `budget` (or a too-long line-2 tail) is truncated
+ * to `budget - 1` chars plus an ellipsis. A name that fits stays a single line. Truncation
+ * slices via `Array.from` so a surrogate pair isn't split mid-unit the way `slice` would.
+ */
+function fitNameLines(name: string, budget: number): string[] {
+  // Truncate a raw token to `budget` visible chars (ellipsis included). `Array.from` iterates
+  // by codepoint, so an astral char (surrogate pair) is never split mid-unit — unlike `slice`,
+  // which counts UTF-16 units. (This is codepoint-safe, not grapheme-cluster-safe: a base
+  // letter + a separate combining mark can still land on different lines; both fragments stay
+  // valid XML text, so it's only a cosmetically odd cut, never malformed SVG.)
+  const trunc = (s: string): string =>
+    Array.from(s)
+      .slice(0, budget - 1)
+      .join('') + '…';
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [''];
+
+  // Greedily pack words onto line 1 up to the budget.
+  let line1 = '';
+  let i = 0;
+  while (i < words.length) {
+    const next = line1 ? `${line1} ${words[i]}` : words[i];
+    if (next.length > budget) break;
+    line1 = next;
+    i++;
+  }
+
+  // The first word alone overruns the budget: line 1 is that word, truncated.
+  if (i === 0) {
+    line1 = trunc(words[0]);
+    i = 1;
+  }
+
+  // Everything fit on line 1 (or was the single truncated word).
+  if (i >= words.length) return [line1];
+
+  // Remainder onto line 2, truncated if it still overruns (long tail or long 2nd word).
+  const rest = words.slice(i).join(' ');
+  const line2 = rest.length > budget ? trunc(rest) : rest;
+  return [line1, line2];
+}
 
 // Escapes for XML text content AND attribute values (quotes included), so the same
 // helper is safe if a name is ever interpolated into an attribute, not just text.
@@ -66,10 +117,22 @@ export function buildPedigreeSvg(
   const segs = segments(record.unions, pos);
   const xs = nodes.map((p) => pos[p.id].x);
   const ys = nodes.map((p) => pos[p.id].cy);
+  // Fit each name once and reuse for both the viewBox and the glyph, so `fitNameLines` runs
+  // a single time per node.
+  const fitLines = new Map(nodes.map((p) => [p.id, fitNameLines(p.name, LABEL_BUDGET)] as const));
   const minX = Math.min(...xs) - 52;
   const maxX = Math.max(...xs) + 52;
   const minY = Math.min(...ys) - 34;
-  const maxY = Math.max(...ys) + 54;
+  // Bottom padding is label-aware, not a fixed literal keyed off node `cy`: a wrapped
+  // BOTTOM-row name adds a second 12px line, so pad to each node's actual label bottom
+  // (name baseline `cy+NODE+15`, years line `+12`, wrap `+12`, descender clearance `+12`).
+  // For an unwrapped node this equals the old `cy + 54` (15+27+0+12), keeping unwrapped
+  // output byte-stable; a wrapped bottom node gets `cy + 66`.
+  const maxY = Math.max(
+    ...nodes.map(
+      (p) => pos[p.id].cy + NODE + 27 + (fitLines.get(p.id)!.length === 2 ? 12 : 0) + 12,
+    ),
+  );
   const w = maxX - minX;
   const h = maxY - minY;
 
@@ -88,7 +151,7 @@ export function buildPedigreeSvg(
     }
   }
   for (const p of nodes) {
-    body += glyph(p, pos[p.id], catalog, palette, record.probandId);
+    body += glyph(p, pos[p.id], catalog, palette, record.probandId, fitLines.get(p.id)!);
   }
 
   const defs =
@@ -108,6 +171,7 @@ function glyph(
   catalog: Catalog,
   palette: Palette,
   probandId: string,
+  nameLines: string[],
 ): string {
   const cx = node.x;
   const cy = node.cy;
@@ -150,11 +214,25 @@ function glyph(
   const sab = sabOf(p);
   const sabDiff = (g === 'man' && sab !== 'm') || (g === 'woman' && sab !== 'f') || g === 'nb';
   const years = p.dead ? `${p.birth ?? ''}–${p.death ?? ''}` : `b.${p.birth ?? ''}`;
+  // Name label, char-budget wrapped to at most two lines so a long name can't overrun into a
+  // neighbouring node (there is no DOM measureText in this pure serializer). The full,
+  // untruncated name rides along as a `<title>` — the on-screen SVG tooltip and an escape
+  // hatch for tests/readers to recover the original. Each visible line is esc()'d on its own.
+  const [line1, line2] = nameLines;
   out +=
     `<text x="${cx}" y="${cy + NODE + 15}" font-size="10.5" fill="#111" text-anchor="middle" ` +
-    `font-family="sans-serif" font-weight="600">${esc(p.name)}</text>`;
+    `font-family="sans-serif" font-weight="600">` +
+    `<title>${esc(p.name)}</title>` +
+    `<tspan x="${cx}" dy="0">${esc(line1)}</tspan>` +
+    (line2 !== undefined ? `<tspan x="${cx}" dy="12">${esc(line2)}</tspan>` : '') +
+    `</text>`;
+  // Years/sab line drops by one line-height only when the name wrapped, so it clears the
+  // second name line; unchanged (cy+NODE+27) for a single-line name.
+  const yearsY = cy + NODE + 27 + (line2 !== undefined ? 12 : 0);
   out +=
-    `<text x="${cx}" y="${cy + NODE + 27}" font-size="8" fill="#777" text-anchor="middle" ` +
+    // fill="#666" (~5.7:1 on white) clears WCAG AA 4.5:1 for this 8px byline; #777 (~4.48:1)
+    // fell just short.
+    `<text x="${cx}" y="${yearsY}" font-size="8" fill="#666" text-anchor="middle" ` +
     // esc() the years like p.name above: birth/death are normally numbers, but a restored
     // backup could smuggle a string here, and this text is injected via innerHTML downstream.
     `font-family="monospace">${esc(years)}${sabDiff ? `  ${sabLabel(sab)}` : ''}</text>`;

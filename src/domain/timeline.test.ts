@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FamilyRecord, Person, TimelineEvent } from './types';
-import { currentMedications, labSeries, labTitles } from './timeline';
+import { allergies, currentMedications, immunizations, labSeries, labTitles } from './timeline';
 
 /** Minimal fixture person, matching the style of record.test.ts / screening.test.ts. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
@@ -140,6 +140,215 @@ describe('currentMedications', () => {
     const [entry] = currentMedications(record, 'a', ASOF);
     expect(entry.startYear).toBe(2021);
     expect(entry.stopYear).toBe(2025);
+  });
+});
+
+describe('allergies', () => {
+  it('includes an allergy event with a valid payload, surfacing substance/reaction/severity', () => {
+    const event: TimelineEvent = {
+      id: 'a1',
+      person: 'a',
+      year: 2015,
+      type: 'allergy',
+      title: 'Penicillin allergy',
+      detail: '',
+      allergy: { substance: 'Penicillin', reaction: 'Hives', severity: 'moderate' },
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(allergies(record, 'a')).toEqual([
+      { event, substance: 'Penicillin', reaction: 'Hives', severity: 'moderate' },
+    ]);
+  });
+
+  it('excludes an allergy-type event with no structured allergy payload (defence-in-depth)', () => {
+    const event: TimelineEvent = {
+      id: 'a2',
+      person: 'a',
+      year: 2015,
+      type: 'allergy',
+      title: 'Legacy allergy note',
+      detail: 'Some free-text allergy mention',
+      // No `allergy` payload.
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(allergies(record, 'a')).toEqual([]);
+  });
+
+  it("isolates by person — another person's allergies are never returned", () => {
+    const eventA: TimelineEvent = {
+      id: 'a3',
+      person: 'a',
+      year: 2015,
+      type: 'allergy',
+      title: "A's allergy",
+      detail: '',
+      allergy: { substance: 'Peanuts' },
+    };
+    const eventB: TimelineEvent = {
+      id: 'a4',
+      person: 'b',
+      year: 2015,
+      type: 'allergy',
+      title: "B's allergy",
+      detail: '',
+      allergy: { substance: 'Latex' },
+    };
+    const record = mkRecord([mkPerson('a'), mkPerson('b')], [eventA, eventB]);
+    const forA = allergies(record, 'a');
+    expect(forA).toHaveLength(1);
+    expect(forA[0].substance).toBe('Peanuts');
+    const forB = allergies(record, 'b');
+    expect(forB).toHaveLength(1);
+    expect(forB[0].substance).toBe('Latex');
+  });
+
+  it('returns an empty array when the person has no recorded allergies', () => {
+    const record = mkRecord([mkPerson('a')], []);
+    expect(allergies(record, 'a')).toEqual([]);
+  });
+
+  it('ignores an allergy payload attached to a non-allergy event type (defense-in-depth)', () => {
+    const wrongType: TimelineEvent = {
+      id: 'a5',
+      person: 'a',
+      year: 2015,
+      type: 'diagnosis',
+      title: 'X',
+      detail: '',
+      allergy: { substance: 'Shellfish' },
+    };
+    const record = mkRecord([mkPerson('a')], [wrongType]);
+    expect(allergies(record, 'a')).toEqual([]);
+  });
+});
+
+describe('immunizations', () => {
+  it('includes an immunization event with a valid payload, carrying vaccine/doseLabel/year', () => {
+    const event: TimelineEvent = {
+      id: 'i1',
+      person: 'a',
+      year: 2018,
+      type: 'immunization',
+      title: 'Flu shot',
+      detail: '',
+      immunization: { vaccine: 'Influenza', doseLabel: 'Annual' },
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(immunizations(record, 'a')).toEqual([
+      { event, vaccine: 'Influenza', doseLabel: 'Annual', year: 2018 },
+    ]);
+  });
+
+  it('excludes an immunization-type event with no structured immunization payload', () => {
+    const event: TimelineEvent = {
+      id: 'i2',
+      person: 'a',
+      year: 2018,
+      type: 'immunization',
+      title: 'Legacy immunization note',
+      detail: 'Some free-text vaccination mention',
+      // No `immunization` payload.
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(immunizations(record, 'a')).toEqual([]);
+  });
+
+  it('ignores an immunization payload attached to a non-immunization event type (defense-in-depth)', () => {
+    const wrongType: TimelineEvent = {
+      id: 'i3',
+      person: 'a',
+      year: 2018,
+      type: 'procedure',
+      title: 'X',
+      detail: '',
+      immunization: { vaccine: 'MMR' },
+    };
+    const record = mkRecord([mkPerson('a')], [wrongType]);
+    expect(immunizations(record, 'a')).toEqual([]);
+  });
+
+  it('sorts results ascending by year regardless of recorded order', () => {
+    const late: TimelineEvent = {
+      id: 'i4',
+      person: 'a',
+      year: 2022,
+      type: 'immunization',
+      title: 'Booster',
+      detail: '',
+      immunization: { vaccine: 'COVID-19' },
+    };
+    const early: TimelineEvent = {
+      id: 'i5',
+      person: 'a',
+      year: 2010,
+      type: 'immunization',
+      title: 'Tetanus',
+      detail: '',
+      immunization: { vaccine: 'Tdap' },
+    };
+    const mid: TimelineEvent = {
+      id: 'i6',
+      person: 'a',
+      year: 2016,
+      type: 'immunization',
+      title: 'Hep B',
+      detail: '',
+      immunization: { vaccine: 'Hepatitis B' },
+    };
+    // Deliberately out of order in the record.
+    const record = mkRecord([mkPerson('a')], [late, early, mid]);
+    const series = immunizations(record, 'a');
+    expect(series.map((e) => e.year)).toEqual([2010, 2016, 2022]);
+  });
+
+  it("isolates by person — another person's immunizations are never returned", () => {
+    const eventA: TimelineEvent = {
+      id: 'i7',
+      person: 'a',
+      year: 2015,
+      type: 'immunization',
+      title: "A's shot",
+      detail: '',
+      immunization: { vaccine: 'HPV' },
+    };
+    const eventB: TimelineEvent = {
+      id: 'i8',
+      person: 'b',
+      year: 2015,
+      type: 'immunization',
+      title: "B's shot",
+      detail: '',
+      immunization: { vaccine: 'Shingles' },
+    };
+    const record = mkRecord([mkPerson('a'), mkPerson('b')], [eventA, eventB]);
+    const forA = immunizations(record, 'a');
+    expect(forA).toHaveLength(1);
+    expect(forA[0].event.id).toBe('i7');
+    const forB = immunizations(record, 'b');
+    expect(forB).toHaveLength(1);
+    expect(forB[0].event.id).toBe('i8');
+  });
+
+  it('surfaces vaccine/doseLabel as optional passthrough — absent when not recorded', () => {
+    const event: TimelineEvent = {
+      id: 'i9',
+      person: 'a',
+      year: 2012,
+      type: 'immunization',
+      title: 'Unspecified vaccination',
+      detail: '',
+      immunization: {},
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    const [entry] = immunizations(record, 'a');
+    expect(entry.vaccine).toBeUndefined();
+    expect(entry.doseLabel).toBeUndefined();
+    expect(entry.year).toBe(2012);
+  });
+
+  it('returns an empty array when the person has no recorded immunizations', () => {
+    const record = mkRecord([mkPerson('a')], []);
+    expect(immunizations(record, 'a')).toEqual([]);
   });
 });
 

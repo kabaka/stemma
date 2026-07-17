@@ -71,8 +71,9 @@ Small individually, but this is a safety-first product, so they were called out 
 
 - ✅ **#3 (clinical boundary is a first-class element, not a footer)** — the Patterns view had
   demoted its boundary from a highlighted callout box to lede body text; the per-report boundary
-  footers vanished with the printable reports (H1). *Fully re-asserted:* H1 restored a first-class,
-  bordered boundary block on every printable sheet, and a shared `ClinicalBoundary` component (a
+  footers vanished with the printable reports (H1). *Fully re-asserted:* H1 restored the boundary on
+  the printable reports — now a first-class running page footer repeated at the bottom of every
+  printed page (bold-led, `role="note"`) — and a shared `ClinicalBoundary` component (a
   bordered `role="note"` callout, `.clinical-boundary`) now heads **every** on-screen analysis
   surface — Overview, Patterns, and Pedigree — reading pattern-and-criterion language only, never a
   number (guardrail #1).

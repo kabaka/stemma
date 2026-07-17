@@ -1167,8 +1167,10 @@ textarea.field {
 
 /* ---- Printable clinical one-pagers (GAP-ANALYSIS H1) ----
    The three sheets live in a sibling of `.app`, hidden on screen. In print we drop the
-   dark app chrome entirely and render these black-on-white, one sheet per page. Every
-   sheet ends with the clinical boundary as a first-class element (guardrail #3). */
+   dark app chrome entirely and render these black-on-white, one sheet per page. The
+   clinical boundary runs as a single fixed footer (`.print-footer`) repeated by the
+   browser at the bottom of every physical printed page — a first-class element
+   (guardrail #3), not incidental footer text. */
 .print-reports {
   display: none;
 }
@@ -1307,19 +1309,20 @@ textarea.field {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .print-boundary {
-    margin-top: 16px;
-    border: 1px solid #111;
-    border-radius: 4px;
-    padding: 8px 10px;
-    font-size: 10.5px;
-    line-height: 1.5;
+  .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
     color: #111;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    border-top: 1px solid #111;
+    padding: 4px 6px 0;
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   @page {
-    margin: 12mm;
+    margin: 12mm 12mm 24mm;
   }
 }

@@ -80,6 +80,135 @@ describe('buildPedigreeSvg', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Name-label fitting — a long name wraps to at most two <tspan>s within the H_GAP-derived
+// character budget, while the full name always survives (unwrapped) in a <title>.
+// ---------------------------------------------------------------------------
+
+describe('person-name label fitting (printout-export-improvements)', () => {
+  /** Count of <tspan entries in `svg` — one per rendered name line for that node. */
+  const countTspans = (svg: string): number => (svg.match(/<tspan/g) ?? []).length;
+
+  it('wraps a long multi-word name onto two <tspan>s (dy="0" and dy="12") behind one <title>', () => {
+    const longName = 'Alexandria Bartholomew Fitzgerald';
+    const svg = buildPedigreeSvg(soloRecord({ name: longName }), catalog);
+    expect(svg).toContain(`<title>${longName}</title>`);
+    expect(svg).toContain('dy="0"');
+    expect(svg).toContain('dy="12"');
+    expect(countTspans(svg)).toBe(2);
+  });
+
+  it('keeps a short name (<= budget, no space) as a single <tspan>, with the full name in <title>', () => {
+    const shortName = 'Sam';
+    const svg = buildPedigreeSvg(soloRecord({ name: shortName }), catalog);
+    expect(svg).toContain(`<title>${shortName}</title>`);
+    expect(countTspans(svg)).toBe(1);
+    expect(svg).toContain(`>${shortName}</tspan>`);
+    // Only the years/sab line's own content follows — no second name line was emitted.
+    expect(svg).not.toContain('dy="12"');
+  });
+
+  it('truncates a single over-long token (no spaces) with an ellipsis, but <title> keeps the original', () => {
+    // 30 chars, no whitespace — exceeds LABEL_BUDGET (14) as a single "word" that can't be
+    // wrapped onto a second line, so fitNameLines must truncate it in place.
+    const longToken = 'Supercalifragilisticexpialidoc';
+    const svg = buildPedigreeSvg(soloRecord({ name: longToken }), catalog);
+    expect(svg).toContain(`<title>${longToken}</title>`);
+    // The truncated tspan is shorter than the original and ends in the ellipsis character.
+    const tspanMatch = svg.match(/<tspan[^>]*dy="0">([^<]*)<\/tspan>/);
+    expect(tspanMatch).toBeTruthy();
+    const rendered = tspanMatch![1];
+    expect(rendered.endsWith('…')).toBe(true);
+    expect(rendered.length).toBeLessThan(longToken.length);
+    // The untruncated token appears exactly once in the whole document — inside <title> —
+    // never as the visible tspan text.
+    expect(svg.split(longToken)).toHaveLength(2);
+    // Single line — a lone over-long token has no remainder to wrap onto a second line.
+    expect(countTspans(svg)).toBe(1);
+  });
+
+  it('renders an empty name as a single, empty <tspan> without crashing', () => {
+    const svg = buildPedigreeSvg(soloRecord({ name: '' }), catalog);
+    expect(svg).toContain('<title></title>');
+    expect(countTspans(svg)).toBe(1);
+    expect(svg).toContain('dy="0"></tspan>');
+    expect(svg).not.toContain('…');
+  });
+
+  it('renders an all-whitespace name as a single, empty <tspan> without crashing', () => {
+    const svg = buildPedigreeSvg(soloRecord({ name: '   ' }), catalog);
+    // The full (unescaped) whitespace name still rides along in <title>.
+    expect(svg).toContain('<title>   </title>');
+    expect(countTspans(svg)).toBe(1);
+    expect(svg).toContain('dy="0"></tspan>');
+    expect(svg).not.toContain('…');
+  });
+
+  it('keeps a name exactly at the 14-char budget on one line, untruncated', () => {
+    // LABEL_BUDGET = floor(H_GAP / 6.5) = floor(96 / 6.5) = 14 — a single word of exactly
+    // 14 chars fits the `next.length > budget` check (14 > 14 is false) and must not be
+    // treated as an overrun.
+    const exactName = 'X'.repeat(14);
+    expect(exactName).toHaveLength(14);
+    const svg = buildPedigreeSvg(soloRecord({ name: exactName }), catalog);
+    expect(svg).toContain(`<title>${exactName}</title>`);
+    expect(countTspans(svg)).toBe(1);
+    expect(svg).toContain(`>${exactName}</tspan>`);
+    expect(svg).not.toContain('…');
+  });
+
+  /** Two generations, no union between them (irrelevant to this geometry assertion) — just
+   * enough structure to have a genuine "bottom row" whose cy sits well below the top row's
+   * (GEN_HEIGHT=170 in graph.ts dwarfs the 12px wrap addition), so the bottom node's label
+   * height dominates the viewBox regardless of whether it wraps. */
+  function twoGenRecord(bottomName: string): FamilyRecord {
+    const top: Person = {
+      id: 'top',
+      name: 'Top',
+      sab: 'f',
+      gender: 'woman',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: 1970,
+      death: null,
+      conds: [],
+    };
+    const bottom: Person = {
+      id: 'bottom',
+      name: bottomName,
+      sab: 'f',
+      gender: 'woman',
+      gen: 1,
+      x: 0,
+      dead: false,
+      birth: 2000,
+      death: null,
+      conds: [],
+      isProband: true,
+    };
+    return { people: [top, bottom], unions: [], timeline: [], probandId: 'bottom' };
+  }
+
+  /** Height (`h` component) of the SVG's `viewBox="minX minY w h"` attribute. */
+  function viewBoxHeight(svg: string): number {
+    const m = svg.match(/viewBox="[^"]+ [^"]+ [^"]+ ([\d.]+)"/);
+    if (!m) throw new Error('no viewBox found');
+    return Number(m[1]);
+  }
+
+  it('grows the wrap-aware viewBox height by exactly 12px when the bottom-row name wraps', () => {
+    const shortSvg = buildPedigreeSvg(twoGenRecord('Bo'), catalog);
+    const wrappedSvg = buildPedigreeSvg(twoGenRecord('Alexandria Bartholomew'), catalog);
+    // Confirm the premise: two nodes each contribute one <tspan> (single-line) in the short
+    // variant; the bottom node's name wraps to two <tspan>s in the wrapped variant, so the
+    // top node's fixed one plus the bottom's two makes three.
+    expect(countTspans(shortSvg)).toBe(2);
+    expect(countTspans(wrappedSvg)).toBe(3);
+    expect(viewBoxHeight(wrappedSvg)).toBe(viewBoxHeight(shortSvg) + 12);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PR 3 — the export must reflect segments()' consanguinity/twin truth, not diverge from it.
 // ---------------------------------------------------------------------------
 
