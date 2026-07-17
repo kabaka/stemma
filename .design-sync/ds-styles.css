@@ -1,0 +1,1451 @@
+/* GENERATED for design-sync — do not edit. Regenerate with:
+   { echo header; cat src/styles/theme.css; cat src/styles/components.css; } > .design-sync/ds-styles.css
+   theme.css (tokens + base resets) then components.css, matching main.tsx load order. */
+/* Stemma theme — dark, clinical, IBM Plex. Colorblind-safe mode is NOT a CSS attribute
+   flip: `palette` is app state (Zustand), and `categoryColor(cat, palette)` in
+   src/data/categories.ts picks the swatch per render call site (pedigree fills, legends,
+   condition chips). These variables hold the rest of the fixed dark theme. */
+
+:root {
+  --bg: #0b0e13;
+  --bg-panel: #12161d;
+  --bg-rail: #0e1218;
+  --bg-hover: #151b23;
+  --border: rgba(255, 255, 255, 0.07);
+  /* Clears WCAG 1.4.11 (≥3:1 non-text contrast) with margin against both --bg and
+     --bg-panel — it's the sole boundary for controls whose fill matches their surface
+     (unpressed .seg-btn, plain .btn, .field, the .modal edge). 0.33 measured ~2.95:1. */
+  --border-strong: rgba(255, 255, 255, 0.42);
+  --text: #e6eaf0;
+  --text-dim: #8b94a3;
+  --text-faint: #7b8494;
+  --accent: #34e2cf;
+  --accent-hover: #6fe6d9;
+
+  /* Severity */
+  --sev-referral: #ff5d5d;
+  --sev-discuss: #ffb043;
+  --sev-note: #8b94a3;
+
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Headings carry a11y semantics (WCAG 1.3.1/2.4.6) but must look exactly like the
+   plain <div>/<span> labels they replace — zero the UA defaults and let each
+   component's existing class (.page-title, .section-label, .overline, …) style them. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+select option {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* Respect the OS-level motion-reduction preference (WCAG 2.3.3). None of the app's
+   transitions (pedigree node hover/highlight-dim, a handful of opacity fades) carry
+   meaning on their own — the underlying state change is always also reflected in text/
+   aria — so collapsing them to near-instant is safe everywhere, not just case-by-case. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Component styles for the Stemma UI. Layout + reusable primitives; one-off styling
+   stays inline in components. Colours come from theme.css variables so the palette
+   toggle and print styles stay centralised. */
+
+.app {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 216px;
+  flex: none;
+  background: var(--bg-rail);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.sidebar__brand {
+  padding: 20px 20px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--accent);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-mark > i {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+.brand-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+.brand-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  color: var(--text-faint);
+  margin-top: 7px;
+  text-transform: uppercase;
+}
+.nav {
+  list-style: none;
+  margin: 0;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border: none;
+  background: none;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+.nav-item[aria-current='page'] {
+  background: rgba(52, 226, 207, 0.1);
+  color: var(--accent);
+  /* A non-colour cue for the current page, matching .chip/.seg-btn's pressed state —
+     colour is never the only signal (WCAG 1.4.1). */
+  font-weight: 600;
+}
+.sidebar__foot {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.overline {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #6fa8ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: #08121a;
+  flex: none;
+}
+
+/* ---- Main / content ---- */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 28px 34px 60px;
+}
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 16px;
+}
+.page-title {
+  font-size: 23px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+.lede {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 24px;
+  max-width: 680px;
+  line-height: 1.5;
+}
+.mono-dim {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---- Cards / panels ---- */
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 15px 16px;
+}
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 2px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: 13px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 26px;
+}
+.stat__value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+}
+.stat__label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 7px;
+}
+
+/* Unstyled list — real <ul>/<li> semantics for AT without the default bullets/indent. */
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Data tables (screen) ---- */
+/* A plain read surface for recorded values (e.g. the lab trend) — inherits the .card
+   panel/border and never colour-codes a row or cell: interpreting a value against its
+   range is a clinician's job, not this table's (guardrail #1). Distinct from
+   `.print-table`, which only exists inside the `@media print` sheet. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td {
+  /* Defensive (WCAG 1.4.10): the table's card wrapper clips overflow, so an unusually
+     long user-entered value (e.g. a long `unit` string) breaks onto a new line instead
+     of being silently cut off. */
+  word-break: break-word;
+}
+.data-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---- Clinical boundary ---- */
+/* The non-negotiable "not a diagnostic device" statement rendered as a first-class,
+   bordered callout (guardrail #3) — never demoted to footer or lede body text. The
+   accent left border and panel fill lift it out of surrounding prose so it reads as a
+   standing disclaimer, not a sentence a reader can skim past.
+
+   Compact by design: the core statement is a single line and the elaboration lives in a
+   collapsed <details> below it, so the callout no longer eats 15%+ of shorter screens.
+   No `max-width` cap (which used to force the sentence to wrap to three lines) — the bar
+   spans its content column and the summary stays on one line at normal widths. */
+.clinical-boundary {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 9px 13px;
+  margin: 0 0 16px;
+}
+.clinical-boundary__icon {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1.4;
+  flex: none;
+}
+.clinical-boundary__body {
+  min-width: 0;
+}
+.clinical-boundary__summary {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+  margin: 0;
+}
+.clinical-boundary__summary b {
+  color: var(--text);
+}
+/* The disclosure toggle: small, accent-tinted, no default triangle marker (we keep it
+   understated as chrome, not a loud control). The full explanatory text only contributes
+   height when the reader opens it. */
+.clinical-boundary__details {
+  margin-top: 5px;
+}
+.clinical-boundary__toggle {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+  width: fit-content;
+}
+.clinical-boundary__toggle::-webkit-details-marker {
+  display: none;
+}
+.clinical-boundary__toggle::before {
+  content: '▸ ';
+}
+.clinical-boundary__details[open] .clinical-boundary__toggle::before {
+  content: '▾ ';
+}
+.clinical-boundary__text {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 6px 0 0;
+  max-width: 680px;
+}
+.clinical-boundary__text b {
+  color: var(--text);
+}
+
+/* ---- Flags ---- */
+.flag {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sev-note);
+  border-radius: 10px;
+  padding: 14px 17px;
+  cursor: default;
+}
+.flag__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.flag__title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex: none;
+}
+.flag__criterion {
+  font-size: 12px;
+  color: var(--text);
+  margin: 9px 0 0;
+  line-height: 1.5;
+}
+.flag__rec {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 7px 0 0;
+  line-height: 1.5;
+}
+
+/* ---- Buttons ---- */
+.btn {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+/* A real disabled state (WCAG 3.3.1): without this the author background/color on
+   .btn--primary overrides the UA's greyed chrome, so a disabled Save looked identical to
+   an enabled one. Dimmed + not-allowed reads as unavailable (and the hover rules exclude
+   :disabled so it doesn't brighten as if interactive); the "· required" name hint says
+   why. One rule covers every .btn/.btn--primary/.btn--danger in the app. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn--primary {
+  background: var(--accent);
+  color: #08121a;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn--sm {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+/* aria-disabled keeps a control in the tab order (so keyboard/SR users discover it) while
+   still reading as unavailable. Used where a click is a guarded no-op until a precondition
+   is met, e.g. "Import family" before a GEDCOM file has parsed. */
+.btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Solid, opaque border/text (not the washed-out rgba this replaced) so the
+   destructive-action affordance clears WCAG 1.4.11 non-text contrast (>=3:1) as well
+   as text contrast, against both --bg-panel and --bg-hover. */
+.btn--danger {
+  color: var(--sev-referral);
+  border-color: var(--sev-referral);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wrap {
+  flex-wrap: wrap;
+}
+.spacer {
+  flex: 1;
+}
+
+input.field,
+select.field,
+textarea.field {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  width: 100%;
+}
+/* Not element-qualified: PersonForm labels its segmented-toggle / organ / conditions
+   groups with a <span class="lbl"> (a group heading isn't a single control's <label>),
+   and those must get the same small, dim caption styling as real <label class="lbl">s. */
+.lbl {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.chip[aria-pressed='true'] {
+  background: rgba(52, 226, 207, 0.12);
+  color: var(--accent);
+  border-color: var(--accent);
+  /* A non-colour cue for the pressed state so it doesn't read by hue alone (WCAG 1.4.1),
+     matching .seg-btn — aria-pressed already covers assistive tech. */
+  font-weight: 600;
+}
+
+/* Minimal "x" used to remove an item from inside a chip/pill (see PersonForm's
+   selected-condition chips) — deliberately not a full .btn (too heavy at that size). */
+.chip-remove {
+  /* Pad the hit target out to a comfortable size without visually enlarging the glyph:
+     negative margins pull the surrounding chip back so density is unchanged. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 3px;
+  margin: -4px -2px -4px 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  /* Full-strength text, not --text-dim: the dim shade dipped just under 4.5:1 (WCAG
+     1.4.3) on the most saturated category-chip tints. */
+  color: var(--text);
+  cursor: pointer;
+}
+.chip-remove:hover {
+  color: var(--sev-referral);
+}
+
+/* Segmented toggle button (sex-assigned-at-birth / status / gender identity in
+   PersonForm) — a full-width alternative to .chip for a small exclusive-choice row. */
+.seg-btn {
+  flex: 1;
+  font-family: inherit;
+  text-align: center;
+  padding: 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-dim);
+}
+.seg-btn:hover {
+  background: var(--bg-hover);
+}
+.seg-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: rgba(52, 226, 207, 0.14);
+  color: var(--text);
+  /* A non-colour cue for the selected option, so the pressed state doesn't read by hue
+     alone (WCAG 1.4.1) — aria-pressed already covers assistive tech. */
+  font-weight: 600;
+}
+
+/* 2-column compact tiles summarising the selected person (Status/Lifespan/Kinship/
+   Lineage/Gender/Sex-at-birth) in PersonDrawer. */
+.identity-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.identity-tile {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.identity-tile__label {
+  font-size: 9.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.identity-tile__value {
+  font-size: 12.5px;
+  font-weight: 500;
+  margin-top: 3px;
+}
+
+/* 2-column "Add connected relative" quick-action grid in PersonDrawer; cells reuse
+   .btn so they inherit the standard hover/focus treatment. */
+.relative-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.disclaimer {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: rgba(255, 176, 67, 0.08);
+  border: 1px solid rgba(255, 176, 67, 0.2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  line-height: 1.45;
+}
+
+/* Collapsible "how to read this pedigree" notation key — reference material a frequent
+   user already knows, so it defaults collapsed to one small toggle instead of a permanent
+   paragraph (see PedigreeView). Muted (not accent) because, unlike the clinical boundary,
+   it carries no safety statement. */
+.pedigree-guide {
+  margin-top: 10px;
+}
+.pedigree-guide__toggle {
+  display: inline-block;
+  width: fit-content;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+.pedigree-guide__toggle::-webkit-details-marker {
+  display: none;
+}
+.pedigree-guide__toggle::before {
+  content: '▸ ';
+}
+.pedigree-guide[open] .pedigree-guide__toggle::before {
+  content: '▾ ';
+}
+.pedigree-guide__text {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  max-width: 680px;
+  margin: 8px 0 0;
+}
+
+/* ---- History (edit-audit trail) ----
+   Each entry is its own <details>/<summary> disclosure (native keyboard operability,
+   no custom toggle-state wiring needed) styled with the same hide-the-UA-marker +
+   custom ::before caret treatment as .pedigree-guide__toggle, but laid out as a row
+   (timestamp + label) since each summary carries real per-entry information rather
+   than a static "show reference material" caption.
+
+   The `open` attribute lives on <details> itself, so the `[open]` selector below MUST
+   target `.history-entry__details` (not the outer `.card` <li>, which never carries the
+   attribute) or the caret silently never flips. */
+.history-entry__details {
+  padding: 15px 16px;
+}
+.history-entry__summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.history-entry__summary::-webkit-details-marker {
+  display: none;
+}
+.history-entry__summary::before {
+  content: '▸';
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.history-entry__details[open] .history-entry__summary::before {
+  content: '▾';
+}
+/* Defensive (WCAG 1.4.10), mirroring .data-table td: a long unbroken label token (e.g. a
+   pasted name with no spaces) must wrap inside the flex row rather than overflowing the
+   card at 200% zoom. min-width: 0 lets the flex item actually shrink below its content
+   size so overflow-wrap can take effect. */
+.history-entry__summary-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-entry__diff {
+  margin: 10px 0 0 18px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ---- Pedigree ----
+   Rebuilt as a natural-size, scrollable DOM canvas (never scaled to fit): a pinned
+   header (title + Highlight controls) above a flexible body that either scrolls the
+   canvas or shows the empty-state prompt, then a pinned footer for the category legend. */
+.pedigree-header {
+  padding: 22px 34px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.pedigree-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+/* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is a
+   fixed-size, clipped window, and `.pedigree-canvas` inside it carries a single
+   `translate()/scale()` transform (set inline by PedigreeView) that moves/zooms the node
+   divs and the SVG connector overlay together as one coordinate space. No padding here —
+   the inset it used to provide (room for the generation ▲/▼ labels) is baked into the
+   pan/zoom view's own default/fit math (`LABEL_GUTTER` in PedigreeView) instead.
+
+   `overflow: clip`, deliberately NOT `hidden`: an overflow:hidden box is still a *scroll
+   container*, so the browser's "scroll a newly-focused element into view" fires whenever a
+   pedigree node <button> gains focus (on click, on Tab, and on the drawer's focus-return
+   when it closes) and that node's box sits near a viewport edge — silently setting
+   scrollTop/scrollLeft to reveal it. Because panning here is a CSS transform, not native
+   scroll, that stray offset is unaccounted for and lurches the whole chart, so the node
+   you clicked jumps elsewhere or out of view (worse the deeper/wider the tree, since more
+   nodes sit near an edge). `overflow: clip` clips identically but is NOT a scroll
+   container, so there is nothing for the browser to scroll — the transform stays the one
+   source of truth. `min-width/height: 0` is required alongside it: `clip` (unlike `hidden`)
+   doesn't zero a flex item's `min-width: auto`, so without these the item would grow to the
+   full (huge) canvas width instead of staying the viewport-sized window.
+
+   No `overflow: hidden` fallback for browsers too old to know the `clip` keyword (which
+   would drop this to `visible`): the parent `.pedigree-body` is itself `overflow: hidden`,
+   so the canvas is still bounded there and can't spill over the header/footer — such a
+   browser just wouldn't get the focus-scroll fix. (A same-rule `overflow: hidden; overflow:
+   clip;` pair doesn't survive anyway — esbuild's CSS minifier drops the overridden first
+   declaration in production.) `clip` is supported by every actively-updated 2026 browser. */
+.pedigree-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: clip;
+  cursor: grab;
+  /* Panning is driven entirely by our own pointer handlers, not the browser's native
+     touch scroll/pinch-zoom — without this a touch drag fights the page for the gesture. */
+  touch-action: none;
+}
+.pedigree-scroll:active {
+  cursor: grabbing;
+}
+.pedigree-canvas {
+  position: relative;
+  transition: none;
+}
+/* Applied only transiently (Reset / Zoom to fit buttons) — wheel/drag/keyboard pan and
+   zoom stay unanimated so they track the input 1:1. */
+.pedigree-canvas--eased {
+  transition: transform 220ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pedigree-canvas--eased {
+    transition: none;
+  }
+}
+
+/* Zoom controls float over the top-right of the viewport, outside the transformed
+   `.pedigree-canvas` (so they never pan/scale with the chart) — real <button>s plus a
+   visible text percentage readout (WCAG 1.4.1: never icon/colour-only). */
+.pedigree-zoom-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px;
+}
+.pedigree-zoom-readout {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 38px;
+  text-align: center;
+}
+
+/* Button-operable pan fallback (a mini D-pad) beside the zoom buttons — for the same
+   reason the zoom buttons exist alongside +/-/0: a screen reader in browse mode can
+   switch Arrow keys off an interactive `role="group"` before they reach our own keydown
+   handler, so panning needs a button-based path too, not just the keyboard one. Visually
+   separated from the zoom cluster by a thin divider. */
+.pedigree-pan-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.pedigree-pan-dpad__btn {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+}
+.pedigree-pan-dpad__btn--up {
+  grid-column: 2;
+  grid-row: 1;
+}
+.pedigree-pan-dpad__btn--left {
+  grid-column: 1;
+  grid-row: 2;
+}
+.pedigree-pan-dpad__btn--right {
+  grid-column: 3;
+  grid-row: 2;
+}
+.pedigree-pan-dpad__btn--down {
+  grid-column: 2;
+  grid-row: 3;
+}
+.pedigree-footer {
+  flex: none;
+  padding: 10px 34px;
+  border-top: 1px solid var(--border);
+}
+.pedigree-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px;
+}
+
+.pedigree-gen-label {
+  position: absolute;
+  left: -58px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.pedigree-node-wrap {
+  position: absolute;
+  width: var(--node-size);
+  height: var(--node-size);
+}
+.pedigree-node {
+  position: relative;
+  width: var(--node-size);
+  height: var(--node-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  /* Opaque, shape-following backing (clipped by the inline border-radius / diamond
+     rotate) so a connector line drawn centre-to-centre is occluded *inside* the symbol —
+     the standard has the symbol sit ON the line, not the line run through it. Mirrors the
+     SVG export, which paints every glyph (unaffected = solid white) over the segments for
+     the same effect. `--bg` matches the canvas, so an unaffected node still reads as an
+     empty outline. Distinct from `.pedigree-node__fill` above it, which carries the
+     affected category colour and is the only layer a highlight filter is allowed to dim —
+     this backing never dims, so lines stay hidden even under an active highlight. */
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    filter 0.12s,
+    box-shadow 0.2s;
+}
+.pedigree-node:hover {
+  filter: brightness(1.18);
+}
+/* The coloured glyph fill, separated from .pedigree-node's own border so a highlight
+   filter can mute the fill (see PedigreeNode's `dimmed`) without ever touching border
+   contrast — WCAG 1.4.3 non-text contrast must hold regardless of highlight state. */
+.pedigree-node__fill {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.pedigree-node__init {
+  position: relative;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.3px;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.pedigree-node__slash {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 50%;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.55);
+  transform: rotate(-40deg);
+  pointer-events: none;
+}
+.pedigree-node__dots {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.pedigree-node__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 1.5px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  display: block;
+}
+/* Overflow count when a person has more conditions than the 4 dots shown — the full
+   list still reaches assistive tech via the node's accessible name (nodeLabel). */
+.pedigree-node__dot-more {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-faint);
+  margin-left: 1px;
+}
+.pedigree-node__you {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #08121a;
+  background: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pedigree-node__sab {
+  position: absolute;
+  top: 38px;
+  right: -8px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--bg);
+  background: var(--text-dim);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pedigree-node__name {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-align: center;
+  pointer-events: none;
+  /* Cap the label a hair under the row's H_GAP (96px centre-to-centre, see computeLayout)
+     so a long name truncates with an ellipsis instead of colliding with its neighbours —
+     the full name stays in the node's accessible name, its hover title, and the drawer. */
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pedigree-node__years {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+/* Highlight / filter row (see PedigreeHighlight.tsx) — the header holds only a mode
+   toggle, one popover trigger, and (when active) one summary chip, so its height is
+   constant no matter how many conditions the family carries. The list of present
+   conditions and the full-catalog search live inside the bounded popover below. */
+.pedigree-hl-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+.pedigree-hl-count,
+.pedigree-hl-row[aria-pressed='true'] .mono-dim {
+  /* Inherit from the surrounding control (text-dim normally, accent when active) instead
+     of a hardcoded tone, which fell to ~3.77:1 against the pressed background. Shared
+     with the row's `.mono-dim` category span, which has the identical problem: its own
+     `color: var(--text-faint)` (higher specificity than the row's inherited --accent)
+     was still winning there too. */
+  color: currentColor;
+}
+.pedigree-hl-count {
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+/* The single chip standing in for the active highlight; clicking it clears the filter. */
+.pedigree-hl-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pedigree-hl-active__x {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.pedigree-hl-active:hover .pedigree-hl-active__x {
+  color: var(--sev-referral);
+}
+.pedigree-hl-search-popover {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  z-index: 30;
+  width: 340px;
+  max-width: calc(100vw - 80px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+}
+.pedigree-hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+.pedigree-hl-list--results {
+  max-height: 240px;
+}
+/* One selectable row in the popover: swatch + name + trailing count/category. */
+.pedigree-hl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pedigree-hl-row:hover {
+  background: var(--bg-hover);
+}
+.pedigree-hl-row[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: rgba(52, 226, 207, 0.12);
+  color: var(--accent);
+  /* Non-colour cue for the active row (WCAG 1.4.1), matching the chips/.seg-btn. */
+  font-weight: 600;
+}
+.pedigree-hl-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Search box sits under the present-in-family list, set off by a hairline rule. */
+.pedigree-hl-search {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.pedigree-hl-search .field {
+  margin-bottom: 8px;
+}
+
+.pedigree-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pedigree-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.pedigree-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+/* ---- Drawer ---- */
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 340px;
+  background: var(--bg-rail);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  z-index: 20;
+}
+.drawer__body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- Modal (PersonForm) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.7);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 24px;
+}
+.modal {
+  width: 440px;
+  max-width: 100%;
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  padding: 24px;
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.timeline-item {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+
+/* ---- Focus ---- */
+.btn:focus-visible,
+.chip:focus-visible,
+.chip-remove:focus-visible,
+.seg-btn:focus-visible,
+.nav-item:focus-visible,
+.field:focus-visible,
+.clinical-boundary__toggle:focus-visible,
+.pedigree-guide__toggle:focus-visible,
+.history-entry__summary:focus-visible,
+.pedigree-hl-row:focus-visible,
+.pedigree-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* `.pedigree-node` sits *inside* `.pedigree-canvas`'s pan/zoom `scale()` transform, so a
+   plain 2px outline would shrink to ~0.6px on screen at `SCALE_MIN` (0.3) — dividing by
+   the canvas's own `--pedigree-scale` custom property (set inline by PedigreeView,
+   inherited through the transformed subtree unaffected by the transform itself) cancels
+   that out, keeping the ring a constant ~2px regardless of zoom. */
+.pedigree-node:focus-visible {
+  outline: calc(2px / var(--pedigree-scale, 1)) solid var(--accent);
+  outline-offset: calc(2px / var(--pedigree-scale, 1));
+}
+
+@media (max-width: 720px) {
+  /* Narrower, not icon-only: nav labels stay visible (below) so a nav item never
+     collapses to an unlabelled, colour-only pill — 64px only had room for the bare
+     .nav-item background tint as the sole (colour-only) way to tell items apart. */
+  .sidebar {
+    width: 160px;
+  }
+  .brand-name,
+  .brand-tag,
+  .sidebar__foot .who {
+    display: none;
+  }
+  .scroll {
+    padding: 20px 16px 50px;
+  }
+}
+
+/* ---- Printable clinical one-pagers (GAP-ANALYSIS H1) ----
+   The three sheets live in a sibling of `.app`, hidden on screen. In print we drop the
+   dark app chrome entirely and render these black-on-white, one sheet per page. Every
+   sheet ends with the clinical boundary as a first-class element (guardrail #3). */
+.print-reports {
+  display: none;
+}
+
+@media print {
+  /* Hand-to-your-clinician output: paper, not the dark app. */
+  .app {
+    display: none !important;
+  }
+  .print-reports {
+    display: block;
+    color: #111;
+    background: #fff;
+    font-family: var(--font-sans);
+  }
+  .print-sheet {
+    break-after: page;
+    page-break-after: always;
+    padding: 8mm 4mm;
+  }
+  .print-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .print-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #111;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .print-brand {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .print-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 2px 0;
+  }
+  .print-subtitle {
+    font-size: 12px;
+    color: #444;
+  }
+  .print-generated {
+    font-size: 11px;
+    color: #555;
+    white-space: nowrap;
+  }
+  .print-subhead {
+    font-size: 13px;
+    font-weight: 700;
+    margin: 16px 0 6px;
+    border-bottom: 1px solid #bbb;
+    padding-bottom: 3px;
+  }
+  .print-note,
+  .print-empty {
+    font-size: 11.5px;
+    color: #333;
+    line-height: 1.5;
+    margin: 6px 0;
+  }
+  .print-pedigree {
+    text-align: center;
+    margin: 8px 0;
+  }
+  .print-pedigree svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .print-flags {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .print-flag {
+    border: 1px solid #999;
+    border-left: 4px solid #111;
+    border-radius: 4px;
+    padding: 8px 10px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-flag-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .print-flag-title {
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .print-flag-sev {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .print-flag-crit,
+  .print-flag-rel,
+  .print-flag-rec {
+    font-size: 11.5px;
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+  .print-flag-rec {
+    color: #333;
+  }
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin: 4px 0 2px;
+  }
+  .print-table th,
+  .print-table td {
+    text-align: left;
+    padding: 4px 6px;
+    border-bottom: 1px solid #ccc;
+    vertical-align: top;
+  }
+  .print-table th {
+    border-bottom: 1px solid #111;
+    font-weight: 700;
+  }
+  .print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-boundary {
+    margin-top: 16px;
+    border: 1px solid #111;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: #111;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}
