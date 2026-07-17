@@ -96,7 +96,7 @@ export function GedcomImport({ onImport, onCancel }: GedcomImportProps) {
           className="field"
           type="file"
           accept=".ged,.gedcom,text/plain,application/x-gedcom"
-          onChange={handleFile}
+          onChange={(e) => void handleFile(e)}
         />
         <p className="mono-dim" style={{ marginTop: 6 }}>
           Exported from Ancestry, FamilySearch, or another family-tree tool. Read in your browser —

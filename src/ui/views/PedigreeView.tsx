@@ -1017,7 +1017,7 @@ function RecordActionsMenu({
             // Tab out of the popover (not Escape, not a click on a row) — just close, since
             // focus is already moving on under the browser's own control; mirrors
             // HighlightPopover's onDismiss vs. onClose distinction.
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+            if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
           }}
         >
           <button

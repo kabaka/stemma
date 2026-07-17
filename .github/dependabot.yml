@@ -37,7 +37,7 @@ updates:
         dependency-type: production
         patterns:
           - '*'
-      # All dev tooling (eslint stack, typescript, vite/vitest, testing-library, types):
+      # All dev tooling (oxlint, typescript, vite/vitest, testing-library, types):
       # one PR for the whole toolchain, including majors, since they move together and are
       # verified as a set by `npm run check` + build in CI.
       dev-dependencies:

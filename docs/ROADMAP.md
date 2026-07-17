@@ -33,7 +33,7 @@ monolith into typed, tested modules."
 | Condition catalog | ✅ | 115 curated conditions generated from the prototype + **verified ICD-10-CM** (23 high-signal) & SNOMED codes. |
 | Long-tail vocabulary | ✅ | `VocabularyProvider` port + NLM Clinical Tables provider (CORS, no key) — the app is **not** capped at 115 conditions. |
 | Standards export | ✅ | FHIR R4, Phenopacket v2, GEDCOM 5.5.1, pedigree SVG — all generated client-side. |
-| Linting / formatting | ✅ | ESLint 9 (flat) + Prettier; `npm run check` is the gate. |
+| Linting / formatting | ✅ | oxlint (type-aware) + Prettier; `npm run check` is the gate. |
 | Tests | ✅ | Vitest + Testing Library; 229 tests across domain, store, exports, imports, integrations, and UI. |
 | CI/CD | ✅ | GitHub Actions: `check` + build on PRs; Pages deploy on `main`. |
 | GitHub Pages | ✅ | Static build with the correct `base`; deploy workflow in place. |
