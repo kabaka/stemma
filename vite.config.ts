@@ -47,12 +47,20 @@ function contentSecurityPolicy(): Plugin {
 // @vitejs/plugin-react v6 transforms with oxc (no `babel` option), so the compiler is
 // run through @rolldown/plugin-babel using the plugin's own `reactCompilerPreset`. The
 // preset carries a per-file filter (only React code is handed to Babel) and targets
-// React 19's built-in `react/compiler-runtime`. The lint half of React Compiler is
-// already on via eslint-plugin-react-hooks' recommended rules (see eslint.config.js).
+// React 19's built-in `react/compiler-runtime`. `include` scopes Babel to the UI layer —
+// React lives only in src/ui/ (see the layering contract in CLAUDE.md), so the pure
+// domain/data/export layers are never handed to Babel. (The dedicated React Compiler
+// lint suite isn't in oxlint's rule set; oxlint still enforces react/rules-of-hooks and
+// react/exhaustive-deps — see .oxlintrc.json — which is what the kept useCallbacks below
+// satisfy.)
 // https://react.dev/learn/react-compiler/installation
 export default defineConfig({
   base,
-  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), contentSecurityPolicy()],
+  plugins: [
+    react(),
+    babel({ include: /[\\/]src[\\/]ui[\\/]/, presets: [reactCompilerPreset()] }),
+    contentSecurityPolicy(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
