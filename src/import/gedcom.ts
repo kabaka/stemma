@@ -145,7 +145,10 @@ function extractYear(date: string): number | null {
 /** Sex assigned at birth from the GEDCOM `SEX` value. */
 function sabFromSex(sex: string): Sab {
   const s = sex.trim().toUpperCase();
-  return s === 'M' ? 'm' : s === 'F' ? 'f' : 'u';
+  // An explicit inbound intersex signal — GEDCOM-7 / 5.5.5 `X` — maps to UAAB ('x') rather
+  // than being downgraded to unknown. Third-party 5.5.1 files can't carry UAAB, so their
+  // round-trip stays lossy (their `U` still reads as 'u').
+  return s === 'M' ? 'm' : s === 'F' ? 'f' : s === 'X' ? 'x' : 'u';
 }
 
 /**
@@ -158,7 +161,9 @@ function cleanName(raw: string): string {
 
 /** Display gender defaulted from sex assigned at birth (editable after import). */
 function genderFromSab(sab: Sab): Gender {
-  return sab === 'm' ? 'man' : sab === 'f' ? 'woman' : 'nb';
+  // UAAB ('x') defaults to 'nb' for display only, editable post-import — same fallback as
+  // unknown ('u').
+  return sab === 'm' ? 'man' : sab === 'f' ? 'woman' : sab === 'x' ? 'nb' : 'nb';
 }
 
 /** Pedigree-linkage values that mark a child as NOT the genetic offspring of a parent. Kept

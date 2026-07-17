@@ -15,7 +15,12 @@ import { sabOf } from '@/domain/person';
 
 const APP = 'Stemma';
 
-/** GEDCOM SEX tag from sex assigned at birth (M / F / U). */
+/**
+ * GEDCOM SEX tag from sex assigned at birth (M / F / U).
+ *
+ * UAAB (`'x'`) and unknown (`'u'`) both export as GEDCOM 5.5.1 `U` — the standard has no
+ * code to distinguish them (lossy); FHIR (`OTH`) and native JSON carry it faithfully.
+ */
 function sexTag(sab: Sab): string {
   return sab === 'm' ? 'M' : sab === 'f' ? 'F' : 'U';
 }

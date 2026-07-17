@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPedigreeSvg } from './pedigree-svg';
+import { buildPedigreeSvg, windowedPeople } from './pedigree-svg';
 import { seedRecord } from '@/data/seed';
 import { buildCatalog } from '@/domain/catalog';
 import type { FamilyRecord, Person } from '@/domain/types';
@@ -294,5 +294,57 @@ describe('consanguinity and twin notation export (PR 3 pedigree extras)', () => 
     // Monozygotic adds exactly the connecting bar on top of that — so the export can't
     // silently diverge from segments() truth (e.g. by dropping the bar, or the diagonals).
     expect(countLines(mono)).toBe(countLines(plain) + 1);
+  });
+});
+
+describe('windowedPeople', () => {
+  const mk = (id: string, gen: number, overrides: Partial<Person> = {}): Person => ({
+    id,
+    name: id,
+    sab: 'u',
+    gender: 'nb',
+    gen,
+    x: 0,
+    dead: false,
+    birth: 2000,
+    death: null,
+    conds: [],
+    ...overrides,
+  });
+
+  it('keeps a four-generation window centred on the proband: two generations up through one down', () => {
+    const record: FamilyRecord = {
+      people: [
+        mk('g-2', -2),
+        mk('g-1', -1),
+        mk('g0', 0, { isProband: true }),
+        mk('g1', 1),
+        mk('g-3', -3), // one generation too far up — must be excluded
+        mk('g2', 2), // one generation too far down — must be excluded
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'g0',
+    };
+    expect(
+      windowedPeople(record)
+        .map((p) => p.id)
+        .sort(),
+    ).toEqual(['g-1', 'g-2', 'g0', 'g1']);
+  });
+
+  it('falls back to a generation-0-centred window when there is no resolvable proband', () => {
+    const record: FamilyRecord = {
+      people: [mk('a', -2), mk('b', 0), mk('c', 1), mk('d', 2)],
+      unions: [],
+      timeline: [],
+      probandId: 'ghost', // does not resolve to any person
+    };
+    // g0 falls back to 0, so the window is [-2, 1] — 'd' at gen 2 falls outside it.
+    expect(
+      windowedPeople(record)
+        .map((p) => p.id)
+        .sort(),
+    ).toEqual(['a', 'b', 'c']);
   });
 });

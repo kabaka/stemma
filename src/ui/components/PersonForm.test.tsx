@@ -192,6 +192,32 @@ describe('PersonForm — add vs. edit mode', () => {
   });
 });
 
+describe('PersonForm — sex assigned at birth (UAAB)', () => {
+  it('offers four SAB options — AFAB, AMAB, unknown, and UAAB', () => {
+    render(<PersonForm state={{ mode: 'edit', id: 'you' }} onClose={vi.fn()} />);
+    const group = screen.getByRole('group', { name: /sex assigned at birth/i });
+    const labels = within(group)
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+    expect(labels).toEqual(['AFAB', 'AMAB', 'unknown', 'UAAB']);
+  });
+
+  it('selecting UAAB sets sab to "x" on save', async () => {
+    const user = userEvent.setup();
+    render(<PersonForm state={{ mode: 'edit', id: 'you' }} onClose={vi.fn()} />);
+    const group = screen.getByRole('group', { name: /sex assigned at birth/i });
+    await user.click(within(group).getByRole('button', { name: 'UAAB' }));
+    expect(within(group).getByRole('button', { name: 'UAAB' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const you = useStore.getState().record.people.find((p) => p.id === 'you')!;
+    expect(you.sab).toBe('x');
+  });
+});
+
 describe('PersonForm — save validation', () => {
   it('disables Save when the name is blank', () => {
     render(

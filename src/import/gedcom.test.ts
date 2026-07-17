@@ -69,6 +69,16 @@ describe('parseGedcom', () => {
     expect(peter.birth).toBeNull();
   });
 
+  it('reads an explicit "1 SEX X" (GEDCOM-7/5.5.5 intersex signal) as sab "x" (UAAB), still distinct from unknown', () => {
+    const text = '0 @I1@ INDI\n1 NAME Sam /Lee/\n1 SEX X\n0 TRLR\n';
+    const sam = parseGedcom(text).individuals.find((i) => i.id === 'I1')!;
+    expect(sam.sab).toBe('x');
+    // A plain "U" still reads as unknown, not UAAB — the two stay distinct on import.
+    const uText = '0 @I2@ INDI\n1 NAME Uni /Doe/\n1 SEX U\n0 TRLR\n';
+    const uni = parseGedcom(uText).individuals.find((i) => i.id === 'I2')!;
+    expect(uni.sab).toBe('u');
+  });
+
   it('reads families with parents (HUSB/WIFE) and children (CHIL)', () => {
     const f1 = parsed.families.find((f) => f.children.includes('I3'))!;
     expect(f1.parents).toEqual(['I1', 'I2']);
@@ -91,6 +101,14 @@ describe('buildRecordFromGedcom', () => {
     expect(by('I1').gender).toBe('man');
     expect(by('I2').gender).toBe('woman');
     expect(by('I4').gender).toBe('nb'); // unknown sab
+  });
+
+  it('defaults display gender to "nb" for an imported UAAB (sab "x") individual', () => {
+    const text = '0 @I1@ INDI\n1 NAME Sam /Lee/\n1 SEX X\n0 TRLR\n';
+    const record = buildRecordFromGedcom(parseGedcom(text))!;
+    const sam = record.people.find((p) => p.id === 'I1')!;
+    expect(sam.sab).toBe('x');
+    expect(sam.gender).toBe('nb');
   });
 
   it('defaults the proband to the first individual and marks exactly one', () => {

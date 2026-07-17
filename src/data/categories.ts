@@ -3,7 +3,9 @@
  * Okabe-Ito-derived colorblind-safe set. Meaning is never encoded in colour alone
  * (roadmap §6) — colour always accompanies a text label.
  */
-import type { CategoryKey } from '@/domain/types';
+import type { CategoryKey, Person } from '@/domain/types';
+import type { Catalog } from '@/domain/catalog';
+import { condIds } from '@/domain/person';
 
 export type Palette = 'default' | 'colorblind';
 
@@ -35,6 +37,17 @@ export const CATEGORIES: Record<CategoryKey, CategoryMeta> = {
 export const CATEGORY_LABELS: Record<CategoryKey, string> = Object.fromEntries(
   (Object.keys(CATEGORIES) as CategoryKey[]).map((k) => [k, CATEGORIES[k].label]),
 ) as Record<CategoryKey, string>;
+
+/** Condition categories actually present among `people`'s conditions, in the catalog's
+ * canonical `CATEGORIES` key order. Shared with the pedigree print colour key so the legend
+ * lists exactly the categories in play. Pure. */
+export function legendCategories(people: Person[], catalog: Catalog): CategoryKey[] {
+  const present = new Set<CategoryKey>();
+  for (const p of people) {
+    for (const id of condIds(p)) present.add(catalog.get(id).cat);
+  }
+  return (Object.keys(CATEGORIES) as CategoryKey[]).filter((k) => present.has(k));
+}
 
 const NEUTRAL = '#8b94a3';
 

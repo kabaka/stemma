@@ -29,7 +29,7 @@ export type { Phenopacket, PhenopacketOptions } from './phenopacket';
 
 export { buildGedcom } from './gedcom';
 
-export { buildPedigreeSvg } from './pedigree-svg';
+export { buildPedigreeSvg, windowedPeople } from './pedigree-svg';
 export type { PedigreeSvgOptions } from './pedigree-svg';
 
 export { buildNativeBackup, NATIVE_BACKUP_KIND, NATIVE_BACKUP_VERSION } from './native';

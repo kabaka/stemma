@@ -27,10 +27,12 @@ export type PersonFormState =
 // assigned at birth (NOT "Female"/"Male", which would blur the deliberate gap from the
 // gender axis and mismatch the drawer this modal opens from) and "Woman"/"Man"/"Nonbinary"
 // for gender. Also keeps a bare "?"/"NB" — ambiguous to a screen reader — out of the UI.
-const SAB_OPTIONS: { value: Sab; label: string }[] = (['f', 'm', 'u'] as Sab[]).map((value) => ({
-  value,
-  label: sabLabel(value),
-}));
+const SAB_OPTIONS: { value: Sab; label: string }[] = (['f', 'm', 'u', 'x'] as Sab[]).map(
+  (value) => ({
+    value,
+    label: sabLabel(value),
+  }),
+);
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = (['woman', 'man', 'nb'] as Gender[]).map(
   (value) => ({ value, label: genderLabel(value) }),
@@ -392,7 +394,7 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
             <span className="lbl" id={sabGroupId}>
               Sex assigned at birth
             </span>
-            <div className="row" role="group" aria-labelledby={sabGroupId} style={{ gap: 6 }}>
+            <div className="row wrap" role="group" aria-labelledby={sabGroupId} style={{ gap: 6 }}>
               {SAB_OPTIONS.map((o) => (
                 <SegButton
                   key={o.value}

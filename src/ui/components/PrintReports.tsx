@@ -17,13 +17,14 @@
  */
 import { useStore } from '@/store/useStore';
 import { useAsOfYear, useCatalog, useFindings, useFlags, useScreenings } from '../hooks';
-import { buildPedigreeSvg } from '@/export';
+import { buildPedigreeSvg, windowedPeople } from '@/export';
 import { ORGAN_LABELS, ageOf, condEntry, genderLabel, organsOf, sabLabel } from '@/domain/person';
 import { allergies, currentMedications, immunizations } from '@/domain/timeline';
-import { CATEGORY_LABELS } from '@/data/categories';
+import { CATEGORY_LABELS, categoryColor, legendCategories } from '@/data/categories';
 import { PROV_LABEL } from '@/data/provenance';
 import { SEVERITY_META } from '@/data/severity';
 import { CLINICAL_BOUNDARY_TEXT } from '@/domain/boundary';
+import type { FamilyFinding } from '@/domain/patterns';
 import type { Person } from '@/domain/types';
 
 function SheetHead({ title, subtitle }: { title: string; subtitle: string }) {
@@ -39,6 +40,26 @@ function SheetHead({ title, subtitle }: { title: string; subtitle: string }) {
       <div className="print-generated">Generated {generated}</div>
     </header>
   );
+}
+
+/** Compact, capped "who has it" sub-line for a family-finding row: "You" (from the
+ * proband's own record, if diagnosed) then affected relatives closest-first, each with
+ * onset if known — mirroring the `.print-flag-rel` line's relationship/onset idiom one
+ * section above, but capped at 3 entries plus a "+N more" tail so a widely-clustered
+ * condition can't blow out the table row. Only ever restates facts already on the
+ * finding (guardrail #1) — never a fresh computation. */
+function affectedLine(f: FamilyFinding, proband: Person): string {
+  const entries: string[] = [];
+  if (f.diagnosed) {
+    const entry = condEntry(proband, f.id);
+    entries.push(entry?.onset != null ? `You (onset ${entry.onset})` : 'You');
+  }
+  for (const r of f.affected) {
+    entries.push(`${r.rel}${r.onset != null ? ` (${r.onset})` : ''}`);
+  }
+  const shown = entries.slice(0, 3);
+  const more = entries.length - shown.length;
+  return shown.join(' · ') + (more > 0 ? ` · +${more} more` : '');
 }
 
 function personLine(p: Person, asOfYear: number): string {
@@ -65,6 +86,10 @@ export function PrintReports() {
   // re-renders on every store change even off-screen — the React Compiler memoises the SVG
   // layout so a person edit while on another view doesn't recompute the whole pedigree drawing.
   const pedigreeSvg = buildPedigreeSvg(record, catalog, { palette });
+  // Same windowed set the pedigree SVG itself draws (three-generation window centred on the
+  // proband) — the colour key below should list only categories that actually appear on Sheet
+  // 1's drawing, not every category present anywhere in the full record.
+  const keyCats = legendCategories(windowedPeople(record), catalog);
   const affectedFindings = findings.filter((f) => f.affCount > 0 || f.diagnosed);
   const timeline = proband
     ? record.timeline
@@ -114,10 +139,24 @@ export function PrintReports() {
         />
         <p className="print-note">
           Circle = woman · square = man · diamond = nonbinary (2022 gender-inclusive notation); sex
-          assigned at birth (AFAB/AMAB) is noted beneath a glyph when it differs. A shaded glyph is
-          affected (coloured by condition category), a slash marks deceased, and the arrow marks{' '}
-          {proband.name}.
+          assigned at birth (AFAB/AMAB/UAAB) is noted beneath a glyph when it differs. A shaded
+          glyph is affected (coloured by condition category), a slash marks deceased, and the arrow
+          marks {proband.name}.
         </p>
+        {keyCats.length > 0 && (
+          <ul className="print-catkey" role="list" aria-label="Condition category colour key">
+            {keyCats.map((cat) => (
+              <li key={cat} role="listitem">
+                <span
+                  className="print-catkey__swatch"
+                  aria-hidden="true"
+                  style={{ background: categoryColor(cat, palette) }}
+                />
+                {CATEGORY_LABELS[cat]}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* Sheet 2 — family-history red-flag summary */}
@@ -172,14 +211,20 @@ export function PrintReports() {
                 </tr>
               </thead>
               <tbody>
-                {affectedFindings.map((f) => (
-                  <tr key={f.id}>
-                    <td>{f.name}</td>
-                    <td>{CATEGORY_LABELS[f.cat]}</td>
-                    <td>{f.band}</td>
-                    <td>{f.earliest != null ? f.earliest : '—'}</td>
-                  </tr>
-                ))}
+                {affectedFindings.map((f) => {
+                  const who = affectedLine(f, proband);
+                  return (
+                    <tr key={f.id}>
+                      <td>
+                        {f.name}
+                        {who && <div className="print-affected">{who}</div>}
+                      </td>
+                      <td>{CATEGORY_LABELS[f.cat]}</td>
+                      <td>{f.band}</td>
+                      <td>{f.earliest != null ? f.earliest : '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

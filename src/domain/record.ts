@@ -219,7 +219,7 @@ export function layoutFromGraph(record: FamilyRecord): FamilyRecord {
   };
 }
 
-const SAB_VALUES = new Set(['m', 'f', 'u']);
+const SAB_VALUES = new Set(['m', 'f', 'u', 'x']);
 const GENDER_VALUES = new Set(['man', 'woman', 'nb']);
 const PROV_VALUES = new Set(['self', 'record', 'death']);
 const ORGAN_VALUES = new Set(['breasts', 'ovaries', 'uterus', 'cervix', 'prostate']);

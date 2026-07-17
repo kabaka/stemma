@@ -101,4 +101,15 @@ describe('buildGedcom (edge cases)', () => {
     expect(fam).toContain(`1 HUSB ${xref('w2')}`);
     expect(fam).toContain(`1 WIFE ${xref('w1')}`);
   });
+
+  it('exports a UAAB (sab "x") person as "1 SEX U" — documented-lossy, same as unknown', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('u1', { sab: 'x', isProband: true })],
+      unions: [],
+      timeline: [],
+      probandId: 'u1',
+    };
+    const gedcom = buildGedcom(record);
+    expect(gedcom).toContain('1 SEX U');
+  });
 });
