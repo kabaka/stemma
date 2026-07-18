@@ -43,7 +43,7 @@ monolith into typed, tested modules."
 
 **Deliberately deferred** (documented, not built): a backend / sync, e2e-encrypted
 multi-tenant hosting, live CanRisk/PubMed calls (CORS/licence-gated), record import
-(OCR/FHIR-pull/DNA — GEDCOM-in has since shipped, see Phase 3 below), and the AI
+(OCR/FHIR-pull/DNA — GEDCOM-in and C-CDA-in have since shipped, see Phase 3 below), and the AI
 summarization layer. These are the roadmap below.
 
 ## 3. Product roadmap
@@ -141,7 +141,25 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
   health data, so conditions are still entered in Stemma after import. See
   [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
   [ADR-008](./ARCHITECTURE.md#adr-008--gedcom-import-is-structural-only-via-a-new-import-layer).
-- **FHIR pull** from a patient portal / Apple Health (SMART on FHIR) (ideation §4).
+- **C-CDA (CCD) import** ✅ (ideation §4) — reuse a patient's own EHR-portal download for both the
+  proband's conditions and the family-history graph, instead of retyping either. Shipped as
+  `src/import/ccda.ts` (`parseCcda` → `stageCcdaImport` → `applyCcdaImport`), parsed 100%
+  client-side from the C-CDA XML every certified EHR must offer for patient self-download (ONC
+  170.315(e)(1)). Unlike GEDCOM's structural-only replace, this is Stemma's first
+  **merge-with-review** import — every parsed condition and relative is a suggestion the user
+  accepts or deselects per item, reconciled into the live pedigree through the same
+  `replaceRecord` boundary; relationship placement is conservative by construction, with the
+  ambiguous cases (and the real-world coding-quality caveats) surfaced for manual review. See
+  [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
+  [ADR-009](./ARCHITECTURE.md#adr-009--c-cda-import-is-merge-with-review-relationship-placement-is-conservative-by-construction).
+  A live SMART-on-FHIR pull remains deferred — see below and Phase 5. Apple Health's exported
+  `export_cda.xml` is the same C-CDA shape, so an Apple Health ZIP importer (unzip + hand the CCD
+  to this same parser) is a natural, not-yet-built follow-up.
+- **FHIR pull** from a patient portal / Apple Health (SMART on FHIR) (ideation §4). Evaluated
+  during the C-CDA unit and parked here deliberately (DR-0016): a no-backend browser client hits
+  inconsistent per-vendor CORS, confidential-client requirements, and per-organization app
+  activation, and every mature auto-pull integration resorts to a paid or copyleft server-side
+  broker — it needs a backend proxy → Phase 5, not this phase.
 - **Record OCR/parse** for uploaded documents (ideation §6).
 - **Consumer DNA raw-file parse**, heavily caveated (ideation §3).
 
@@ -168,7 +186,8 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 | ICD-10-CM / SNOMED CT | Coded catalog | Baked in at authoring time | **Live (subset)** |
 | HPO / Orphanet / OMIM | Genetics vocabulary | Baked in | **Live (HPO)** — Orphanet/OMIM deferred |
 | IHME GBD / CDC | Prevalence & heritability | Baked in | **Live (high-signal subset)** |
-| FHIR (portals, Apple Health) | Import & export | Export ✅; import needs SMART auth | Export live / import Phase 3 |
+| FHIR (portals, Apple Health) | Export; live pull | Export ✅; live SMART-on-FHIR pull needs a backend proxy | Export live / live pull deferred → Phase 5 |
+| C-CDA (CCD, patient portal download) | Import | ✅ client-side file-drop, no auth (`src/import/ccda.ts`) | **Live** (merge-with-review) |
 | GA4GH Phenopacket / Pedigree | Genetics export | ✅ client-side | **Live** |
 | GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import ✅ (GEDCOM 5.5.1, client-side) | **Live** |
 | RxNorm / openFDA / DailyMed | Medication normalization | Needs proxy | Phase 2–3 |

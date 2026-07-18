@@ -24,11 +24,42 @@ export interface Catalog {
   has(id: string): boolean;
   /** Ranked search; `exclude` hides already-selected ids. */
   search(query: string, exclude?: Set<string>, cap?: number): CatalogHit[];
+  /**
+   * Reverse lookup by terminology code — the inverse of the codes {@link fhirCode} emits.
+   * ICD-10-CM matches exactly on {@link Condition.icd10}, then falls back to the 3-character
+   * category (e.g. `'C50.911'` → `'C50'`); SNOMED-CT matches exactly on {@link Condition.snomed}.
+   * Built once alongside the id map so an import pipeline can resolve an externally-coded
+   * diagnosis to the curated catalog without a linear scan. `undefined` when nothing matches.
+   */
+  byCode(system: 'ICD-10-CM' | 'SNOMED-CT', code: string): Condition | undefined;
 }
 
 /** Generic stand-in for an id with no catalog metadata (e.g. a raw ICD-10 code). */
 export function fallbackCondition(id: string): Condition {
   return { id, name: id, cat: 'other', base: 0, pattern: '—' };
+}
+
+/**
+ * The long-tail {@link Condition} shape for an externally-sourced code with no curated
+ * metadata — a raw ICD-10-CM code (vocabulary search) or a SNOMED-CT concept (C-CDA import).
+ * Resolves to the generic `'other'` category and a zero base prevalence; the pattern engine
+ * treats it accordingly. The single producer of this shape, shared by {@link hitToCondition}
+ * (`src/integrations/vocabulary.ts`) and the C-CDA importer (`src/import/ccda.ts`) so the
+ * long-tail path is not duplicated and can't drift. Registered through {@link sanitizeExtensions}
+ * at the boundary, exactly like a vocabulary-search extension.
+ */
+export function conditionFromCode(
+  system: 'ICD-10-CM' | 'SNOMED-CT',
+  code: string,
+  displayName: string,
+): Condition {
+  const base: Condition = { id: code, name: displayName, cat: 'other', base: 0, pattern: '—' };
+  return system === 'ICD-10-CM' ? { ...base, icd10: code } : { ...base, snomed: code };
+}
+
+/** The ICD-10-CM 3-character category of a code, e.g. `'C50.911'` → `'C50'`. */
+function icd10Category(code: string): string {
+  return code.trim().toUpperCase().slice(0, 3);
 }
 
 const VALID_CATEGORIES = new Set<string>(Object.keys(CATEGORY_LABELS));
@@ -84,6 +115,26 @@ export function createCatalog(
   for (const c of conditions) map.set(c.id, c);
   const all = [...map.values()];
 
+  // Reverse code indexes, built once over the deduped set (first curated condition wins for a
+  // shared code/category, so the mapping is deterministic). ICD-10-CM carries both an exact
+  // index and a 3-character-category index for the "no exact code, but the family is curated"
+  // fallback; SNOMED-CT is exact only.
+  const byIcd10 = new Map<string, Condition>();
+  const byIcd10Cat = new Map<string, Condition>();
+  const bySnomed = new Map<string, Condition>();
+  for (const c of all) {
+    if (c.icd10) {
+      const code = c.icd10.trim().toUpperCase();
+      if (!byIcd10.has(code)) byIcd10.set(code, c);
+      const cat = icd10Category(code);
+      if (!byIcd10Cat.has(cat)) byIcd10Cat.set(cat, c);
+    }
+    if (c.snomed) {
+      const code = c.snomed.trim();
+      if (!bySnomed.has(code)) bySnomed.set(code, c);
+    }
+  }
+
   const categoryLabel = (id: string): string => {
     const c = map.get(id);
     return c ? categoryLabels[c.cat] : 'Other';
@@ -124,6 +175,13 @@ export function createCatalog(
       }
       scored.sort((a, b) => b.s - a.s || a.c.name.localeCompare(b.c.name));
       return scored.slice(0, cap ?? 40).map((o) => toHit(o.c));
+    },
+    byCode(system, code) {
+      const key = (code ?? '').trim();
+      if (!key) return undefined;
+      if (system === 'SNOMED-CT') return bySnomed.get(key);
+      const icd10 = key.toUpperCase();
+      return byIcd10.get(icd10) ?? byIcd10Cat.get(icd10Category(icd10));
     },
   };
 }

@@ -7,9 +7,23 @@
  * - {@link parseGedcom} — GEDCOM 5.5.1 text → structural individuals + families
  * - {@link buildRecordFromGedcom} — those + a chosen proband → a loadable `FamilyRecord`
  * - {@link parseNativeBackup} — a Stemma native backup envelope → record + extensions
+ * - {@link parseCcda} / {@link stageCcdaImport} / {@link applyCcdaImport} — a C-CDA (CCD) patient
+ *   record → parsed problems + family history → a reviewed, merged `FamilyRecord` + extensions
  */
 export { parseGedcom, buildRecordFromGedcom } from './gedcom';
 export type { GedcomIndividual, GedcomFamily, ParsedGedcom } from './gedcom';
 
 export { parseNativeBackup } from './native';
 export type { NativeRestore } from './native';
+
+export { parseCcda, stageCcdaImport, applyCcdaImport } from './ccda';
+export type {
+  ParsedCcda,
+  CcdaProblemEntry,
+  CcdaFamilyMember,
+  StagedCcdaImport,
+  StagedCondition,
+  StagedFamilyMember,
+  CcdaSelections,
+  CcdaMemberOverride,
+} from './ccda';

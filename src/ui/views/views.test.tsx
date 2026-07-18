@@ -15,6 +15,9 @@ import { ReportsView } from './ReportsView';
 import { HistoryView } from './HistoryView';
 import { PrintReports } from '../components/PrintReports';
 import { GedcomImport } from '../components/GedcomImport';
+import { CcdaImport } from '../components/CcdaImport';
+import { buildCatalog, conditionFromCode } from '@/domain/catalog';
+import { ccdaDoc } from '@/import/fixtures/ccda';
 
 // These views are asserted against the example family; the app's real default is empty.
 beforeEach(() => useStore.getState().loadSample());
@@ -1407,6 +1410,226 @@ describe('GedcomImport (accessibility)', () => {
     const btn = screen.getByRole('button', { name: /import family/i });
     expect(btn).toBeEnabled(); // still in the tab order
     expect(btn).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+describe('CcdaImport / CcdaReview — merge & review flow', () => {
+  const ccdaFile = (xml: string) => new File([xml], 'record.xml', { type: 'text/xml' });
+
+  it('parses, stages, and merges a C-CDA: the proband condition attaches with prov "record" and an auto-placed relative lands in the pedigree', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord(); // start from just the proband, like the empty-state GEDCOM tests
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<PedigreeView />);
+
+    const file = ccdaFile(
+      ccdaDoc({
+        patientBirthTime: '19700101',
+        problems: [
+          {
+            system: 'ICD-10-CM',
+            code: 'C50.919',
+            displayName: 'Breast cancer',
+            onsetDate: '20200101',
+          },
+        ],
+        familyMembers: [
+          { relationshipCode: 'MTH', genderCode: 'F', name: 'Jane Mother', birthTime: '19450101' },
+        ],
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /import health record/i }));
+    await user.upload(screen.getByLabelText(/health record/i), file);
+
+    // The review screen (parse → stage) appears once the file is read.
+    await screen.findByRole('heading', { level: 2, name: /your conditions/i });
+    // Both the proband condition and the confidently-placed mother default-selected — confirm
+    // without touching anything else, exactly as a user who trusts the defaults would.
+    await user.click(screen.getByRole('button', { name: /import selected items/i }));
+
+    const record = useStore.getState().record;
+    const proband = record.people.find((p) => p.id === record.probandId)!;
+    // C50.919 is the curated BRCA breast-cancer code — it resolves to the curated 'brca' id,
+    // not the raw ICD-10 code, and carries the diagnosis-date-derived onset age (2020 − 1970).
+    expect(proband.conds).toContainEqual({ id: 'brca', onset: 50, prov: 'record' });
+    expect(record.people.some((p) => p.name === 'Jane Mother')).toBe(true);
+    // And she renders into the tree, not just the record.
+    expect(screen.getByRole('button', { name: /Jane Mother/i })).toBeInTheDocument();
+  });
+
+  it('lets the user override an ambiguous, side-unknown relative via the anchor + relation picker before confirming', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    const dadId = useStore.getState().addRelative('you', 'parent', {
+      name: 'Dad',
+      sab: 'm',
+      gender: 'man',
+      dead: false,
+      birth: 1950,
+      death: null,
+      condIds: [],
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<PedigreeView />);
+
+    // A generic (side-unknown) AUNT has no confident auto-placement — DR-0017 surfaces it for
+    // a manual choice rather than guessing which side of the family she belongs to.
+    const file = ccdaFile(
+      ccdaDoc({
+        familyMembers: [{ relationshipCode: 'AUNT', genderCode: 'F', name: 'Ambiguous Aunt' }],
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
+    await user.click(screen.getByRole('button', { name: /^import health record$/i }));
+    await user.upload(screen.getByLabelText(/health record/i), file);
+    await screen.findByRole('heading', { level: 2, name: /family members/i });
+
+    // Ambiguous relatives default OFF — confirming right now would import nothing for her.
+    const confirmBtn = screen.getByRole('button', { name: /import selected items/i });
+    expect(confirmBtn).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(
+      screen.getByRole('radio', { name: /add as a new person, attached to someone in my record/i }),
+    );
+    await user.selectOptions(screen.getByRole('combobox', { name: /attach aunt to/i }), dadId);
+    await user.click(screen.getByRole('button', { name: /^sibling$/i }));
+
+    // Resolving her enables the confirm button for real.
+    expect(confirmBtn).toHaveAttribute('aria-disabled', 'false');
+    await user.click(confirmBtn);
+
+    const record = useStore.getState().record;
+    const aunt = record.people.find((p) => p.name === 'Ambiguous Aunt');
+    expect(aunt).toBeDefined();
+    // Placed exactly per the override — a sibling of Dad — not auto-attached anywhere near
+    // the proband (which is what the ambiguous status exists to prevent).
+    const siblingUnion = record.unions.find(
+      (u) => u.children.includes(dadId) && u.children.includes(aunt!.id),
+    );
+    expect(siblingUnion).toBeDefined();
+  });
+
+  it('never drops a pre-existing long-tail extension when a new one is merged in via C-CDA import', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    // Seed a pre-existing long-tail condition on the proband, exactly as a prior vocabulary-
+    // search import would have registered it.
+    const preExisting = conditionFromCode('ICD-10-CM', 'Z85.850', 'Personal history, pre-existing');
+    useStore.getState().registerCondition(preExisting);
+    useStore.getState().toggleCondition('you', preExisting.id);
+    expect(useStore.getState().extensions.map((c) => c.id)).toEqual(['Z85.850']);
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<PedigreeView />);
+
+    // A different long-tail code (different ICD-10 category, so it can't resolve via the
+    // pre-existing extension's own category fallback) registers a second extension.
+    const NEW_CODE = 'H93.19';
+    const file = ccdaFile(
+      ccdaDoc({
+        problems: [{ system: 'ICD-10-CM', code: NEW_CODE, displayName: 'New long-tail condition' }],
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /import health record/i }));
+    await user.upload(screen.getByLabelText(/health record/i), file);
+    await screen.findByRole('heading', { level: 2, name: /your conditions/i });
+    await user.click(screen.getByRole('button', { name: /import selected items/i }));
+
+    // The single most important behavior here: the import CONCATENATES onto the store's
+    // existing extensions, it never replaces them — losing this would silently strip the
+    // catalog metadata (name/category) for every long-tail condition recorded before the import.
+    const extIds = useStore.getState().extensions.map((c) => c.id);
+    expect(extIds).toHaveLength(2);
+    expect(extIds).toEqual(expect.arrayContaining(['Z85.850', NEW_CODE]));
+
+    const record = useStore.getState().record;
+    const proband = record.people.find((p) => p.id === record.probandId)!;
+    const condIds = proband.conds.map((c) => c.id);
+    expect(condIds).toContain('Z85.850'); // pre-existing condition survives the merge
+    expect(condIds).toContain(NEW_CODE); // newly-imported condition is attached
+  });
+});
+
+describe('CcdaImport / CcdaReview (accessibility)', () => {
+  const catalog = buildCatalog([]);
+
+  it('keeps a persistent status region present from first render', () => {
+    render(
+      <CcdaImport record={emptyRecord()} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+    // Present from first render (empty), so updating its text on parse is announced — rather
+    // than the region being inserted already populated (which some screen readers miss).
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('exposes level-2 section headings, list semantics, a labelled ambiguous-resolver group, pressed relation chips, and an aria-disabled (not disabled) confirm button', async () => {
+    const user = userEvent.setup();
+    render(
+      <CcdaImport record={emptyRecord()} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const file = new File(
+      [
+        ccdaDoc({
+          familyMembers: [
+            {
+              relationshipCode: 'GRMTH',
+              genderCode: 'F',
+              name: 'Gran',
+              conditions: [
+                {
+                  system: 'ICD-10-CM',
+                  code: 'C50.919',
+                  displayName: 'Breast cancer',
+                  ageYears: 60,
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+      'record.xml',
+      { type: 'text/xml' },
+    );
+    await user.upload(screen.getByLabelText(/health record/i), file);
+
+    // Section headings are real level-2 headings, not just styled paragraphs.
+    await screen.findByRole('heading', { level: 2, name: /your conditions/i });
+    expect(screen.getByRole('heading', { level: 2, name: /family members/i })).toBeInTheDocument();
+
+    // The family-member list and its nested per-relative condition list both expose list
+    // semantics (role="list"), not a bare styled <div>.
+    expect(screen.getAllByRole('list').length).toBeGreaterThanOrEqual(2);
+
+    // The ambiguous-relative resolver is a labelled group (a native <fieldset>/<legend>), not
+    // an unlabelled cluster of radios.
+    expect(
+      screen.getByRole('group', { name: /how should this relative be handled/i }),
+    ).toBeInTheDocument();
+
+    // Confirm starts aria-disabled (nothing selected yet) but stays a real, focusable button —
+    // never the `disabled` attribute, so it's still keyboard-discoverable.
+    const confirmBtn = screen.getByRole('button', { name: /import selected items/i });
+    expect(confirmBtn).toBeEnabled();
+    expect(confirmBtn).toHaveAttribute('aria-disabled', 'true');
+
+    // Relation chips are a real toggle-button group (aria-pressed), not colour-only selection.
+    await user.click(
+      screen.getByRole('radio', { name: /add as a new person, attached to someone in my record/i }),
+    );
+    const parentChip = screen.getByRole('button', { name: /^parent$/i });
+    const siblingChip = screen.getByRole('button', { name: /^sibling$/i });
+    expect(parentChip).toHaveAttribute('aria-pressed', 'true'); // 'parent' is the picker's default
+    expect(siblingChip).toHaveAttribute('aria-pressed', 'false');
+    await user.click(siblingChip);
+    expect(siblingChip).toHaveAttribute('aria-pressed', 'true');
+    expect(parentChip).toHaveAttribute('aria-pressed', 'false');
+
+    // Selecting her (via the attach radio) enables confirm for real.
+    expect(confirmBtn).toHaveAttribute('aria-disabled', 'false');
   });
 });
 
