@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { seedRecord } from '@/data/seed';
-import type { FamilyRecord, Person, TimelineEvent } from './types';
+import type { ConditionEntry, FamilyRecord, Person, TimelineEvent } from './types';
 import {
   deriveGenerations,
   isValidRecord,
@@ -8,6 +8,7 @@ import {
   linkRelative,
   removePerson,
 } from './record';
+import { eventProv } from './person';
 
 /** Minimal fixture for a brand-new relative; linkRelative overwrites gen/x per relation. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
@@ -23,6 +24,55 @@ function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
     death: null,
     conds: [],
     ...overrides,
+  };
+}
+
+/**
+ * Assign fields not yet declared on the TS type. Used throughout the W1 (full-timeline
+ * import) sections below to set `prov`/`coding`/`date`/`birthDate`/`deathDate`/`onsetDate`
+ * — this oracle is written test-first, against the contract, before `types.ts` carries
+ * those fields. Mutates and returns `obj` so call sites can inline it.
+ */
+function patch<T extends object>(obj: T, fields: Record<string, unknown>): T {
+  Object.assign(obj as unknown as Record<string, unknown>, fields);
+  return obj;
+}
+
+/** Minimal timeline-event fixture for the W1 prov/coding/date tests below. */
+function mkEvent(overrides: Partial<TimelineEvent> = {}): TimelineEvent {
+  return {
+    id: 'e1',
+    person: 'a',
+    year: 2019,
+    type: 'diagnosis',
+    title: 'Diagnosed',
+    detail: '',
+    ...overrides,
+  };
+}
+
+/** Minimal condition-entry fixture for the W1 onsetDate tests below. */
+function mkCond(overrides: Record<string, unknown> = {}): ConditionEntry {
+  return patch<ConditionEntry>({ id: 'brca', onset: null, prov: 'self' }, overrides);
+}
+
+/** Wraps a single timeline event in an otherwise-minimal, valid record. */
+function recordWithEvent(event: TimelineEvent): FamilyRecord {
+  return {
+    people: [mkPerson('a', { isProband: true })],
+    unions: [],
+    timeline: [event],
+    probandId: 'a',
+  };
+}
+
+/** Wraps a single person in an otherwise-minimal, valid record. */
+function recordWithPerson(person: Person): FamilyRecord {
+  return {
+    people: [person],
+    unions: [],
+    timeline: [],
+    probandId: person.id,
   };
 }
 
@@ -589,4 +639,273 @@ describe('isValidRecord — union twins & consanguineous (PR 3 pedigree extras)'
     expect(isValidRecord(withFlag)).toBe(true);
     expect(isValidRecord(twinsBase())).toBe(true); // absent
   });
+});
+
+// ---------------------------------------------------------------------------
+// W1 — full-timeline import: TimelineEvent.prov/coding/date, Person.birthDate/deathDate,
+// ConditionEntry.onsetDate, and the `eventProv` helper (src/domain/person.ts). Additive
+// and backward-compatible: every case in this section that omits the new fields must
+// validate identically to before. See the W1 contract (DR-0023/DR-0024).
+// ---------------------------------------------------------------------------
+
+describe('isValidRecord — event prov/coding/date (W1 full-timeline import)', () => {
+  it('REGRESSION: an event with none of prov/coding/date still validates exactly as before', () => {
+    expect(isValidRecord(recordWithEvent(mkEvent()))).toBe(true);
+  });
+
+  it.each(['self', 'record', 'death'] as const)('accepts prov %s', (prov) => {
+    expect(isValidRecord(recordWithEvent(patch(mkEvent(), { prov })))).toBe(true);
+  });
+
+  it('accepts prov absent', () => {
+    const event = mkEvent();
+    expect('prov' in event).toBe(false);
+    expect(isValidRecord(recordWithEvent(event))).toBe(true);
+  });
+
+  it('rejects an out-of-enum prov', () => {
+    expect(isValidRecord(recordWithEvent(patch(mkEvent(), { prov: 'bogus' })))).toBe(false);
+  });
+
+  it('accepts a well-formed coding array, with and without a display', () => {
+    const event = patch(mkEvent(), {
+      coding: [
+        { system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 'E11.9', display: 'Type 2 diabetes' },
+        { system: 'http://snomed.info/sct', code: '44054006' },
+      ],
+    });
+    expect(isValidRecord(recordWithEvent(event))).toBe(true);
+  });
+
+  it('accepts an empty coding array', () => {
+    expect(isValidRecord(recordWithEvent(patch(mkEvent(), { coding: [] })))).toBe(true);
+  });
+
+  it('accepts coding absent (legacy event)', () => {
+    expect(isValidRecord(recordWithEvent(mkEvent()))).toBe(true);
+  });
+
+  it('rejects a non-array coding', () => {
+    expect(isValidRecord(recordWithEvent(patch(mkEvent(), { coding: 'E11.9' })))).toBe(false);
+  });
+
+  it('rejects a coding entry missing its system', () => {
+    const event = patch(mkEvent(), { coding: [{ code: 'E11.9' }] });
+    expect(isValidRecord(recordWithEvent(event))).toBe(false);
+  });
+
+  it('rejects a coding entry missing its code', () => {
+    const event = patch(mkEvent(), { coding: [{ system: 'http://hl7.org/fhir/sid/icd-10-cm' }] });
+    expect(isValidRecord(recordWithEvent(event))).toBe(false);
+  });
+
+  it('rejects a coding entry whose code is not a string', () => {
+    const event = patch(mkEvent(), {
+      coding: [{ system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 12345 }],
+    });
+    expect(isValidRecord(recordWithEvent(event))).toBe(false);
+  });
+
+  it('accepts a date whose year component matches the event year', () => {
+    const event = patch(mkEvent({ year: 2019 }), { date: '2019-06-02' });
+    expect(isValidRecord(recordWithEvent(event))).toBe(true);
+  });
+
+  it('rejects a date whose year component does not match the event year', () => {
+    const event = patch(mkEvent({ year: 2020 }), { date: '2019-06-02' });
+    expect(isValidRecord(recordWithEvent(event))).toBe(false);
+  });
+
+  it('rejects a malformed date string even when its leading digits match the year', () => {
+    expect(
+      isValidRecord(recordWithEvent(patch(mkEvent({ year: 2019 }), { date: '2019-13-40' }))),
+    ).toBe(false);
+    expect(
+      isValidRecord(recordWithEvent(patch(mkEvent({ year: 2019 }), { date: 'not-a-date' }))),
+    ).toBe(false);
+  });
+
+  it('accepts date absent (legacy/year-only event)', () => {
+    expect(isValidRecord(recordWithEvent(mkEvent({ year: 2019 })))).toBe(true);
+  });
+
+  it('accepts an event carrying prov, coding, and a matching date all at once', () => {
+    const event = patch(mkEvent({ year: 2019, type: 'lab' }), {
+      prov: 'record',
+      coding: [{ system: 'http://loinc.org', code: '2093-3', display: 'Cholesterol' }],
+      date: '2019-06-02',
+    });
+    expect(isValidRecord(recordWithEvent(event))).toBe(true);
+  });
+});
+
+describe('isValidRecord — person birthDate/deathDate & condition onsetDate (W1 full-timeline import)', () => {
+  it('REGRESSION: a person with none of birthDate/deathDate/onsetDate still validates', () => {
+    const person = mkPerson('a', { isProband: true, birth: 1975, death: null, dead: false });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('accepts a birthDate whose year component matches birth', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1975 }), {
+      birthDate: '1975-06-02',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('rejects a birthDate whose year component does not match birth', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1975 }), {
+      birthDate: '1976-06-02',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('rejects a present birthDate when birth is null', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: null }), {
+      birthDate: '1975-06-02',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('rejects a malformed birthDate string even when the record has no other issue', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1975 }), {
+      birthDate: '1975-13-40',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('accepts birthDate absent', () => {
+    const person = mkPerson('a', { isProband: true, birth: 1975 });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('accepts a deathDate whose year component matches death', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1950, dead: true, death: 2020 }), {
+      deathDate: '2020-03-10',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('rejects a deathDate whose year component does not match death', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1950, dead: true, death: 2020 }), {
+      deathDate: '2021-03-10',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('rejects a present deathDate when death is null', () => {
+    const person = patch(mkPerson('a', { isProband: true, dead: false, death: null }), {
+      deathDate: '2020-03-10',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('rejects a malformed deathDate string even when the record has no other issue', () => {
+    const person = patch(mkPerson('a', { isProband: true, dead: true, death: 2020 }), {
+      deathDate: '2020-99-99',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('accepts deathDate absent', () => {
+    const person = mkPerson('a', { isProband: true, dead: false, death: null });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('accepts a person carrying birthDate and deathDate together, both year-matched', () => {
+    const person = patch(mkPerson('a', { isProband: true, birth: 1950, dead: true, death: 2020 }), {
+      birthDate: '1950-01-15',
+      deathDate: '2020-03-10',
+    });
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('accepts a well-formed onsetDate regardless of the recorded onset age (shape-only, no year-match)', () => {
+    const person = mkPerson('a', { isProband: true });
+    person.conds = [mkCond({ onset: 45, onsetDate: '1980-05-01' })];
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('accepts a well-formed onsetDate even when onset itself is null (onset is an age, not a year — no coarse value to match)', () => {
+    const person = mkPerson('a', { isProband: true });
+    person.conds = [mkCond({ onset: null, onsetDate: '1980-05-01' })];
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+
+  it('rejects a malformed onsetDate string', () => {
+    const person = mkPerson('a', { isProband: true });
+    person.conds = [mkCond({ onset: 45, onsetDate: 'not-a-date' })];
+    expect(isValidRecord(recordWithPerson(person))).toBe(false);
+  });
+
+  it('accepts onsetDate absent', () => {
+    const person = mkPerson('a', { isProband: true });
+    person.conds = [mkCond({ onset: 45 })];
+    expect(isValidRecord(recordWithPerson(person))).toBe(true);
+  });
+});
+
+describe('isValidRecord — a pre-W1 persisted record round-trips unchanged (legacy fixture)', () => {
+  it('a hand-authored legacy record (no prov/coding/date/birthDate/deathDate/onsetDate anywhere) passes isValidRecord', () => {
+    const legacy: FamilyRecord = {
+      people: [
+        {
+          id: 'proband',
+          name: 'Proband',
+          sab: 'f',
+          gender: 'woman',
+          gen: 1,
+          x: 0,
+          dead: false,
+          birth: 1990,
+          death: null,
+          conds: [{ id: 'brca', onset: 32, prov: 'self' }],
+          isProband: true,
+        },
+        {
+          id: 'parent',
+          name: 'Parent',
+          sab: 'm',
+          gender: 'man',
+          gen: 0,
+          x: 0,
+          dead: true,
+          birth: 1960,
+          death: 2015,
+          conds: [{ id: 'cad', onset: 50, prov: 'death' }],
+        },
+      ],
+      unions: [{ parents: ['parent'], children: ['proband'] }],
+      timeline: [
+        {
+          id: 'legacy-evt-1',
+          person: 'proband',
+          year: 2015,
+          type: 'diagnosis',
+          title: 'Diagnosed BRCA1',
+          detail: 'Genetic counseling referral',
+        },
+      ],
+      probandId: 'proband',
+    };
+    expect(isValidRecord(legacy)).toBe(true);
+  });
+
+  it('REGRESSION: the illustrative seed record (a real pre-W1 fixture) still validates', () => {
+    expect(isValidRecord(seedRecord())).toBe(true);
+  });
+});
+
+describe('eventProv', () => {
+  it('defaults to self when prov is absent', () => {
+    const event = mkEvent();
+    expect('prov' in event).toBe(false);
+    expect(eventProv(event)).toBe('self');
+  });
+
+  it.each(['self', 'record', 'death'] as const)(
+    'returns the recorded provenance %s when set',
+    (prov) => {
+      expect(eventProv(patch(mkEvent(), { prov }))).toBe(prov);
+    },
+  );
 });
