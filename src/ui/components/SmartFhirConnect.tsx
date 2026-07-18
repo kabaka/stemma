@@ -331,18 +331,25 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
       const connection = connections.find((c) => c.id === connectionId);
       const bundle = await syncNow(connectionId);
       const parsed = parseFhirImport(bundle, { patientId: connection?.patientId ?? undefined });
-      if (parsed.proband.problems.length === 0 && parsed.familyMembers.length === 0) {
+      if (
+        parsed.proband.problems.length === 0 &&
+        parsed.familyMembers.length === 0 &&
+        parsed.proband.events.length === 0
+      ) {
         setSyncErrors((prev) => ({
           ...prev,
-          [connectionId]: 'No conditions or family history were found for this patient.',
+          [connectionId]:
+            'No conditions, family history, or health events were found for this patient.',
         }));
         return;
       }
       setSyncStatus(
         `Synced ${parsed.proband.problems.length} ${
           parsed.proband.problems.length === 1 ? 'condition' : 'conditions'
-        } and ${parsed.familyMembers.length} ${
+        }, ${parsed.familyMembers.length} ${
           parsed.familyMembers.length === 1 ? 'family member' : 'family members'
+        }, and ${parsed.proband.events.length} health ${
+          parsed.proband.events.length === 1 ? 'event' : 'events'
         } — review below.`,
       );
       setStaged(stageHealthRecordImport(parsed, record, catalog));

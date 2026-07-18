@@ -6,9 +6,11 @@ import type {
   CcdaSelections,
   StagedCcdaImport,
   StagedCondition,
+  StagedEvent,
   StagedFamilyMember,
 } from '@/import';
-import type { FamilyRecord, Person } from '@/domain/types';
+import { formatPartialDate } from '@/domain/dates';
+import type { EventType, FamilyRecord, Person } from '@/domain/types';
 
 /** Same relation/icon/label idiom as `RELATIVE_GRID` in PersonDrawer.tsx (kept as a
  * separate local copy — that one is a module-private constant there, and this picker's
@@ -20,9 +22,11 @@ const RELATION_CHOICES: { relation: Relation; icon: string; label: string }[] = 
   { relation: 'child', icon: '↓', label: 'Child' },
 ];
 
-/** Badge styling for a non-'new' condition status — text-and-shape first (the label IS
- * the meaning), colour only as a supplementary cue, matching FlagCard's severity badge
- * (never colour-alone, WCAG 1.4.1). `'new'` renders no badge — it's the unmarked default. */
+/** Badge styling for a non-'new' status — text-and-shape first (the label IS the meaning),
+ * colour only as a supplementary cue, matching FlagCard's severity badge (never
+ * colour-alone, WCAG 1.4.1). `'new'` renders no badge — it's the unmarked default. Shared
+ * by every staged-item row (conditions AND, since Wave 5, health events) since both
+ * {@link StagedCondition} and {@link StagedEvent} carry the identical status union. */
 const STATUS_BADGE: Record<
   'duplicate' | 'needs-review',
   { color: string; bg: string; label: string }
@@ -35,7 +39,7 @@ const STATUS_BADGE: Record<
   },
 };
 
-function ConditionStatusBadge({ status }: { status: StagedCondition['status'] }) {
+function StatusBadge({ status }: { status: 'new' | 'duplicate' | 'needs-review' }) {
   if (status === 'new') return null;
   const meta = STATUS_BADGE[status];
   return (
@@ -71,7 +75,121 @@ function ConditionRow({
       <span className="row wrap" style={{ gap: 8 }}>
         <span style={{ fontSize: 13 }}>{cond.displayName}</span>
         {cond.onsetYear != null && <span className="mono-dim">onset {cond.onsetYear}</span>}
-        <ConditionStatusBadge status={cond.status} />
+        <StatusBadge status={cond.status} />
+      </span>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Health events (Wave 2/3 full-timeline import) — source-agnostic: staged identically for
+// C-CDA (always `events: []`, so this whole section never renders there) and FHIR sync.
+// ---------------------------------------------------------------------------
+
+/** Group labels + render order for the "Health events" section — every {@link StagedEvent}
+ * type (`Exclude<EventType,'diagnosis'|'screening'>`), pluralised for a section heading.
+ * `'genetic'` stays singular ("Genetic") since "a genetic" doesn't pluralise the same way
+ * lab/vital/procedure results do. */
+const EVENT_GROUPS: { type: Exclude<EventType, 'diagnosis' | 'screening'>; label: string }[] = [
+  { type: 'medication', label: 'Medications' },
+  { type: 'lab', label: 'Labs' },
+  { type: 'vital', label: 'Vitals' },
+  { type: 'immunization', label: 'Immunizations' },
+  { type: 'allergy', label: 'Allergies' },
+  { type: 'procedure', label: 'Procedures' },
+  { type: 'visit', label: 'Visits' },
+  { type: 'genetic', label: 'Genetic' },
+];
+
+/**
+ * Type-specific payload text/markup for one staged event, rendered under its title/date row.
+ * Guardrail #1 (never manufacture a risk number): a lab/vital's reference range is rendered
+ * as plain transcribed text, explicitly attributed to the source record — never compared
+ * against the value, and never as an in-range/out-of-range flag or colour. Severity/reaction
+ * are plain text too, never colour-alone (WCAG 1.4.1).
+ */
+function EventPayload({ event }: { event: StagedEvent }) {
+  switch (event.type) {
+    case 'lab':
+    case 'vital': {
+      const m = event.type === 'lab' ? event.lab : event.vital;
+      if (!m) return null;
+      return (
+        <span className="mono-dim" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span>
+            {m.value} {m.unit}
+          </span>
+          {m.refLow != null && m.refHigh != null && (
+            <span>
+              Reference range (from this record): {m.refLow}&ndash;{m.refHigh} {m.unit}
+            </span>
+          )}
+        </span>
+      );
+    }
+    case 'medication': {
+      if (!event.med) return null;
+      const stopText = event.med.ongoing
+        ? 'Ongoing'
+        : event.med.stopYear != null
+          ? `Stopped ${event.med.stopYear}`
+          : 'Stopped';
+      const parts = [event.med.dose, stopText].filter((p): p is string => Boolean(p));
+      return <span className="mono-dim">{parts.join(' · ')}</span>;
+    }
+    case 'allergy': {
+      if (!event.allergy) return null;
+      const parts = [
+        event.allergy.substance,
+        event.allergy.reaction,
+        event.allergy.severity,
+      ].filter((p): p is string => Boolean(p));
+      return <span className="mono-dim">{parts.join(' · ')}</span>;
+    }
+    case 'immunization': {
+      if (!event.immunization) return null;
+      const parts = [event.immunization.vaccine, event.immunization.doseLabel].filter(
+        (p): p is string => Boolean(p),
+      );
+      return parts.length ? <span className="mono-dim">{parts.join(' · ')}</span> : null;
+    }
+    case 'genetic':
+    case 'visit':
+    case 'procedure':
+      return event.detail ? <span className="mono-dim">{event.detail}</span> : null;
+  }
+}
+
+/** One health-event checkbox row — the same idiom as {@link ConditionRow}: disabled (never
+ * checkable) for a `'duplicate'` (re-syncing an already-imported event; checking it would be
+ * a no-op — {@link applyHealthRecordImport} dedupes against the timeline's existing ids
+ * anyway). Date prefers the precise {@link StagedEvent.date} echo when the source gave one,
+ * falling back to the coarse year — never fabricates a precision the source didn't provide. */
+function EventRow({
+  event,
+  checked,
+  onToggle,
+}: {
+  event: StagedEvent;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const disabled = event.status === 'duplicate';
+  return (
+    <label
+      className="row"
+      style={{ gap: 8, alignItems: 'flex-start', padding: '4px 0', opacity: disabled ? 0.6 : 1 }}
+    >
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span className="row wrap" style={{ gap: 8 }}>
+          <span style={{ fontSize: 13 }}>{event.title}</span>
+          <span className="mono-dim">
+            {event.date ? formatPartialDate(event.date) : event.year}
+          </span>
+          <StatusBadge status={event.status} />
+        </span>
+        <EventPayload event={event} />
       </span>
     </label>
   );
@@ -308,9 +426,9 @@ function FamilyMemberCard({
   );
 }
 
-/** Every `parseId` (proband conditions, family members, and their nested conditions)
- * whose `defaultSelected` is true — the staged import's own conservative starting point,
- * before any user interaction. */
+/** Every `parseId` (proband conditions, family members, their nested conditions, and health
+ * events) whose `defaultSelected` is true — the staged import's own conservative starting
+ * point, before any user interaction. */
 function initialSelection(staged: StagedCcdaImport): Set<string> {
   const ids = new Set<string>();
   for (const c of staged.probandConditions) if (c.defaultSelected) ids.add(c.parseId);
@@ -318,6 +436,7 @@ function initialSelection(staged: StagedCcdaImport): Set<string> {
     if (m.defaultSelected) ids.add(m.parseId);
     for (const c of m.conditions) if (c.defaultSelected) ids.add(c.parseId);
   }
+  for (const e of staged.events) if (e.defaultSelected) ids.add(e.parseId);
   return ids;
 }
 
@@ -350,11 +469,15 @@ export function CcdaReview({
   headingLevel?: 'h2' | 'h3';
 }) {
   const Heading = headingLevel;
+  // One level below `Heading` for the health-events section's per-type sub-headings
+  // (WCAG 1.3.1/2.4.6 — nested content gets a nested heading level, never a sibling).
+  const SubHeading = headingLevel === 'h2' ? 'h3' : 'h4';
   const [selected, setSelected] = useState<Set<string>>(() => initialSelection(staged));
   const [overrides, setOverrides] = useState<Record<string, CcdaMemberOverride>>({});
 
   const probandHeadingId = useId();
   const familyHeadingId = useId();
+  const eventsHeadingId = useId();
 
   const toggleParseId = (id: string): void => {
     setSelected((prev) => {
@@ -386,11 +509,13 @@ export function CcdaReview({
     });
   };
 
-  const totalTopLevel = staged.probandConditions.length + staged.familyMembers.length;
+  const totalTopLevel =
+    staged.probandConditions.length + staged.familyMembers.length + staged.events.length;
   const selectedTopLevel = [...selected].filter(
     (id) =>
       staged.probandConditions.some((c) => c.parseId === id) ||
-      staged.familyMembers.some((m) => m.parseId === id),
+      staged.familyMembers.some((m) => m.parseId === id) ||
+      staged.events.some((e) => e.parseId === id),
   ).length;
 
   const handleConfirmClick = (): void => {
@@ -490,6 +615,45 @@ export function CcdaReview({
           </ul>
         )}
       </section>
+
+      {/* Source-agnostic (Wave 2/3 full-timeline import): C-CDA parses always carry
+          `events: []`, so this whole section is absent there — rendered only when a source
+          (FHIR sync, today) actually staged health events. */}
+      {staged.events.length > 0 && (
+        <section aria-labelledby={eventsHeadingId}>
+          <Heading id={eventsHeadingId} className="overline" style={{ marginBottom: 8 }}>
+            Health events
+          </Heading>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {EVENT_GROUPS.map(({ type, label }) => {
+              const items = staged.events.filter((e) => e.type === type);
+              if (items.length === 0) return null;
+              return (
+                <div key={type}>
+                  <SubHeading className="lbl" style={{ margin: '0 0 4px' }}>
+                    {label}
+                  </SubHeading>
+                  <ul
+                    className="plain-list"
+                    role="list"
+                    style={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+                  >
+                    {items.map((event) => (
+                      <li key={event.parseId}>
+                        <EventRow
+                          event={event}
+                          checked={selected.has(event.parseId)}
+                          onToggle={() => toggleParseId(event.parseId)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <p role="status" className="mono-dim" style={{ margin: 0, minHeight: 18 }}>
         {selectionStatus}
