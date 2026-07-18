@@ -16,6 +16,9 @@ export type { GedcomIndividual, GedcomFamily, ParsedGedcom } from './gedcom';
 export { parseNativeBackup } from './native';
 export type { NativeRestore } from './native';
 
+export { parseFhirImport } from './fhir';
+export type { FhirImportBundle, ParseFhirOptions } from './fhir';
+
 export { parseCcda, stageCcdaImport, applyCcdaImport } from './ccda';
 export type {
   ParsedCcda,

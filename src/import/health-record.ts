@@ -160,6 +160,144 @@ const SIDED_GRANDPARENT: Record<string, Sab> = {
 };
 
 // ---------------------------------------------------------------------------
+// Shared terminology constants + helpers (source-agnostic; consumed by every importer).
+//
+// Hoisted here from `ccda.ts` (DR-0020) so the C-CDA and FHIR importers read from one definition
+// rather than each maintaining a drifting copy. Behaviour is identical to the prior C-CDA-local
+// definitions; only the location changed.
+// ---------------------------------------------------------------------------
+
+/**
+ * Absence / "no known history" SNOMED CT concepts that must NEVER become a positive condition
+ * (guardrail #1), even absent an explicit negation flag — e.g. "No family history of ...". A code
+ * asserting absence is excluded from positive facts and counted, never staged.
+ */
+export const ABSENCE_SNOMED = new Set(['160266009', '160245001']);
+
+/**
+ * HL7 v3 RoleCode → sex assigned at birth, for the sex-SPECIFIC codes ONLY. A sex-neutral code
+ * (SIB, PRN, CHILD, GRPRN, COUSN, ...) is deliberately absent, so it resolves to `'u'` — sab is
+ * never inferred from a neutral role (guardrail #4).
+ */
+export const CODE_SAB: Record<string, Sab> = {
+  MTH: 'f',
+  FTH: 'm',
+  NMTH: 'f',
+  NFTH: 'm',
+  BRO: 'm',
+  SIS: 'f',
+  NBRO: 'm',
+  NSIS: 'f',
+  TWINBRO: 'm',
+  TWINSIS: 'f',
+  HBRO: 'm',
+  HSIS: 'f',
+  SON: 'm',
+  DAU: 'f',
+  SONC: 'm',
+  DAUC: 'f',
+  GRMTH: 'f',
+  GRFTH: 'm',
+  MGRMTH: 'f',
+  MGRFTH: 'm',
+  PGRMTH: 'f',
+  PGRFTH: 'm',
+  AUNT: 'f',
+  UNCLE: 'm',
+  MAUNT: 'f',
+  PAUNT: 'f',
+  MUNCLE: 'm',
+  PUNCLE: 'm',
+  NIECE: 'f',
+  NEPHEW: 'm',
+  MTHINLAW: 'f',
+  FTHINLAW: 'm',
+  STPMTH: 'f',
+  STPFTH: 'm',
+  FSTRMTH: 'f',
+  FSTRFTH: 'm',
+  GGRMTH: 'f',
+  GGRFTH: 'm',
+  WIFE: 'f',
+  HUSB: 'm',
+};
+
+/** Best-effort display fallback when a relationship code carries no `displayName`. */
+export const RELATIONSHIP_LABELS: Record<string, string> = {
+  MTH: 'Mother',
+  FTH: 'Father',
+  NMTH: 'Mother',
+  NFTH: 'Father',
+  PRN: 'Parent',
+  BRO: 'Brother',
+  SIS: 'Sister',
+  SIB: 'Sibling',
+  NBRO: 'Brother',
+  NSIS: 'Sister',
+  TWINBRO: 'Twin brother',
+  TWINSIS: 'Twin sister',
+  HBRO: 'Half-brother',
+  HSIS: 'Half-sister',
+  SON: 'Son',
+  DAU: 'Daughter',
+  SONC: 'Son',
+  DAUC: 'Daughter',
+  CHILD: 'Child',
+  NCHILD: 'Child',
+  GRMTH: 'Grandmother',
+  GRFTH: 'Grandfather',
+  GRPRN: 'Grandparent',
+  MGRMTH: 'Maternal grandmother',
+  MGRFTH: 'Maternal grandfather',
+  PGRMTH: 'Paternal grandmother',
+  PGRFTH: 'Paternal grandfather',
+  GGRMTH: 'Great-grandmother',
+  GGRFTH: 'Great-grandfather',
+  AUNT: 'Aunt',
+  UNCLE: 'Uncle',
+  MAUNT: 'Maternal aunt',
+  PAUNT: 'Paternal aunt',
+  MUNCLE: 'Maternal uncle',
+  PUNCLE: 'Paternal uncle',
+  NIECE: 'Niece',
+  NEPHEW: 'Nephew',
+  COUSN: 'Cousin',
+  MTHINLAW: 'Mother-in-law',
+  FTHINLAW: 'Father-in-law',
+  STPMTH: 'Stepmother',
+  STPFTH: 'Stepfather',
+  FSTRMTH: 'Foster mother',
+  FSTRFTH: 'Foster father',
+  WIFE: 'Wife',
+  HUSB: 'Husband',
+};
+
+/** Year from a timestamp/date string (CDA `YYYY`/`YYYYMMDD…` or FHIR ISO `YYYY-MM-DD`), or `null`. */
+export function yearFromTs(value: string): number | null {
+  const m = /^(\d{4})/.exec(value.trim());
+  if (!m) return null;
+  const y = Number.parseInt(m[1], 10);
+  return Number.isSafeInteger(y) ? y : null;
+}
+
+/**
+ * Convert an age value + UCUM unit to whole years, or `null`. An age is already an age — used
+ * directly (guardrail #1: never invented). Negative ages are rejected.
+ */
+export function ageToYears(value: string, unit: string): number | null {
+  const n = Number.parseFloat(value);
+  if (!Number.isFinite(n)) return null;
+  const u = unit.trim().toLowerCase();
+  let years: number;
+  if (u === 'mo' || u === 'month' || u === 'months') years = n / 12;
+  else if (u === 'wk' || u === 'week' || u === 'weeks') years = n / 52;
+  else if (u === 'd' || u === 'day' || u === 'days') years = n / 365;
+  else years = n; // 'a' / 'year' / 'yr' / unknown → years
+  const floored = Math.floor(years);
+  return floored >= 0 ? floored : null;
+}
+
+// ---------------------------------------------------------------------------
 // stageHealthRecordImport
 // ---------------------------------------------------------------------------
 
