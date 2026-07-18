@@ -440,6 +440,13 @@ textarea.field {
   font-size: 13px;
   width: 100%;
 }
+/* Monospace `.field` variant for a value the user copies verbatim rather than edits (e.g.
+   the SMART-on-FHIR redirect URI) — a `readOnly` input, not a `<code>` block, so it's
+   natively focusable and keyboard-selectable (see SmartFhirConnect.tsx). */
+input.field.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
 /* Not element-qualified: PersonForm labels its segmented-toggle / organ / conditions
    groups with a <span class="lbl"> (a group heading isn't a single control's <label>),
    and those must get the same small, dim caption styling as real <label class="lbl">s. */
@@ -1156,7 +1163,9 @@ textarea.field {
 .pedigree-guide__toggle:focus-visible,
 .history-entry__summary:focus-visible,
 .pedigree-hl-row:focus-visible,
-.pedigree-scroll:focus-visible {
+.pedigree-scroll:focus-visible,
+.overline:focus-visible,
+.page-title:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

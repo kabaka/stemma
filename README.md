@@ -25,9 +25,9 @@ browser.
 > [!NOTE]
 > **Project status.** Productionalized from the original **Lineage** prototype: the app is a
 > real, tested, deployable React + TypeScript + Vite build. The domain engine, catalog,
-> vocabulary adapter, store, all five views, the FHIR/Phenopacket/GEDCOM/SVG exports, and GEDCOM
-> import are implemented and covered by the test suite. What's next lives in
-> [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> vocabulary adapter, store, all five views, the FHIR/Phenopacket/GEDCOM/SVG exports, and
+> GEDCOM/C-CDA/SMART-on-FHIR import are implemented and covered by the test suite. What's next
+> lives in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Features
 
@@ -46,12 +46,17 @@ browser.
   history, with pointers to validated external calculators (CanRisk, PREMM5, ASCVD).
 - **Standards & interoperability** — export the same graph to FHIR R4, GA4GH Phenopackets v2,
   GEDCOM 5.5.1, and a 2022-nomenclature pedigree SVG, all generated client-side, so your record
-  outlives the app. **GEDCOM import** seeds a pedigree from a family tree you already have (e.g.
-  an Ancestry or FamilySearch export) — structural data only (people and the family graph; a
-  genealogy file carries no health data, so conditions are still added in Stemma), parsed entirely
-  in your browser.
+  outlives the app. Import works three ways, all parsed entirely in your browser: **GEDCOM**
+  seeds a pedigree from a family tree you already have (structural only — a genealogy file
+  carries no health data, so conditions are still added in Stemma); **C-CDA** reads a downloaded
+  patient-portal record for both conditions and family history; and **SMART on FHIR** does the
+  same live, connecting directly to your patient portal with your explicit consent (see
+  [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)). The latter two merge into your record with a
+  per-item review — nothing is written silently.
 - **Local-first & private** — the entire record lives in your browser's `localStorage`. Nothing
-  is uploaded. The only runtime network call is the optional ICD-10 vocabulary lookup (below).
+  is uploaded automatically. Every network call Stemma makes is opt-in and user-triggered: the
+  optional ICD-10 vocabulary lookup (below), and, only if you connect one, a SMART-on-FHIR sync to
+  the provider endpoint you name.
 
 ## Screenshots
 
@@ -106,14 +111,18 @@ src/
 │   ├── events.ts          # Timeline event-type metadata
 │   └── seed.ts            # Illustrative fictional 3-generation family (also used in tests)
 ├── integrations/      # Ports to external services
-│   └── vocabulary.ts      # VocabularyProvider port + NLM Clinical Tables default
+│   ├── vocabulary.ts      # VocabularyProvider port + NLM Clinical Tables default
+│   └── smart-fhir/        # SMART-on-FHIR OAuth2+PKCE port (discovery, token exchange, gateway)
 ├── export/            # Standards serializers (client-side, with tests)
 │   ├── fhir.ts            # HL7 FHIR R4 Bundle
 │   ├── phenopacket.ts     # GA4GH Phenopacket v2
 │   ├── gedcom.ts          # GEDCOM 5.5.1
 │   └── pedigree-svg.ts    # 2022-nomenclature pedigree SVG
 ├── import/            # Standards parsers — the inverse of export/ (client-side, with tests)
-│   └── gedcom.ts          # GEDCOM 5.5.1 → structural people + family graph (no conditions)
+│   ├── gedcom.ts          # GEDCOM 5.5.1 → structural people + family graph (no conditions)
+│   ├── ccda.ts            # C-CDA (CCD) patient-portal download → merge-with-review import
+│   ├── fhir.ts            # FHIR R4 Bundle (from a SMART-on-FHIR sync) → merge-with-review import
+│   └── native.ts          # Stemma's own lossless backup format → restore
 ├── store/             # Application state
 │   └── useStore.ts        # Zustand store + localStorage persistence + catalog builder
 ├── ui/                # React views + components
@@ -157,8 +166,14 @@ Stemma is **not limited to a fixed condition list.** The catalog has two layers:
   plaintext in your browser profile — readable by anyone with access to your device/profile or by
   a malicious browser extension. Device security is your responsibility for now; an
   end-to-end-encrypted, zero-knowledge storage adapter is on the [roadmap](docs/ROADMAP.md) (§5).
-- **One optional network call.** The only runtime request Stemma makes is the ICD-10 vocabulary
-  lookup to the NLM Clinical Tables API — and only when you search for a long-tail condition.
+- **Two opt-in network calls, nothing automatic.** By default Stemma makes one runtime request —
+  the ICD-10 vocabulary lookup to the NLM Clinical Tables API, and only when you search for a
+  long-tail condition. If you connect a provider via **SMART on FHIR**
+  ([`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)), that adds a second, equally opt-in call:
+  OAuth and FHIR reads against the provider endpoint *you* name — never a Stemma server, never a
+  third party or analytics endpoint. Tokens from that connection stay in the browser (session
+  storage for the access token; local storage for a refresh token only if you opt into "stay
+  connected").
 - **No lock-in.** Everything is designed to export to open standards (below), because a personal
   health record should outlive the app that holds it.
 
@@ -175,16 +190,28 @@ browser — to:
   Stemma itself. Import is **structural only** — people and the parent/child graph; a genealogy
   file carries no health data, so it never imports conditions — and runs entirely in your browser
   (`FileReader`, no upload).
+- **C-CDA (CCD) import** — reads a patient-portal record download for both the proband's
+  conditions and the family-history graph, reconciled into the live record through a
+  **merge-with-review** step (every parsed item is a suggestion you individually accept or skip,
+  not a wholesale replace). Parsed 100% client-side.
+- **SMART on FHIR import** — connects live to your patient portal's FHIR server (Epic MyChart,
+  Cerner, and most US portals support this) using the same merge-with-review pipeline as C-CDA,
+  over a public-client OAuth2 + PKCE flow with no backend and no client secret. Opt-in and
+  user-initiated; talks only to the provider endpoint you name. See
+  [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md) for setup.
 - **Pedigree SVG** in correct 2022 NSGC nomenclature — the three-generation chart a counselor
   draws at intake.
 
-Further import pipelines (FHIR pull, record OCR) are on the [roadmap](docs/ROADMAP.md) (§3).
+Further import pipelines (record OCR, consumer DNA raw-file parse) are on the
+[roadmap](docs/ROADMAP.md) (§3).
 
 ## Roadmap & architecture
 
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — where Stemma is headed.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the layered architecture, data model, pattern
   engine, and the key design decisions (ADR log).
+- [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md) — set up and connect a SMART-on-FHIR health
+  record.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — conventions for (AI-assisted) development.
 
 The product vision that drives all of the above is captured in

@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
+import { useSmartConnectionStore } from '@/store/useSmartConnectionStore';
 import type { HistoryEntry } from '@/domain/history';
 import type { FamilyRecord, Person, TimelineEvent } from '@/domain/types';
 import { emptyRecord } from '@/data/seed';
@@ -1287,6 +1288,54 @@ describe('PedigreeView — empty record', () => {
     // Cancelled — the edited record must survive untouched.
     expect(useStore.getState().record.people).toHaveLength(1);
     expect(useStore.getState().record.people[0].birth).toBe(1990);
+  });
+
+  // Regression: the EmptyState import/connect toggles (GEDCOM, health record, and
+  // SMART-on-FHIR) mirror the header's RecordActionsMenu toggles, which already got
+  // aria-expanded right — these three were missing it (WCAG 4.1.2, accessibility-reviewer
+  // finding). Each button must announce whether its own panel is currently open.
+  it('the EmptyState import/connect toggle buttons expose aria-expanded, flipping true once opened', async () => {
+    const user = userEvent.setup();
+    useStore.getState().resetRecord();
+    render(<PedigreeView />);
+
+    const gedcomBtn = screen.getByRole('button', { name: /^import gedcom$/i });
+    const ccdaBtn = screen.getByRole('button', { name: /^import health record$/i });
+    const smartBtn = screen.getByRole('button', {
+      name: /connect a health record \(smart on fhir\)/i,
+    });
+
+    expect(gedcomBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(ccdaBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(smartBtn).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(smartBtn);
+    expect(smartBtn).toHaveAttribute('aria-expanded', 'true');
+    // Opening one panel doesn't falsely flip the other two toggles.
+    expect(gedcomBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(ccdaBtn).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('PedigreeView — SMART-on-FHIR callback error', () => {
+  afterEach(() => {
+    useSmartConnectionStore.setState({ connections: [], callbackError: null });
+  });
+
+  // Regression: the OAuth redirect back from a provider is a full page reload, so a failed
+  // callback can only reach the user through `callbackError` persisted in
+  // `useSmartConnectionStore` — PedigreeView's own mount-time effect must read it and
+  // auto-open the SMART panel so SmartFhirConnect's `role="alert"` rendering is actually
+  // visible, rather than sitting silently in the store. This proves the store→PedigreeView
+  // wiring at runtime (previously only covered piecewise, per-component).
+  it('auto-opens the SMART-on-FHIR panel and surfaces the error when callbackError is already set', async () => {
+    useSmartConnectionStore.setState({ callbackError: 'state mismatch' });
+    render(<PedigreeView />);
+
+    expect(
+      await screen.findByRole('heading', { name: /connect a health record \(smart on fhir\)/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not be verified/i);
   });
 });
 

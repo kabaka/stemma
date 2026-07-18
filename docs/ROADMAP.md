@@ -43,8 +43,8 @@ monolith into typed, tested modules."
 
 **Deliberately deferred** (documented, not built): a backend / sync, e2e-encrypted
 multi-tenant hosting, live CanRisk/PubMed calls (CORS/licence-gated), record import
-(OCR/FHIR-pull/DNA — GEDCOM-in and C-CDA-in have since shipped, see Phase 3 below), and the AI
-summarization layer. These are the roadmap below.
+(OCR/DNA — GEDCOM-in, C-CDA-in, and the client-side SMART-on-FHIR subset have since shipped, see
+Phase 3 below), and the AI summarization layer. These are the roadmap below.
 
 ## 3. Product roadmap
 
@@ -155,11 +155,20 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
   A live SMART-on-FHIR pull remains deferred — see below and Phase 5. Apple Health's exported
   `export_cda.xml` is the same C-CDA shape, so an Apple Health ZIP importer (unzip + hand the CCD
   to this same parser) is a natural, not-yet-built follow-up.
-- **FHIR pull** from a patient portal / Apple Health (SMART on FHIR) (ideation §4). Evaluated
-  during the C-CDA unit and parked here deliberately (DR-0016): a no-backend browser client hits
-  inconsistent per-vendor CORS, confidential-client requirements, and per-organization app
-  activation, and every mature auto-pull integration resorts to a paid or copyleft server-side
-  broker — it needs a backend proxy → Phase 5, not this phase.
+- **FHIR pull (SMART on FHIR), client-side subset** ✅ (ideation §4). DR-0016 parked a live pull
+  here on the assumption every mature auto-pull integration needs a server-side broker; DR-0019
+  revisited and found a narrower subset that avoids that: a **public (secret-less) OAuth2 + PKCE**
+  browser client, standalone launch, talking only to the FHIR endpoint the user names, with no
+  backend. Shipped as `src/integrations/smart-fhir/` (discovery, PKCE, token exchange/refresh,
+  paginated `Condition`/`FamilyMemberHistory` fetch) + `src/import/fhir.ts`
+  (`parseFhirImport`) feeding the same merge-with-review pipeline C-CDA uses. See
+  [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
+  [ADR-010](./ARCHITECTURE.md#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral),
+  and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for setup. Honest limit: not every server grants a
+  public client a refresh token (Epic ties refresh tokens to a confidential secret), so some
+  connections need a quick re-login on each sync rather than truly unattended background sync. A
+  **server-side broker** for providers that never grant a secretless client a refresh token
+  remains deferred to Phase 5, unchanged from DR-0016's original reasoning for that path.
 - **Record OCR/parse** for uploaded documents (ideation §6).
 - **Consumer DNA raw-file parse**, heavily caveated (ideation §3).
 
@@ -186,7 +195,7 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 | ICD-10-CM / SNOMED CT | Coded catalog | Baked in at authoring time | **Live (subset)** |
 | HPO / Orphanet / OMIM | Genetics vocabulary | Baked in | **Live (HPO)** — Orphanet/OMIM deferred |
 | IHME GBD / CDC | Prevalence & heritability | Baked in | **Live (high-signal subset)** |
-| FHIR (portals, Apple Health) | Export; live pull | Export ✅; live SMART-on-FHIR pull needs a backend proxy | Export live / live pull deferred → Phase 5 |
+| FHIR (portals, Apple Health) | Export; live pull (SMART on FHIR) | ✅ export; ✅ client-side public-client (PKCE) live pull, opt-in (`src/integrations/smart-fhir/`) | **Live** (client-side subset); server-side broker for non-refresh-granting servers → Phase 5 |
 | C-CDA (CCD, patient portal download) | Import | ✅ client-side file-drop, no auth (`src/import/ccda.ts`) | **Live** (merge-with-review) |
 | GA4GH Phenopacket / Pedigree | Genetics export | ✅ client-side | **Live** |
 | GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import ✅ (GEDCOM 5.5.1, client-side) | **Live** |
@@ -209,8 +218,10 @@ These constrain every phase and are enforced in code and review:
 3. "Organizing tool, not a diagnostic device" is a **first-class UI element**, not a footer.
 4. **No lock-in**: every record is exportable to an open standard. A personal health record
    must outlive the app.
-5. **Local-first / private by default**: data stays in the browser; the only runtime network
-   call is the optional vocabulary lookup.
+5. **Local-first / private by default**: data stays in the browser; every runtime network call is
+   opt-in — the optional vocabulary lookup, and, since the client-side SMART-on-FHIR subset
+   shipped (Phase 3, [ADR-010](./ARCHITECTURE.md#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral)),
+   a user-initiated sync against the FHIR endpoint the user names — never a Stemma server.
 
 ## 6. Known cleanups / tech debt
 
@@ -265,7 +276,10 @@ accessibility, testing) — captured here so nothing is lost:
   re-derive from free text, to keep the "no number the engine didn't produce" guard enforceable.
 - ✅ **GitHub Actions pinned to commit SHAs** (audit-remediation cycle), with a `dependabot.yml`
   for the npm + github-actions ecosystems and a build-time Content-Security-Policy on the shipped
-  `dist` (`connect-src` limited to self + the NLM vocabulary host).
+  `dist`. `connect-src` was originally limited to self + the NLM vocabulary host; it widened to
+  `'self' https:` when the client-side SMART-on-FHIR subset shipped, since a static build's CSP
+  can't allowlist an arbitrary user-chosen provider host — see
+  [ADR-010](./ARCHITECTURE.md#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral).
 - ✅ **Background chrome hidden from AT while a modal is open** (audit-remediation cycle). The person
   add/edit modal is now portalled to `document.body` with the app root marked `inert`/`aria-hidden`
   while open, and focus is restored to the invoking control on close (the `inert` attribute is

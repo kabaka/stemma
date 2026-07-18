@@ -35,9 +35,9 @@ graph TD
       STORE["src/store<br/>Zustand + localStorage"]
     end
     subgraph ports["Ports & adapters"]
-      INT["src/integrations<br/>VocabularyProvider → NLM"]
+      INT["src/integrations<br/>VocabularyProvider → NLM<br/>SmartFhirGateway → user's own FHIR server"]
       EXP["src/export<br/>FHIR · Phenopacket · GEDCOM · SVG"]
-      IMP["src/import<br/>GEDCOM parse + build"]
+      IMP["src/import<br/>GEDCOM/C-CDA/FHIR/native parse + build"]
     end
     subgraph core["Pure core (no React, no I/O)"]
       DOMAIN["src/domain<br/>types · person · graph · record · patterns · screening · catalog"]
@@ -63,9 +63,9 @@ graph TD
 | --- | --- | --- | --- |
 | **Domain** | `src/domain/` | Pure, typed, tested engine: model, kinship math, pattern detection, screening, catalog search | itself + curated `data` tables |
 | **Data** | `src/data/` | Curated, pure constants (catalog, categories, recommendations, seed family) | `domain` (types only) |
-| **Integrations** | `src/integrations/` | Ports to external services (the vocabulary adapter) | `domain` (types) |
+| **Integrations** | `src/integrations/` | Ports to external services: the vocabulary adapter, and the SMART-on-FHIR OAuth2+PKCE transport (`src/integrations/smart-fhir/`) | `domain` (types) |
 | **Export** | `src/export/` | Serialize the graph to open standards | `domain`, `data` |
-| **Import** | `src/import/` | Parse an external file into the graph (the inverse of Export) | `domain`, `data` |
+| **Import** | `src/import/` | Parse an external file/bundle into the graph (the inverse of Export) | `domain`, `data` |
 | **Store** | `src/store/` | Zustand state, mutations, `localStorage` persistence, catalog assembly | `domain`, `data`, `integrations` |
 | **UI** | `src/ui/` | React views over the store | everything below |
 
@@ -256,8 +256,11 @@ view, selection, vantage) is deliberately not persisted. Mutations clone the rec
 blob's shape and falls back to a clean seed if it is corrupt or schema-outdated, so the durable asset
 can't hydrate garbage into state.
 
-This is the cleanest privacy story: the record never leaves the browser, and the only runtime network
-call is the optional NLM vocabulary lookup. **Caveat — unencrypted at rest:** because it lives in
+This is the cleanest privacy story: the record never leaves the browser, and every runtime network
+call is opt-in and user-triggered — the optional NLM vocabulary lookup, and, only if the user
+connects one, the SMART-on-FHIR sync to a provider endpoint the user names (never a Stemma server;
+see [§9](#9-the-import-layer) and [ADR-010](#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral)).
+**Caveat — unencrypted at rest:** because it lives in
 `localStorage`, the record is stored in plaintext in the browser profile (readable with device/profile
 access or by a malicious extension). At-rest encryption is deferred to the roadmap's storage adapter #2
 (end-to-end-encrypted, zero-knowledge); the local build's threat model assumes a trusted device. The ideation doc's **§8** describes the intended
@@ -344,6 +347,29 @@ mutation path, `store.replaceRecord` now validates it against `isValidRecord` (m
 garbage into state — the same guard `localStorage` hydration already applied. See
 [ADR-008](#adr-008--gedcom-import-is-structural-only-via-a-new-import-layer).
 
+**C-CDA and FHIR both import clinical facts (conditions + family history), not just structure**,
+and both go through **merge-with-review** rather than a structural replace — see
+[ADR-009](#adr-009--c-cda-import-is-merge-with-review-relationship-placement-is-conservative-by-construction)
+for the C-CDA importer (`src/import/ccda.ts`). [`src/import/fhir.ts`](../src/import/fhir.ts)'s
+**`parseFhirImport(bundle, {patientId})`** is the FHIR R4 counterpart: a pure mapping of a
+`Patient`/`Condition`/`FamilyMemberHistory` `Bundle` into the same source-agnostic parsed shape,
+so both importers share one reconciliation/merge engine —
+[`src/import/health-record.ts`](../src/import/health-record.ts), hoisted out of `ccda.ts` for this
+purpose (`stageHealthRecordImport` → review → `applyHealthRecordImport`; `ccda.ts` re-exports the
+same functions under its established `stageCcdaImport`/`applyCcdaImport` names, so its own test
+oracle stays a byte-for-byte regression check across the hoist). `parseFhirImport` itself never
+touches the network — the bundle it reads comes from the impure
+[`src/integrations/smart-fhir/`](../src/integrations/smart-fhir/) transport (discovery, OAuth2 +
+PKCE token exchange, paginated `Condition`/`FamilyMemberHistory` search), which
+[`src/store/useSmartConnectionStore.ts`](../src/store/useSmartConnectionStore.ts) is the only code
+path that drives — but the store's `syncNow` returns that **raw `FhirImportBundle`** rather than
+a parsed record; parsing (`parseFhirImport`) and staging (`stageHealthRecordImport`) happen in
+[`SmartFhirConnect.tsx`](../src/ui/components/SmartFhirConnect.tsx), the UI layer, exactly where
+the C-CDA importer already does the equivalent `parseCcda`/`stageCcdaImport` work. The store's
+only outbound dependency stays `domain`/`data`/`integrations` — it never imports `src/import/`.
+See [ADR-010](#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral)
+for the full design.
+
 ## 10. Determinism
 
 The engine is deterministic so it can be unit-tested against known pedigrees. The one source of
@@ -379,8 +405,10 @@ which the pluggable storage layer (ideation §8) will address (IndexedDB/OPFS, o
 
 ### ADR-003 — Local-first, no backend (yet)
 **Context:** a family health record is sensitive; the simplest trustworthy deployment is one that
-cannot leak. **Decision:** ship a static site whose data never leaves the browser; the only runtime
-network call is the optional, key-less, CORS-safe NLM vocabulary lookup. **Consequence:** no server to
+cannot leak. **Decision:** ship a static site whose data never leaves the browser; every runtime
+network call is opt-in and user-triggered — the key-less, CORS-safe NLM vocabulary lookup, and,
+since [ADR-010](#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral),
+a SMART-on-FHIR sync against a provider endpoint the user names. **Consequence:** no server to
 run, breach, or fund; interoperability and multi-device sync are deferred to the export layer and a
 future encrypted self-hosted adapter (ideation §7–§8) behind the same UI.
 
@@ -435,6 +463,14 @@ externally-built record, now validates against `isValidRecord` rather than trust
 the same hydration hole a corrupt `localStorage` blob already guarded against. (roadmap Phase 3.)
 
 ### ADR-009 — C-CDA import is merge-with-review; relationship placement is conservative by construction
+> **Update (DR-0019/DR-0020):** the live-pull rejection below evaluated a **backend-broker**
+> SMART-on-FHIR integration and was correct for that shape — it's still true that a broker needing
+> a confidential client secret or a per-organization backend would collide with guardrail #5. A
+> narrower **client-side, public-client (PKCE), no-backend** subset that avoids those specific
+> blockers has since shipped; it supersedes this deferral for that subset only (the broker path
+> itself remains deferred). See
+> [ADR-010](#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral).
+
 **Context:** Phase 3 ("kill the retyping") also targets the diagnoses and family history a user
 already has sitting in a patient portal. A live pull (SMART-on-FHIR / OAuth) was evaluated and
 rejected for now: production CORS support is inconsistent per vendor, most endpoints need a
@@ -492,8 +528,89 @@ code attaches to is resolved to whichever matching parent is found first — an 
 user-reviewable choice, since a `FamilyRecord` carries no notion of a designated "maternal" vs
 "paternal" side beyond genetics. (roadmap Phase 3; DR-0016; DR-0017.)
 
+### ADR-010 — Client-side SMART-on-FHIR import supersedes ADR-009's live-pull deferral
+**Context:** ADR-009 deferred a live SMART-on-FHIR pull to Phase 5 because a **backend broker**
+would be needed to work around inconsistent per-vendor CORS, confidential-client secrets, and
+per-organization app activation — and a broker holding PHI/tokens on a server would itself weaken
+the local-first stance guardrail #5 protects. Revisiting this (DR-0019) found a narrower subset
+that avoids those specific blockers: SMART App Launch STU 2.2's **standalone** launch defines a
+**public client with no secret**, authenticated by **PKCE (S256)** instead of a client secret;
+discovery (`.well-known/smart-configuration`, with a `CapabilityStatement` `/metadata` `oauth-uris`
+fallback) and the token/FHIR REST endpoints are a server-side *SHALL* for CORS from a registered
+origin — exactly the browser-SPA case, needing no backend. The real, documented limits (not every
+server grants a public client a refresh token) are accepted honestly rather than engineered around.
+
+**Decision:** Add `src/integrations/smart-fhir/` as the impure OAuth2+PKCE transport port —
+`pkce.ts` (S256 verifier/challenge, injectable randomness/digest), `discovery.ts` (pure parsers for
+both endpoint sources), `authorizeUrl.ts` (pure authorize-URL builder — no `launch` parameter,
+since Stemma only ever performs a **standalone** launch; `aud` is always the FHIR base URL;
+`code_challenge_method` is always `S256`, never `plain`), `gateway.ts` (`FetchSmartFhirGateway`:
+`discover`/`exchangeCode`/`refresh`/`fetchPatientData`, injectable `fetch`, and — as a public client
+— the token requests it sends carry **no `client_secret` and no `Authorization` header**, only
+`client_id` + the PKCE `code_verifier`), and `tokenStore.ts` (`BrowserTokenStore`: access token in
+`sessionStorage`, refresh token in `localStorage` **only** when the user opts into "stay
+connected"). `src/import/fhir.ts` is the pure FHIR R4 → domain counterpart to `ccda.ts`'s parser
+(see [§9](#9-the-import-layer)), sharing the hoisted `src/import/health-record.ts` merge engine so
+the C-CDA and FHIR pipelines stage/apply identically. `src/store/useSmartConnectionStore.ts` is a
+new, separate `zustand/persist` slice (`stemma-smart` key) holding **only non-secret** connection
+metadata (endpoint, client ID, granted scopes, patient id, last-sync) — it is the sole caller that
+drives the gateway and token store; no token ever enters the durable `stemma-record` slice or
+transits the UI. Its `syncNow` action returns the **raw `FhirImportBundle`**, not a parsed record —
+the store's own dependencies stay `domain`/`data`/`integrations` only, never `import`.
+`SmartFhirConnect.tsx` (the connect/status panel, mirroring `CcdaImport.tsx`'s props shape) calls
+`parseFhirImport` and `stageHealthRecordImport` itself on that bundle before handing the staged
+result to the reused `CcdaReview.tsx` for the post-sync review — the same UI-layer
+parse/stage split `CcdaImport.tsx` already does for `parseCcda`/`stageCcdaImport`, kept consistent
+across both importers rather than pulling the parser into the store. `App.tsx` gains a mount-once
+effect that completes the OAuth redirect (`?code` + `state`) if present — it only ever writes
+connection/token state, never the record; pulling data is always a separate, explicit "Sync now"
+that runs the merge-and-review.
+
+Scopes requested are `openid fhirUser launch/patient patient/Patient.read patient/Condition.read
+patient/FamilyMemberHistory.read`, plus `offline_access` only when the user opts into "stay
+connected." `Patient` is read only for identity + `birthDate` (onset-age math), never written or
+treated as a source of demographic edits. Redirect URI is the **app's own root**
+(`https://kabaka.github.io/stemma/` prod, `http://localhost:5173/` dev) — there is no
+`public/404.html` / SPA-fallback rewrite on the Pages deploy, so a dedicated callback sub-path
+would 404 on a hard redirect.
+
+**Guardrail #5 consistency.** This is a **second** runtime network call, and it is honored the same
+way the vocabulary lookup is: **opt-in and user-initiated** (only "Connect" / "Sync now" fire it),
+talking **only** to the FHIR endpoint the user themselves names — never a Stemma server, never a
+third party, never analytics — with the connect panel disclosing exactly what is sent and what is
+stored on the device before the user proceeds. Clinical-safety guardrail #1 (never manufacture a
+code/onset/risk) is honored identically to the C-CDA importer: `parseFhirImport` is pure
+(no clock/network/random), gates on `Condition.verificationStatus`/`clinicalStatus` and
+`FamilyMemberHistory.status`/`dataAbsentReason` exactly as documented in the parser's own doc
+comment, and every accepted item carries `prov: 'record'` through the same review gate.
+
+**CSP relaxation (accepted, disclosed).** [`vite.config.ts`](../vite.config.ts)'s build
+Content-Security-Policy `connect-src` widens from `'self' https://clinicaltables.nlm.nih.gov` to
+**`'self' https:`**. A per-host allowlist is structurally incompatible with "works against any
+conformant SMART server the user names" — the FHIR base URL is user-supplied at runtime, and a
+static build's `<meta>` CSP cannot be extended after the fact — so `https:` is the narrowest
+workable relaxation, not a shortcut: it still blocks `http:`/`data:`/`blob:`/`ws:` egress.
+`script-src 'self'` (no inline, no eval), `form-action 'none'`, `object-src 'none'`, and
+`base-uri 'self'` are all **unchanged** — the OAuth authorize step is a top-level navigation, which
+CSP's fetch-directives don't govern, so it needed no CSP change at all. This CSP change is scoped
+to the **build** (`apply: 'build'` in the Vite plugin); `vite dev` is unaffected.
+
+**Consequence — the honest refresh-token limit.** Not every SMART server grants a public client a
+refresh token even with `offline_access` requested: **Epic ties refresh tokens to a confidential
+client secret**, so a secret-less browser app against Epic typically gets a short-lived (~1 hour)
+access token and no refresh token. Where a server does grant one, `useSmartConnectionStore`
+transparently refreshes and unattended re-sync works; where it doesn't, "Sync now" surfaces a
+re-login prompt rather than silently failing or fabricating success — the connection card's
+"Unattended sync" indicator makes this visible per-connection. The server-side broker path ADR-009
+rejected remains genuinely deferred (Phase 5) for providers that never grant a secretless public
+client a refresh token; this ADR covers the client-side subset only. See
+[`docs/SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for the setup guide, and
+[DR-0019](../.ai-dlc/records/DR-0019-smart-fhir-import-inception.md) /
+[DR-0020](../.ai-dlc/records/DR-0020-smart-fhir-import-design-fork.md) for the full decision
+record. (roadmap Phase 3.)
+
 ---
 
 _See also:_ [`README.md`](../README.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) ·
-[`ROADMAP.md`](ROADMAP.md) · the product vision in
+[`ROADMAP.md`](ROADMAP.md) · [`SMART-ON-FHIR.md`](SMART-ON-FHIR.md) · the product vision in
 [`prototype/uploads/Lineage-expansion-ideation.md`](../prototype/uploads/Lineage-expansion-ideation.md).
