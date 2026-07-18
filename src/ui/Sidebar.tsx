@@ -83,6 +83,24 @@ export function Sidebar() {
             </div>
           </div>
         )}
+
+        <p className="sidebar__legal">
+          <a
+            href={`${import.meta.env.BASE_URL}privacy.html`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Privacy
+          </a>
+          <span aria-hidden="true"> · </span>
+          <a
+            href={`${import.meta.env.BASE_URL}terms.html`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Terms
+          </a>
+        </p>
       </div>
     </aside>
   );

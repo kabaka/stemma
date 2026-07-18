@@ -21,6 +21,8 @@ export type { SmartEndpoints } from './discovery';
 
 export { computeExpiresAtMs, isAccessTokenExpired } from './expiry';
 
+export { selectScopes } from './scopes';
+
 export { FetchSmartFhirGateway } from './gateway';
 export type { FhirImportBundle, SmartFhirGateway, TokenResponse } from './gateway';
 

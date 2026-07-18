@@ -51,7 +51,7 @@ function friendlyError(err: unknown, context: 'connect' | 'sync'): string {
       message,
     )
   ) {
-    return "This doesn't look like a SMART-on-FHIR server (no authorization endpoints were found). Double-check the FHIR base URL.";
+    return "Couldn't read a SMART configuration at that URL. Make sure you're using the provider's FHIR base URL — the one that ends in the version path such as /api/FHIR/R4/ — and not their login or OAuth URL. (Discovery is served at <base>/.well-known/smart-configuration, so a parent URL won't resolve.)";
   }
   if (/state mismatch/i.test(message)) {
     return 'The sign-in could not be verified for safety and was cancelled. Try connecting again.';
@@ -486,8 +486,10 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               onChange={(e) => setFhirBaseUrl(e.target.value)}
             />
             <p id={baseUrlHintId} className="mono-dim" style={{ marginTop: 6 }}>
-              Your provider&rsquo;s FHIR endpoint — found on their developer portal (e.g. Epic on
-              FHIR, Cerner Code) or given to you when you registered Stemma as an app.
+              Your provider&rsquo;s FHIR <strong>base</strong> URL — the one ending in the version
+              path (e.g. <code>&hellip;/api/FHIR/R4/</code>), not their login or OAuth URL. Find it
+              on their developer portal (e.g. Epic on FHIR, Cerner Code) or from when you registered
+              Stemma as an app.
             </p>
           </div>
 

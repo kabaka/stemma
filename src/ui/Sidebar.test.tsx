@@ -77,3 +77,19 @@ describe('Sidebar — proband banner', () => {
     expect(screen.getByText(/age unknown/i)).toBeInTheDocument();
   });
 });
+
+describe('Sidebar — footer legal links', () => {
+  it('renders Privacy and Terms links opening in a new tab, pointed at the static legal pages', () => {
+    render(<Sidebar />);
+
+    const privacy = screen.getByRole('link', { name: 'Privacy' });
+    expect(privacy).toHaveAttribute('target', '_blank');
+    expect(privacy).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(privacy.getAttribute('href')).toMatch(/privacy\.html$/);
+
+    const terms = screen.getByRole('link', { name: 'Terms' });
+    expect(terms).toHaveAttribute('target', '_blank');
+    expect(terms).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(terms.getAttribute('href')).toMatch(/terms\.html$/);
+  });
+});

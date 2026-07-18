@@ -30,6 +30,7 @@ import {
   generateCodeVerifier,
   generateState,
   isAccessTokenExpired,
+  selectScopes,
 } from '@/integrations/smart-fhir';
 import type {
   FhirImportBundle,
@@ -283,8 +284,12 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
           const state = generateState();
           const codeChallenge = await computeCodeChallenge(codeVerifier);
 
-          const scopeList = stayConnected ? [...BASE_SCOPES, 'offline_access'] : BASE_SCOPES;
-          const scope = scopeList.join(' ');
+          const requestedScopes = stayConnected
+            ? [...BASE_SCOPES, 'offline_access']
+            : [...BASE_SCOPES];
+          // Trim to what the server advertises where it enumerates resource scopes; a no-op on
+          // servers (e.g. Epic) that advertise only identity scopes. See selectScopes.
+          const scope = selectScopes(requestedScopes, endpoints.scopesSupported).join(' ');
           const redirectUri =
             opts.redirectUri ??
             (typeof globalThis.location !== 'undefined'
