@@ -287,7 +287,10 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: FHIR_ACCEPT },
     });
     if (!res.ok) {
-      throw new Error(`FHIR read failed: ${res.status} ${res.statusText} for ${url}`);
+      // SECURITY (DR-0020 / contract §W4): do NOT interpolate `url` — it embeds `?patient=<id>`.
+      // This message flows into `fetchWarnings` (shown in the review UI) and into `friendlyError`
+      // for the mandatory Patient read, so it must carry no patient-scoped URL, token, or header.
+      throw new Error(`FHIR read failed: ${res.status} ${res.statusText}`);
     }
     return res.json();
   }

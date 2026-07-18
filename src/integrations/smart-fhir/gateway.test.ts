@@ -571,6 +571,57 @@ describe('FetchSmartFhirGateway.fetchPatientData — full-timeline resource set 
     }
   });
 
+  it('a fetchWarnings entry for a non-2xx search failure carries ONLY the resource label + status/statusText — never the patient id, the query string, or the resource path (security regression: getJson used to interpolate the full request URL, which embeds `?patient=<id>`)', async () => {
+    const specs = defaultRouteSpecs().map((s) =>
+      s.resourceType === 'Procedure'
+        ? { ...s, response: () => jsonResponse({ issue: 'not found' }, 404) }
+        : s,
+    );
+    const { fetchStub } = makeFetchStub(routesFromSpecs(specs));
+    const gateway = new FetchSmartFhirGateway(fetchStub as unknown as typeof fetch);
+
+    const bundle = await gateway.fetchPatientData(fhirBaseUrl, patientId, accessToken);
+
+    expect(bundle.fetchWarnings).toBeDefined();
+    const warnings = bundle.fetchWarnings ?? [];
+    expect(warnings.length).toBeGreaterThan(0);
+    // Sanity: the failure was real and its label surfaced — this isn't vacuously true.
+    expect(warnings.some((w) => /procedure/i.test(w))).toBe(true);
+    for (const w of warnings) {
+      expect(w).not.toContain(patientId);
+      expect(w).not.toContain('patient=');
+      expect(w).not.toContain('?');
+      expect(w).not.toContain('/Procedure');
+      expect(w).not.toContain(fhirBaseUrl);
+    }
+  });
+
+  it('a fetchWarnings entry for a thrown (network-level) search failure also carries no patient id or URL', async () => {
+    const specs = defaultRouteSpecs().map((s) =>
+      s.resourceType === 'Encounter'
+        ? {
+            ...s,
+            response: () => {
+              throw new Error('ECONNRESET');
+            },
+          }
+        : s,
+    );
+    const { fetchStub } = makeFetchStub(routesFromSpecs(specs));
+    const gateway = new FetchSmartFhirGateway(fetchStub as unknown as typeof fetch);
+
+    const bundle = await gateway.fetchPatientData(fhirBaseUrl, patientId, accessToken);
+
+    const warnings = bundle.fetchWarnings ?? [];
+    expect(warnings.length).toBeGreaterThan(0);
+    for (const w of warnings) {
+      expect(w).not.toContain(patientId);
+      expect(w).not.toContain('patient=');
+      expect(w).not.toContain('?');
+      expect(w).not.toContain(fhirBaseUrl);
+    }
+  });
+
   it('multiple failing searches (Encounter throws, Procedure returns 500) each produce their own fetchWarnings entry — still no early abort', async () => {
     const specs = defaultRouteSpecs().map((s) => {
       if (s.resourceType === 'Encounter') {

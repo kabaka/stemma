@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   dayOfPartialDate,
   formatPartialDate,
@@ -94,6 +94,34 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
   const monthId = `${idBase}-month`;
   const dayId = `${idBase}-day`;
   const errorId = `${idBase}-error`;
+  const hintId = `${idBase}-hint`;
+
+  // Focus management for this disclosure (WCAG 2.4.3) — mirrors `useDisclosureFocus`'s
+  // move-in/hand-back idiom, but that hook fires once per mount/unmount of its OWN
+  // component; here the trigger button and the fieldset are two branches of ONE component
+  // instance's render, toggled by `open` state rather than a mount/unmount boundary, so the
+  // focus move has to be driven explicitly off that state instead.
+  // The first field of the revealed fieldset — the year input in `mode:'free'` (it has no
+  // sibling coarse-year field to anchor on), the month select in `mode:'locked'` (year is
+  // fixed already). Two separate refs rather than one polymorphic ref: `RefObject<A | B>`
+  // doesn't structurally match either element's own `Ref<A>`/`Ref<B>` prop type.
+  const yearRef = useRef<HTMLInputElement>(null);
+  const monthRef = useRef<HTMLSelectElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Only true immediately after the user clicks "+ Add …" — guards the effect below so an
+  // instance that mounts already-open (an existing precise date, expanded from the start)
+  // never steals focus from whatever the surrounding form put it on at load.
+  const openedByUserRef = useRef(false);
+
+  useEffect(() => {
+    if (!openedByUserRef.current) return;
+    openedByUserRef.current = false;
+    if (mode === 'free') {
+      yearRef.current?.focus();
+    } else {
+      monthRef.current?.focus();
+    }
+  }, [open, mode]);
 
   const core = legend.replace(/\s*\(optional\)\s*$/i, '');
   const lowerCore = core.length ? core.charAt(0).toLowerCase() + core.slice(1) : core;
@@ -165,11 +193,20 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
     setCommitted(undefined);
     onChange(undefined);
     setOpen(false);
+    // The trigger button doesn't exist yet at this instant — it remounts on the render
+    // this `setOpen(false)` triggers. rAF defers to after React commits that render, the
+    // same idiom TimelineView's `addReferenceBtnRef` uses for a removed row.
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const handleOpen = (): void => {
+    openedByUserRef.current = true;
+    setOpen(true);
   };
 
   if (!open) {
     return (
-      <button type="button" className="btn btn--sm" onClick={() => setOpen(true)}>
+      <button ref={triggerRef} type="button" className="btn btn--sm" onClick={handleOpen}>
         {toggleLabel}
       </button>
     );
@@ -185,10 +222,12 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
               Year
             </label>
             <input
+              ref={yearRef}
               id={yearId}
               className="field"
               type="number"
               value={yearStr}
+              aria-describedby={disabled ? hintId : undefined}
               onChange={(e) => handleYear(e.target.value)}
             />
           </div>
@@ -198,10 +237,12 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
             Month
           </label>
           <select
+            ref={monthRef}
             id={monthId}
             className="field"
             value={monthStr}
             disabled={disabled}
+            aria-describedby={disabled ? hintId : undefined}
             onChange={(e) => handleMonth(e.target.value)}
           >
             <option value="">— month unknown —</option>
@@ -222,7 +263,7 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
             value={dayStr}
             disabled={disabled || monthStr === ''}
             aria-invalid={error ? true : undefined}
-            aria-describedby={error ? errorId : undefined}
+            aria-describedby={error ? errorId : disabled ? hintId : undefined}
             onChange={(e) => handleDay(e.target.value)}
           >
             <option value="">— day unknown —</option>
@@ -237,9 +278,9 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
           {removeLabel}
         </button>
       </div>
-      {disabled && mode === 'locked' && (
-        <p className="mono-dim" style={{ margin: '6px 0 0' }}>
-          Enter a year above first.
+      {disabled && (
+        <p id={hintId} className="mono-dim" style={{ margin: '6px 0 0' }}>
+          {mode === 'locked' ? 'Enter a year above first.' : 'Enter a year first.'}
         </p>
       )}
       {error && (
@@ -255,7 +296,7 @@ export function PartialDateFields(props: PartialDateFieldsProps) {
           back to month-only precision, the user should see both WHY it was rejected and
           WHAT is actually recorded now, rather than only one of the two. */}
       {committed && (
-        <p className="mono-dim" style={{ margin: '6px 0 0' }}>
+        <p className="mono-dim" role="status" style={{ margin: '6px 0 0' }}>
           Recorded as: {formatPartialDate(committed)}
         </p>
       )}

@@ -185,7 +185,7 @@ function EventRow({
         <span className="row wrap" style={{ gap: 8 }}>
           <span style={{ fontSize: 13 }}>{event.title}</span>
           <span className="mono-dim">
-            {event.date ? formatPartialDate(event.date) : event.year}
+            {event.date ? formatPartialDate(event.date) : `Recorded ${event.year}`}
           </span>
           <StatusBadge status={event.status} />
         </span>

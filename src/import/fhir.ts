@@ -279,16 +279,22 @@ interface EventSink {
   events: ParsedEvent[];
   /** Absence-status resources (not-taken/not-done/refuted/cancelled) — counted in a warning. */
   absence: number;
-  /** Resources dropped for no usable date, or a missing `id` — counted in a warning. */
+  /** Resources dropped for no usable date — counted in a "missing a usable date" warning. */
   incomplete: number;
+  /** Resources dropped for a missing `id` (no dedup identity) — counted in a distinct warning. */
+  missingId: number;
 }
 
 /** Resolve a medication's coded concept from `medicationCodeableConcept`, an `_include`d bundle
- * `Medication` (by id / `Medication/<id>` reference), or a `contained` Medication (`#<id>`). Returns
- * the concept + whether it resolved; an unresolvable reference is surfaced needs-review, never dropped. */
+ * `Medication`, or a `contained` Medication (`#<id>`). The `_include`d lookup is DUAL (defensive re
+ * Epic): a `medicationReference` is matched verbatim against each included Medication's `entry.fullUrl`
+ * (a common Epic pattern is `reference: "urn:uuid:<guid>"` with the Medication at that `fullUrl` and a
+ * DIFFERENT `.id`), then against its `Medication/<id>` / bare `<id>` forms, then a trailing-segment
+ * fallback for absolute-URL references. Returns the concept + whether it resolved; an unresolvable
+ * reference is surfaced needs-review, never dropped. */
 function resolveMedicationConcept(
   resource: Record<string, unknown>,
-  medicationById: Map<string, Record<string, unknown>>,
+  medicationByKey: Map<string, Record<string, unknown>>,
 ): { cc: Record<string, unknown> | undefined; resolved: boolean } {
   const inline = asObj(resource.medicationCodeableConcept);
   if (inline) return { cc: inline, resolved: true };
@@ -305,8 +311,11 @@ function resolveMedicationConcept(
     return cc ? { cc, resolved: true } : { cc: undefined, resolved: false };
   }
 
-  const id = ref.includes('/') ? ref.slice(ref.lastIndexOf('/') + 1) : ref;
-  const cc = asObj(medicationById.get(id)?.code);
+  // Exact match (fullUrl verbatim, or `Medication/<id>` / bare `<id>`) first; then a trailing-segment
+  // fallback so an absolute-URL reference (`http://host/Medication/<id>`) still resolves by its id.
+  const trailingId = ref.includes('/') ? ref.slice(ref.lastIndexOf('/') + 1) : ref;
+  const med = medicationByKey.get(ref) ?? medicationByKey.get(trailingId);
+  const cc = asObj(med?.code);
   return cc ? { cc, resolved: true } : { cc: undefined, resolved: false };
 }
 
@@ -350,7 +359,7 @@ const ENCOUNTER_BUCKETS = {
 function mapMedication(
   resource: Record<string, unknown>,
   parseId: string,
-  medicationById: Map<string, Record<string, unknown>>,
+  medicationByKey: Map<string, Record<string, unknown>>,
   sink: EventSink,
   kind: 'statement' | 'request',
 ): void {
@@ -377,7 +386,7 @@ function mapMedication(
     return;
   }
 
-  const { cc, resolved } = resolveMedicationConcept(resource, medicationById);
+  const { cc, resolved } = resolveMedicationConcept(resource, medicationByKey);
   const coding = extractCodings(cc);
   const title = conceptDisplay(cc) || 'Medication';
   const dose =
@@ -485,7 +494,10 @@ function mapObservation(resource: Record<string, unknown>, parseId: string, sink
 function measurementOf(resource: Record<string, unknown>): Measurement | undefined {
   const vq = asObj(resource.valueQuantity);
   const value = vq && typeof vq.value === 'number' ? vq.value : undefined;
-  const unit = str(vq?.unit);
+  // Prefer the human `unit` (display); fall back to the UCUM `Quantity.code` when a conformant server
+  // sends only the coded unit — so a legitimate value isn't silently dropped. Never convert or
+  // re-derive: just use whichever unit string the server actually provided.
+  const unit = str(vq?.unit) ?? str(vq?.code);
   if (value === undefined || unit === undefined) return undefined;
 
   const measurement: Measurement = { value, unit };
@@ -496,9 +508,13 @@ function measurementOf(resource: Record<string, unknown>): Measurement | undefin
     const high = asObj(r?.high);
     const lowVal = low && typeof low.value === 'number' ? low.value : undefined;
     const highVal = high && typeof high.value === 'number' ? high.value : undefined;
+    // Compare each bound's unit by the same unit-then-code fallback used for the value, so a range
+    // whose bounds carry only a UCUM `code` still matches a value that used its `code`. Equality is
+    // still required — a mismatched (or absent) bound unit drops the range, never converts it.
+    const lowUnit = str(low?.unit) ?? str(low?.code);
+    const highUnit = str(high?.unit) ?? str(high?.code);
     const unitOk =
-      (lowVal === undefined || str(low?.unit) === unit) &&
-      (highVal === undefined || str(high?.unit) === unit);
+      (lowVal === undefined || lowUnit === unit) && (highVal === undefined || highUnit === unit);
     if (unitOk) {
       if (lowVal !== undefined) measurement.refLow = lowVal;
       if (highVal !== undefined) measurement.refHigh = highVal;
@@ -688,20 +704,29 @@ export function parseFhirImport(
 ): ParsedHealthRecord {
   const warnings: string[] = [];
   const resources: Record<string, unknown>[] = [];
+  // `_include`d Medication resources, indexed for `medicationReference` resolution by EVERY form a
+  // server may use to point at them: the entry's `fullUrl` verbatim (Epic emits `urn:uuid:<guid>`
+  // references whose target Medication carries a DIFFERENT `.id`), plus `Medication/<id>` and the
+  // bare `<id>`. `contained` (`#<id>`) Medications are resolved from the referencing resource itself.
+  const medicationByKey = new Map<string, Record<string, unknown>>();
   for (const entry of bundle?.entry ?? []) {
     const resource = asObj(entry?.resource);
-    if (resource) resources.push(resource);
+    if (!resource) continue;
+    resources.push(resource);
+    if (resource.resourceType === 'Medication') {
+      const id = str(resource.id);
+      if (id) {
+        medicationByKey.set(`Medication/${id}`, resource);
+        medicationByKey.set(id, resource);
+      }
+      // fullUrl set last so it wins any pathological key collision (contract: fullUrl matched first).
+      const fullUrl = str(entry?.fullUrl);
+      if (fullUrl) medicationByKey.set(fullUrl, resource);
+    }
   }
 
   const byType = (type: string): Record<string, unknown>[] =>
     resources.filter((r) => r.resourceType === type);
-
-  // `_include`d Medication resources, indexed by id for `medicationReference` resolution.
-  const medicationById = new Map<string, Record<string, unknown>>();
-  for (const med of byType('Medication')) {
-    const id = str(med.id);
-    if (id) medicationById.set(id, med);
-  }
 
   // --- Proband identity: Patient read ONLY for identity + birthDate (never demographics) ---
   const patients = byType('Patient');
@@ -826,23 +851,24 @@ export function parseFhirImport(
   }
 
   // --- Full-timeline events (Wave 2/3): dispatch each event resource to its pure mapper. ---
-  const sink: EventSink = { events: [], absence: 0, incomplete: 0 };
+  const sink: EventSink = { events: [], absence: 0, incomplete: 0, missingId: 0 };
   for (const resource of resources) {
     const type = str(resource.resourceType);
     if (!type || !EVENT_RESOURCE_TYPES.has(type)) continue;
     const id = str(resource.id);
     if (!id) {
-      // No id ⇒ no deterministic dedup identity; never fabricate one — drop + count.
-      sink.incomplete++;
+      // No id ⇒ no deterministic dedup identity; never fabricate one — drop + count in its OWN
+      // (identifier) bucket, distinct from the no-usable-date bucket.
+      sink.missingId++;
       continue;
     }
     const parseId = `fhir:${type}:${id}`;
     switch (type) {
       case 'MedicationStatement':
-        mapMedication(resource, parseId, medicationById, sink, 'statement');
+        mapMedication(resource, parseId, medicationByKey, sink, 'statement');
         break;
       case 'MedicationRequest':
-        mapMedication(resource, parseId, medicationById, sink, 'request');
+        mapMedication(resource, parseId, medicationByKey, sink, 'request');
         break;
       case 'Observation':
         mapObservation(resource, parseId, sink);
@@ -873,6 +899,13 @@ export function parseFhirImport(
       `${sink.incomplete} timeline ${sink.incomplete === 1 ? 'event was' : 'events were'} not imported because ${
         sink.incomplete === 1 ? 'it was' : 'they were'
       } missing a usable date.`,
+    );
+  }
+  if (sink.missingId) {
+    warnings.push(
+      `${sink.missingId} timeline ${sink.missingId === 1 ? 'event was' : 'events were'} not imported because ${
+        sink.missingId === 1 ? 'it was' : 'they were'
+      } missing an identifier.`,
     );
   }
 

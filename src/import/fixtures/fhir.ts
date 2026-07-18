@@ -263,16 +263,23 @@ export interface FixtureMedicationOpts {
   id: string;
   codings?: FixtureCoding[];
   text?: string;
+  /** Override this Medication's `entry.fullUrl` when wrapped by {@link fhirBundle} — models a
+   * server (Epic in the wild) that emits `urn:uuid:<guid>` as the entry's `fullUrl` while the
+   * Medication resource's own `.id` is a DIFFERENT internal id. A `medicationReference` that
+   * points at the `urn:uuid:` form must still resolve against this fullUrl, not the `.id`. */
+  entryFullUrl?: string;
 }
 
 /** A standalone `Medication` resource — for a `_include`d bundle entry the parser resolves a
  * `medicationReference` against (by `fullUrl` / `resource.id`). */
 export function medicationResource(opts: FixtureMedicationOpts): FhirBundleResource {
-  return {
+  const resource: FhirBundleResource = {
     resourceType: 'Medication',
     id: opts.id,
     code: codeableConcept(opts.codings, opts.text),
   };
+  if (opts.entryFullUrl) resource.entryFullUrl = opts.entryFullUrl;
+  return resource;
 }
 
 type SettledOrInterimStatus = string;
@@ -286,6 +293,10 @@ export interface FixtureMedicationStatementOpts {
   /** Renders `medicationReference: { reference: 'Medication/<id>' }` — resolved against a
    * separate, `_include`d `Medication` bundle entry with that id. */
   medicationReferenceId?: string;
+  /** Renders `medicationReference: { reference: <verbatim> }` — for a raw reference form
+   * `medicationReferenceId`'s `Medication/<id>` convenience doesn't cover, e.g. Epic's
+   * `urn:uuid:<guid>` pattern matched against an included Medication's `entry.fullUrl`. */
+  medicationReferenceRaw?: string;
   /** Renders a `contained` Medication + a `medicationReference` pointing at `#<id>`. */
   containedMedication?: FixtureMedicationOpts;
   effectiveDateTime?: string;
@@ -307,6 +318,8 @@ export function medicationStatementResource(
       { ...medicationResource(opts.containedMedication), id: opts.containedMedication.id },
     ];
     resource.medicationReference = { reference: `#${opts.containedMedication.id}` };
+  } else if (opts.medicationReferenceRaw) {
+    resource.medicationReference = { reference: opts.medicationReferenceRaw };
   } else if (opts.medicationReferenceId) {
     resource.medicationReference = { reference: `Medication/${opts.medicationReferenceId}` };
   } else {
@@ -329,6 +342,9 @@ export interface FixtureMedicationRequestOpts {
   medicationCodings?: FixtureCoding[];
   medicationText?: string;
   medicationReferenceId?: string;
+  /** Renders `medicationReference: { reference: <verbatim> }` — see
+   * {@link FixtureMedicationStatementOpts.medicationReferenceRaw}. */
+  medicationReferenceRaw?: string;
   containedMedication?: FixtureMedicationOpts;
   authoredOn?: string;
   dosageText?: string;
@@ -346,6 +362,8 @@ export function medicationRequestResource(opts: FixtureMedicationRequestOpts): F
       { ...medicationResource(opts.containedMedication), id: opts.containedMedication.id },
     ];
     resource.medicationReference = { reference: `#${opts.containedMedication.id}` };
+  } else if (opts.medicationReferenceRaw) {
+    resource.medicationReference = { reference: opts.medicationReferenceRaw };
   } else if (opts.medicationReferenceId) {
     resource.medicationReference = { reference: `Medication/${opts.medicationReferenceId}` };
   } else {
@@ -365,13 +383,23 @@ export function medicationRequestResource(opts: FixtureMedicationRequestOpts): F
 
 export interface FixtureValueQuantity {
   value: number;
-  unit: string;
+  /** The human `unit` display. Omit (with `code` set) to model a UCUM code-only value — the
+   * fallback the parser reads from `Quantity.code` when a conformant server sends only the
+   * coded unit, never a `unit` display string. */
+  unit?: string;
+  code?: string;
+}
+
+export interface FixtureReferenceRangeBound {
+  value: number;
+  /** The human `unit` display. Omit (with `code` set) to model a code-only bound. */
+  unit?: string;
   code?: string;
 }
 
 export interface FixtureReferenceRange {
-  low?: { value: number; unit: string };
-  high?: { value: number; unit: string };
+  low?: FixtureReferenceRangeBound;
+  high?: FixtureReferenceRangeBound;
 }
 
 export interface FixtureObservationOpts {
@@ -409,19 +437,27 @@ export function observationResource(opts: FixtureObservationOpts): FhirBundleRes
     resource.effectivePeriod = { start: opts.effectivePeriodStart };
   else if (opts.issued) resource.issued = opts.issued;
   if (opts.valueQuantity) {
+    const vq = opts.valueQuantity;
     resource.valueQuantity = {
-      value: opts.valueQuantity.value,
-      unit: opts.valueQuantity.unit,
+      value: vq.value,
       system: SYS.ucum,
-      code: opts.valueQuantity.code ?? opts.valueQuantity.unit,
+      ...(vq.unit != null ? { unit: vq.unit } : {}),
+      // Default `code` from `unit` (mirrors a real server) only when `unit` is present; a
+      // deliberately unit-less fixture must supply `code` explicitly (the UCUM code-only case).
+      ...(vq.code != null ? { code: vq.code } : vq.unit != null ? { code: vq.unit } : {}),
     };
   } else if (opts.valueString) {
     resource.valueString = opts.valueString;
   }
   if (opts.referenceRanges?.length) {
+    const bound = (b: FixtureReferenceRangeBound) => ({
+      value: b.value,
+      ...(b.unit != null ? { unit: b.unit } : {}),
+      ...(b.code != null ? { code: b.code } : {}),
+    });
     resource.referenceRange = opts.referenceRanges.map((r) => ({
-      ...(r.low ? { low: { value: r.low.value, unit: r.low.unit } } : {}),
-      ...(r.high ? { high: { value: r.high.value, unit: r.high.unit } } : {}),
+      ...(r.low ? { low: bound(r.low) } : {}),
+      ...(r.high ? { high: bound(r.high) } : {}),
     }));
   }
   return resource;
@@ -590,6 +626,11 @@ export function encounterResource(opts: FixtureEncounterOpts): FhirBundleResourc
 export interface FhirBundleResource {
   resourceType: string;
   id?: string;
+  /** Override the auto-derived `entry.fullUrl` (`<ResourceType>/<id>`) that {@link fhirBundle}
+   * would otherwise compute — models a server (Epic) emitting a `urn:uuid:<guid>` fullUrl for a
+   * resource whose own `.id` differs. Stripped from the emitted resource JSON (it is a pseudo
+   * field the entry wrapper consumes, not real FHIR content). */
+  entryFullUrl?: string;
   [key: string]: unknown;
 }
 
@@ -597,7 +638,8 @@ export interface FhirBundleResource {
  * Wrap a list of resources into a `searchset` Bundle — the shape `parseFhirImport` consumes.
  * Each entry with an `id` gets a `fullUrl` of `<ResourceType>/<id>` (mirroring what a real FHIR
  * server emits), so `_include`d resources — e.g. a `Medication` a `medicationReference` points
- * at — can be resolved by reference the same way a live bundle would resolve them.
+ * at — can be resolved by reference the same way a live bundle would resolve them. A resource
+ * carrying `entryFullUrl` (see {@link FhirBundleResource}) gets that verbatim fullUrl instead.
  */
 export function fhirBundle(resources: FhirBundleResource[]): {
   resourceType: 'Bundle';
@@ -607,9 +649,14 @@ export function fhirBundle(resources: FhirBundleResource[]): {
   return {
     resourceType: 'Bundle',
     type: 'searchset',
-    entry: resources.map((r) => ({
-      ...(r.id ? { fullUrl: `${r.resourceType}/${r.id}` } : {}),
-      resource: r,
-    })),
+    entry: resources.map((r) => {
+      const { entryFullUrl, ...resource } = r;
+      const fullUrl =
+        entryFullUrl ?? (resource.id ? `${resource.resourceType}/${resource.id}` : undefined);
+      return {
+        ...(fullUrl ? { fullUrl } : {}),
+        resource,
+      };
+    }),
   };
 }

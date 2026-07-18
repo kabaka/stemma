@@ -1348,6 +1348,85 @@ describe('parseFhirImport — medication payload resolution', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Medication payload resolution — fullUrl / urn:uuid (Epic pattern)
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — medicationReference resolves against entry.fullUrl (Epic urn:uuid pattern)', () => {
+  const guid = '5b3a1e2a-9c4b-4abc-9def-abcdef012345';
+
+  it("resolves a `urn:uuid:<guid>` medicationReference matched against the included Medication's entry.fullUrl, even when the Medication's own `.id` is a DIFFERENT internal id", () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationResource({
+        id: 'med-internal-99', // deliberately different from the urn:uuid the reference uses
+        codings: [RXNORM_METFORMIN],
+        entryFullUrl: `urn:uuid:${guid}`,
+      }),
+      medicationRequestResource({
+        id: 'mr-urn',
+        status: 'active',
+        medicationReferenceRaw: `urn:uuid:${guid}`,
+        authoredOn: '2020-05-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+
+    // Resolved to the real Medication's coding/name — an id-only resolver (matching only
+    // `.id`/`Medication/<id>`) would find no entry keyed by the urn:uuid and fall through to the
+    // generic unresolved fallback below, failing both of these.
+    expect(staged.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    expect(staged.title).toMatch(/metformin/i);
+    expect(staged.title).not.toBe('Medication'); // not the unresolved-reference fallback title
+    expect(staged.status).toBe('new'); // resolved — never needs-review for this reason
+  });
+
+  it('BOTH the urn:uuid-fullUrl form and the plain `Medication/<id>` form resolve correctly in the same bundle', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationResource({
+        id: 'med-internal-99',
+        codings: [RXNORM_METFORMIN],
+        entryFullUrl: `urn:uuid:${guid}`,
+      }),
+      medicationResource({
+        id: 'med-plain',
+        codings: [
+          { system: SYS.rxnorm, code: '197361', display: 'Atorvastatin 20 MG Oral Tablet' },
+        ],
+      }),
+      medicationRequestResource({
+        id: 'mr-urn',
+        status: 'active',
+        medicationReferenceRaw: `urn:uuid:${guid}`,
+        authoredOn: '2020-05-01',
+      }),
+      medicationStatementResource({
+        id: 'ms-plain',
+        status: 'active',
+        medicationReferenceId: 'med-plain',
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    const events = stagedEvents(bundle);
+    expect(events).toHaveLength(2);
+
+    const urnEvent = events.find((e) => e.parseId === 'fhir:MedicationRequest:mr-urn');
+    expect(urnEvent?.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    expect(urnEvent?.status).toBe('new');
+
+    const plainEvent = events.find((e) => e.parseId === 'fhir:MedicationStatement:ms-plain');
+    expect(plainEvent?.coding).toEqual([
+      { system: SYS.rxnorm, code: '197361', display: 'Atorvastatin 20 MG Oral Tablet' },
+    ]);
+    expect(plainEvent?.status).toBe('new');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Observation/laboratory — status disposition
 // ---------------------------------------------------------------------------
 
@@ -1507,6 +1586,66 @@ describe('parseFhirImport — Observation value & referenceRange', () => {
     ]);
     const lab = stagedEvents(bundle)[0].lab;
     expect(lab).toEqual({ value: 95, unit: 'mg/dL' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation value — UCUM `code`-only fallback (no `unit` display)
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation valueQuantity: UCUM `code` fallback when `unit` is absent', () => {
+  it('a value carrying only a UCUM `code` (no `unit` display) is imported, using the code as the unit — never silently dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' }, // NO `unit` display, code-only
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L' });
+  });
+
+  it('a code-only referenceRange bound whose `code` matches the code-only value unit still attaches (refLow/refHigh)', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum-range',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' },
+        referenceRanges: [
+          { low: { value: 3.0, code: 'mmol/L' }, high: { value: 5.2, code: 'mmol/L' } },
+        ],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L', refLow: 3.0, refHigh: 5.2 });
+  });
+
+  it('a code-only value with a genuinely mismatched code-only referenceRange bound drops the range but keeps the value', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum-mismatch',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' },
+        referenceRanges: [
+          { low: { value: 150, code: 'mg/dL' }, high: { value: 200, code: 'mg/dL' } },
+        ],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L' });
   });
 });
 
@@ -2067,6 +2206,69 @@ describe('parseFhirImport — explicit-date-only: a resource with no usable date
       immunizationResource({ id: 'imm1', status: 'completed', vaccineCodings: [CVX_FLU] }),
     ]);
     expect(parsedEvents(bundle)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missing identifier vs missing usable date — two DISTINCT drop buckets/warnings
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — a resource missing `id` is a DISTINCT drop reason from "no usable date"', () => {
+  it('a resource with a valid date but NO `id` is dropped and produces the "missing an identifier" warning — never the "missing a usable date" one', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      // Deliberately built without `id` (the fixture builders all require one) — the raw shape a
+      // hostile or malformed server entry could still take.
+      {
+        resourceType: 'Procedure',
+        status: 'completed',
+        subject: { reference: 'Patient/pat-1' },
+        code: { text: 'Appendectomy' },
+        performedDateTime: '2020-06-01',
+      },
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0); // never fabricates a dedup identity
+    expect(parsed.warnings.some((w) => /missing an identifier/i.test(w))).toBe(true);
+    expect(parsed.warnings.some((w) => /missing a usable date/i.test(w))).toBe(false);
+  });
+
+  it('a resource with an `id` but no usable date is dropped and produces the "missing a usable date" warning — never the "missing an identifier" one', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      procedureResource({ id: 'proc-nodate', status: 'completed', codings: [SNOMED_APPENDECTOMY] }),
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0);
+    expect(parsed.warnings.some((w) => /missing a usable date/i.test(w))).toBe(true);
+    expect(parsed.warnings.some((w) => /missing an identifier/i.test(w))).toBe(false);
+  });
+
+  it('one of each in the same bundle produces two SEPARATE warning strings, each singular — not merged into one bucket', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      {
+        resourceType: 'Procedure',
+        status: 'completed',
+        subject: { reference: 'Patient/pat-1' },
+        code: { text: 'Appendectomy (no id)' },
+        performedDateTime: '2020-06-01',
+      },
+      procedureResource({ id: 'proc-nodate', status: 'completed', codings: [SNOMED_APPENDECTOMY] }),
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0);
+
+    const idWarning = parsed.warnings.find((w) => /missing an identifier/i.test(w));
+    const dateWarning = parsed.warnings.find((w) => /missing a usable date/i.test(w));
+    expect(idWarning).toBeDefined();
+    expect(dateWarning).toBeDefined();
+    expect(idWarning).not.toBe(dateWarning);
+    // Singular wording ("1 ... was", not "2 ... were") proves each bucket counted only its own
+    // resource — a pre-fix implementation that lumped both into `incomplete` would report
+    // "2 timeline events were ... missing a usable date" and no identifier warning at all.
+    expect(idWarning).toMatch(/^1 timeline event was .* missing an identifier\.$/);
+    expect(dateWarning).toMatch(/^1 timeline event was .* missing a usable date\.$/);
   });
 });
 
