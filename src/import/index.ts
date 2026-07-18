@@ -37,8 +37,10 @@ export type {
 export { stageHealthRecordImport, applyHealthRecordImport } from './health-record';
 export type {
   ParsedHealthRecord,
+  ParsedEvent,
   ProblemEntry,
   RelativeEntry,
+  StagedEvent,
   StagedHealthRecordImport,
   HealthRecordSelections,
   MemberOverride,

@@ -28,7 +28,25 @@ export const SYS = {
   adminGender: 'http://hl7.org/fhir/administrative-gender',
   absentReason: 'http://terminology.hl7.org/CodeSystem/history-absent-reason',
   usCoreBirthsex: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex',
+  // --- Wave 2/3: full-timeline event resources (verified real system URIs — never invented) ---
+  rxnorm: 'http://www.nlm.nih.gov/research/umls/rxnorm',
+  cvx: 'http://hl7.org/fhir/sid/cvx',
+  loinc: 'http://loinc.org',
+  ucum: 'http://unitsofmeasure.org',
+  ndc: 'http://hl7.org/fhir/sid/ndc',
+  cpt: 'http://www.ama-assn.org/go/cpt',
+  hcpcs: 'https://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets',
+  allergyVerification: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification',
+  allergyClinical: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+  obsCategory: 'http://terminology.hl7.org/CodeSystem/observation-category',
+  v2_0074: 'http://terminology.hl7.org/CodeSystem/v2-0074',
+  actCode: 'http://terminology.hl7.org/CodeSystem/v3-ActCode',
 };
+
+/** Genetic LOINC codes the contract's medical-verified section names — classify an Observation as
+ * `genetic` when `Observation.code`/`component[].code` carries one of these, even absent a v2-0074
+ * genomics category tag. No universal `category=genomics` code exists; do not invent one. */
+export const GENETIC_LOINC_CODES = ['69548-6', '48004-6', '81290-9', '81291-7', '48013-7'] as const;
 
 /** The "no known family history of X" / coded-absence SNOMED concept ccda.ts's `ABSENCE_SNOMED`
  * already recognizes — the FHIR analog re-uses the same code. */
@@ -238,6 +256,334 @@ export function familyMemberHistoryResource(opts: FixtureFmhOpts): FhirBundleRes
 }
 
 // ---------------------------------------------------------------------------
+// Medication / MedicationStatement / MedicationRequest
+// ---------------------------------------------------------------------------
+
+export interface FixtureMedicationOpts {
+  id: string;
+  codings?: FixtureCoding[];
+  text?: string;
+}
+
+/** A standalone `Medication` resource — for a `_include`d bundle entry the parser resolves a
+ * `medicationReference` against (by `fullUrl` / `resource.id`). */
+export function medicationResource(opts: FixtureMedicationOpts): FhirBundleResource {
+  return {
+    resourceType: 'Medication',
+    id: opts.id,
+    code: codeableConcept(opts.codings, opts.text),
+  };
+}
+
+type SettledOrInterimStatus = string;
+
+export interface FixtureMedicationStatementOpts {
+  id: string;
+  subjectRef?: string;
+  status: SettledOrInterimStatus;
+  medicationCodings?: FixtureCoding[];
+  medicationText?: string;
+  /** Renders `medicationReference: { reference: 'Medication/<id>' }` — resolved against a
+   * separate, `_include`d `Medication` bundle entry with that id. */
+  medicationReferenceId?: string;
+  /** Renders a `contained` Medication + a `medicationReference` pointing at `#<id>`. */
+  containedMedication?: FixtureMedicationOpts;
+  effectiveDateTime?: string;
+  effectivePeriodStart?: string;
+  dosageText?: string;
+}
+
+export function medicationStatementResource(
+  opts: FixtureMedicationStatementOpts,
+): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'MedicationStatement',
+    id: opts.id,
+    status: opts.status,
+    subject: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+  };
+  if (opts.containedMedication) {
+    resource.contained = [
+      { ...medicationResource(opts.containedMedication), id: opts.containedMedication.id },
+    ];
+    resource.medicationReference = { reference: `#${opts.containedMedication.id}` };
+  } else if (opts.medicationReferenceId) {
+    resource.medicationReference = { reference: `Medication/${opts.medicationReferenceId}` };
+  } else {
+    resource.medicationCodeableConcept = codeableConcept(
+      opts.medicationCodings,
+      opts.medicationText,
+    );
+  }
+  if (opts.effectiveDateTime) resource.effectiveDateTime = opts.effectiveDateTime;
+  else if (opts.effectivePeriodStart)
+    resource.effectivePeriod = { start: opts.effectivePeriodStart };
+  if (opts.dosageText) resource.dosage = [{ text: opts.dosageText }];
+  return resource;
+}
+
+export interface FixtureMedicationRequestOpts {
+  id: string;
+  subjectRef?: string;
+  status: SettledOrInterimStatus;
+  medicationCodings?: FixtureCoding[];
+  medicationText?: string;
+  medicationReferenceId?: string;
+  containedMedication?: FixtureMedicationOpts;
+  authoredOn?: string;
+  dosageText?: string;
+}
+
+export function medicationRequestResource(opts: FixtureMedicationRequestOpts): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'MedicationRequest',
+    id: opts.id,
+    status: opts.status,
+    subject: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+  };
+  if (opts.containedMedication) {
+    resource.contained = [
+      { ...medicationResource(opts.containedMedication), id: opts.containedMedication.id },
+    ];
+    resource.medicationReference = { reference: `#${opts.containedMedication.id}` };
+  } else if (opts.medicationReferenceId) {
+    resource.medicationReference = { reference: `Medication/${opts.medicationReferenceId}` };
+  } else {
+    resource.medicationCodeableConcept = codeableConcept(
+      opts.medicationCodings,
+      opts.medicationText,
+    );
+  }
+  if (opts.authoredOn) resource.authoredOn = opts.authoredOn;
+  if (opts.dosageText) resource.dosageInstruction = [{ text: opts.dosageText }];
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
+// Observation (laboratory / vital-signs / genomic)
+// ---------------------------------------------------------------------------
+
+export interface FixtureValueQuantity {
+  value: number;
+  unit: string;
+  code?: string;
+}
+
+export interface FixtureReferenceRange {
+  low?: { value: number; unit: string };
+  high?: { value: number; unit: string };
+}
+
+export interface FixtureObservationOpts {
+  id: string;
+  subjectRef?: string;
+  category: 'laboratory' | 'vital-signs' | 'social-history';
+  status: SettledOrInterimStatus;
+  codings?: FixtureCoding[];
+  text?: string;
+  effectiveDateTime?: string;
+  effectivePeriodStart?: string;
+  issued?: string;
+  valueQuantity?: FixtureValueQuantity;
+  valueString?: string;
+  referenceRanges?: FixtureReferenceRange[];
+  /** Adds a second `category` coding `{system: v2-0074, code}` — the genomics tag. */
+  genomicCategoryCode?: 'GE' | 'CG';
+}
+
+export function observationResource(opts: FixtureObservationOpts): FhirBundleResource {
+  const categoryCodings: FixtureCoding[] = [{ system: SYS.obsCategory, code: opts.category }];
+  if (opts.genomicCategoryCode) {
+    categoryCodings.push({ system: SYS.v2_0074, code: opts.genomicCategoryCode });
+  }
+  const resource: FhirBundleResource = {
+    resourceType: 'Observation',
+    id: opts.id,
+    status: opts.status,
+    category: [{ coding: categoryCodings }],
+    code: codeableConcept(opts.codings, opts.text),
+    subject: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+  };
+  if (opts.effectiveDateTime) resource.effectiveDateTime = opts.effectiveDateTime;
+  else if (opts.effectivePeriodStart)
+    resource.effectivePeriod = { start: opts.effectivePeriodStart };
+  else if (opts.issued) resource.issued = opts.issued;
+  if (opts.valueQuantity) {
+    resource.valueQuantity = {
+      value: opts.valueQuantity.value,
+      unit: opts.valueQuantity.unit,
+      system: SYS.ucum,
+      code: opts.valueQuantity.code ?? opts.valueQuantity.unit,
+    };
+  } else if (opts.valueString) {
+    resource.valueString = opts.valueString;
+  }
+  if (opts.referenceRanges?.length) {
+    resource.referenceRange = opts.referenceRanges.map((r) => ({
+      ...(r.low ? { low: { value: r.low.value, unit: r.low.unit } } : {}),
+      ...(r.high ? { high: { value: r.high.value, unit: r.high.unit } } : {}),
+    }));
+  }
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
+// Immunization
+// ---------------------------------------------------------------------------
+
+export interface FixtureImmunizationOpts {
+  id: string;
+  subjectRef?: string;
+  status: 'completed' | 'not-done' | 'entered-in-error';
+  occurrenceDateTime?: string;
+  vaccineCodings?: FixtureCoding[];
+  vaccineText?: string;
+  doseNumber?: number;
+}
+
+export function immunizationResource(opts: FixtureImmunizationOpts): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'Immunization',
+    id: opts.id,
+    status: opts.status,
+    patient: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+    vaccineCode: codeableConcept(opts.vaccineCodings, opts.vaccineText),
+  };
+  if (opts.occurrenceDateTime) resource.occurrenceDateTime = opts.occurrenceDateTime;
+  if (opts.doseNumber != null)
+    resource.protocolApplied = [{ doseNumberPositiveInt: opts.doseNumber }];
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
+// AllergyIntolerance
+// ---------------------------------------------------------------------------
+
+export interface FixtureReactionOpts {
+  manifestationCodings?: FixtureCoding[];
+  manifestationText?: string;
+  description?: string;
+  severity?: 'mild' | 'moderate' | 'severe';
+}
+
+export interface FixtureAllergyOpts {
+  id: string;
+  patientRef?: string;
+  verificationStatus?: 'confirmed' | 'unconfirmed' | 'refuted' | 'entered-in-error';
+  /** Omit entirely to simulate a server that never populated verificationStatus (→ interim). */
+  omitVerificationStatus?: boolean;
+  clinicalStatus?: 'active' | 'inactive' | 'resolved';
+  codings?: FixtureCoding[];
+  text?: string;
+  reactions?: FixtureReactionOpts[];
+  /** Deliberately settable to a DIFFERENT bucket than `reactions[].severity`, so a fixture can
+   * prove the parser reads reaction severity, never criticality. */
+  criticality?: 'low' | 'high' | 'unable-to-assess';
+  onsetDateTime?: string;
+  onsetPeriodStart?: string;
+  onsetAgeYears?: number;
+  onsetString?: string;
+  /** Administrative timestamp — must NEVER be read as clinical onset. */
+  recordedDate?: string;
+}
+
+export function allergyIntoleranceResource(opts: FixtureAllergyOpts): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'AllergyIntolerance',
+    id: opts.id,
+    patient: { reference: opts.patientRef ?? 'Patient/pat-1' },
+    code: codeableConcept(opts.codings, opts.text),
+  };
+  if (!opts.omitVerificationStatus) {
+    resource.verificationStatus = {
+      coding: [{ system: SYS.allergyVerification, code: opts.verificationStatus ?? 'confirmed' }],
+    };
+  }
+  if (opts.clinicalStatus) {
+    resource.clinicalStatus = {
+      coding: [{ system: SYS.allergyClinical, code: opts.clinicalStatus }],
+    };
+  }
+  if (opts.criticality) resource.criticality = opts.criticality;
+  if (opts.reactions?.length) {
+    resource.reaction = opts.reactions.map((r) => ({
+      ...(r.manifestationCodings?.length || r.manifestationText
+        ? { manifestation: [codeableConcept(r.manifestationCodings, r.manifestationText)] }
+        : {}),
+      ...(r.description ? { description: r.description } : {}),
+      ...(r.severity ? { severity: r.severity } : {}),
+    }));
+  }
+  if (opts.onsetDateTime) resource.onsetDateTime = opts.onsetDateTime;
+  else if (opts.onsetPeriodStart) resource.onsetPeriod = { start: opts.onsetPeriodStart };
+  else if (opts.onsetAgeYears != null) {
+    resource.onsetAge = { value: opts.onsetAgeYears, unit: 'years', system: SYS.ucum, code: 'a' };
+  } else if (opts.onsetString) resource.onsetString = opts.onsetString;
+  if (opts.recordedDate) resource.recordedDate = opts.recordedDate;
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
+// Procedure
+// ---------------------------------------------------------------------------
+
+export interface FixtureProcedureOpts {
+  id: string;
+  subjectRef?: string;
+  status: SettledOrInterimStatus;
+  performedDateTime?: string;
+  performedPeriodStart?: string;
+  codings?: FixtureCoding[];
+  text?: string;
+}
+
+export function procedureResource(opts: FixtureProcedureOpts): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'Procedure',
+    id: opts.id,
+    status: opts.status,
+    subject: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+    code: codeableConcept(opts.codings, opts.text),
+  };
+  if (opts.performedDateTime) resource.performedDateTime = opts.performedDateTime;
+  else if (opts.performedPeriodStart)
+    resource.performedPeriod = { start: opts.performedPeriodStart };
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
+// Encounter
+// ---------------------------------------------------------------------------
+
+export interface FixtureEncounterOpts {
+  id: string;
+  subjectRef?: string;
+  status: SettledOrInterimStatus;
+  periodStart?: string;
+  typeCodings?: FixtureCoding[];
+  typeText?: string;
+  classCode?: string;
+  classDisplay?: string;
+}
+
+export function encounterResource(opts: FixtureEncounterOpts): FhirBundleResource {
+  const resource: FhirBundleResource = {
+    resourceType: 'Encounter',
+    id: opts.id,
+    status: opts.status,
+    subject: { reference: opts.subjectRef ?? 'Patient/pat-1' },
+  };
+  if (opts.periodStart) resource.period = { start: opts.periodStart };
+  if (opts.typeCodings?.length || opts.typeText) {
+    resource.type = [codeableConcept(opts.typeCodings, opts.typeText)];
+  }
+  if (opts.classCode) {
+    resource.class = { system: SYS.actCode, code: opts.classCode, display: opts.classDisplay };
+  }
+  return resource;
+}
+
+// ---------------------------------------------------------------------------
 // Bundle assembly
 // ---------------------------------------------------------------------------
 
@@ -247,15 +593,23 @@ export interface FhirBundleResource {
   [key: string]: unknown;
 }
 
-/** Wrap a list of resources into a `searchset` Bundle — the shape `parseFhirImport` consumes. */
+/**
+ * Wrap a list of resources into a `searchset` Bundle — the shape `parseFhirImport` consumes.
+ * Each entry with an `id` gets a `fullUrl` of `<ResourceType>/<id>` (mirroring what a real FHIR
+ * server emits), so `_include`d resources — e.g. a `Medication` a `medicationReference` points
+ * at — can be resolved by reference the same way a live bundle would resolve them.
+ */
 export function fhirBundle(resources: FhirBundleResource[]): {
   resourceType: 'Bundle';
   type: string;
-  entry: { resource: FhirBundleResource }[];
+  entry: { fullUrl?: string; resource: FhirBundleResource }[];
 } {
   return {
     resourceType: 'Bundle',
     type: 'searchset',
-    entry: resources.map((r) => ({ resource: r })),
+    entry: resources.map((r) => ({
+      ...(r.id ? { fullUrl: `${r.resourceType}/${r.id}` } : {}),
+      resource: r,
+    })),
   };
 }

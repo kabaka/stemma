@@ -22,7 +22,21 @@
  * `store`, `ui`, or `integrations`. The long-tail condition shape is the shared
  * {@link conditionFromCode} in `domain/catalog`, so no `import → integrations` dependency is needed.
  */
-import type { Condition, ConditionEntry, FamilyRecord, Gender, Person, Sab } from '@/domain/types';
+import type {
+  AllergyInfo,
+  Coding,
+  Condition,
+  ConditionEntry,
+  EventType,
+  FamilyRecord,
+  Gender,
+  ImmunizationInfo,
+  Measurement,
+  MedicationInfo,
+  PartialDate,
+  Person,
+  Sab,
+} from '@/domain/types';
 import { conditionFromCode, sanitizeExtensions, type Catalog } from '@/domain/catalog';
 import { layoutFromGraph, linkRelative, type Relation } from '@/domain/record';
 import {
@@ -68,9 +82,56 @@ export interface RelativeEntry {
   problems: ProblemEntry[];
 }
 
+/**
+ * One dated, non-diagnosis health event parsed from a record (Wave 2/3 full-timeline import) — a
+ * medication, lab, vital, genetic test-of-record, immunization, allergy, procedure, or visit. The
+ * source-agnostic engine stages and applies these identically for every importer; the per-source
+ * parser (FHIR today) owns the mapping into this shape. A resource with no usable date is DROPPED at
+ * parse and never reaches here (`year` is required, never fabricated — guardrail #1).
+ */
+export interface ParsedEvent {
+  /** Deterministic dedup identity, e.g. `"fhir:MedicationStatement:<id>"`. */
+  parseId: string;
+  type: Exclude<EventType, 'diagnosis' | 'screening'>;
+  year: number;
+  /** Higher-precision echo of `year` when the source gave one; its year component equals `year`. */
+  date?: PartialDate;
+  title: string;
+  detail: string;
+  /** Verified-system codings only, verbatim; `[]` when none (normalized to `undefined` on apply). */
+  coding: Coding[];
+  med?: MedicationInfo;
+  lab?: Measurement;
+  vital?: Measurement;
+  allergy?: AllergyInfo;
+  immunization?: ImmunizationInfo;
+  /** Interim status OR a blanket-default-off type (Encounter, genetic) → surfaced needs-review. */
+  needsReview: boolean;
+}
+
+/** A parsed event reconciled against the live timeline (dedup by `parseId`). */
+export interface StagedEvent {
+  parseId: string;
+  type: Exclude<EventType, 'diagnosis' | 'screening'>;
+  year: number;
+  date?: PartialDate;
+  title: string;
+  detail: string;
+  coding: Coding[];
+  med?: MedicationInfo;
+  lab?: Measurement;
+  vital?: Measurement;
+  allergy?: AllergyInfo;
+  immunization?: ImmunizationInfo;
+  /** `'new'` = not already on the timeline & importable; `'duplicate'` = already imported (by id);
+   * `'needs-review'` = interim/blanket-default-off (defaults OFF). */
+  status: 'new' | 'duplicate' | 'needs-review';
+  defaultSelected: boolean;
+}
+
 /** The structural result of parsing a health record, before reconciliation against the live record. */
 export interface ParsedHealthRecord {
-  proband: { problems: ProblemEntry[] };
+  proband: { problems: ProblemEntry[]; events: ParsedEvent[] };
   familyMembers: RelativeEntry[];
   warnings: string[];
 }
@@ -113,10 +174,11 @@ export interface StagedFamilyMember {
   death: { year: number | null; dead: boolean | null };
 }
 
-/** The full staged import: proband conditions + reconciled relatives + carried-through warnings. */
+/** The full staged import: proband conditions + reconciled relatives + timeline events + warnings. */
 export interface StagedHealthRecordImport {
   probandConditions: StagedCondition[];
   familyMembers: StagedFamilyMember[];
+  events: StagedEvent[];
   warnings: string[];
 }
 
@@ -302,13 +364,24 @@ export function ageToYears(value: string, unit: string): number | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Input to {@link stageHealthRecordImport}. Structurally a {@link ParsedHealthRecord} except that
+ * `proband.events` is OPTIONAL here: the C-CDA importer (and any family-history-only parse) has no
+ * timeline events and may omit the field entirely — it defaults to none. {@link parseFhirImport}
+ * always supplies it. Keeping the engine's input tolerant is what makes the Wave 2/3 `events`
+ * addition backward-compatible for every pre-existing caller (guardrail: additive, never breaking).
+ */
+export type ParsedHealthRecordInput = Omit<ParsedHealthRecord, 'proband'> & {
+  proband: { problems: ProblemEntry[]; events?: ParsedEvent[] };
+};
+
+/**
  * Reconcile a {@link ParsedHealthRecord} against the live record and catalog: resolve each problem
  * to a catalog id (or a long-tail / needs-review suggestion), flag proband-condition duplicates, and
  * assign each relative a conservative placement + match status. Read-only over the record — it
  * mutates nothing and returns the suggestions the review UI renders. Pure and deterministic.
  */
 export function stageHealthRecordImport(
-  parsed: ParsedHealthRecord,
+  parsed: ParsedHealthRecordInput,
   record: FamilyRecord,
   catalog: Catalog,
 ): StagedHealthRecordImport {
@@ -321,7 +394,39 @@ export function stageHealthRecordImport(
   );
   const familyMembers = parsed.familyMembers.map((m) => stageFamilyMember(m, record, idx, catalog));
 
-  return { probandConditions, familyMembers, warnings: [...parsed.warnings] };
+  const timelineIds = new Set(record.timeline.map((t) => t.id));
+  const events = (parsed.proband.events ?? []).map((e) => stageEvent(e, timelineIds));
+
+  return { probandConditions, familyMembers, events, warnings: [...parsed.warnings] };
+}
+
+/**
+ * Reconcile one parsed event against the ids already on the timeline: a matching `parseId` is a
+ * `'duplicate'` (re-sync of a prior import); otherwise a `needsReview` event is `'needs-review'`
+ * (interim / blanket-default-off) and everything else is `'new'`. Only `'new'` defaults selected.
+ */
+function stageEvent(e: ParsedEvent, timelineIds: ReadonlySet<string>): StagedEvent {
+  const status: StagedEvent['status'] = timelineIds.has(e.parseId)
+    ? 'duplicate'
+    : e.needsReview
+      ? 'needs-review'
+      : 'new';
+  return {
+    parseId: e.parseId,
+    type: e.type,
+    year: e.year,
+    date: e.date,
+    title: e.title,
+    detail: e.detail,
+    coding: e.coding,
+    med: e.med,
+    lab: e.lab,
+    vital: e.vital,
+    allergy: e.allergy,
+    immunization: e.immunization,
+    status,
+    defaultSelected: status === 'new',
+  };
 }
 
 /** Resolve one parsed problem against the catalog + a target person's existing condition ids. */
@@ -583,6 +688,37 @@ export function applyHealthRecordImport(
     next = linked;
     usedIds.add(personId);
     commit(entries);
+  }
+
+  // --- Proband timeline events (Wave 2/3) ---
+  // Push each selected, non-duplicate staged event onto the record timeline, attributed to the
+  // record (`prov: 'record'`) and the proband. Deduped by id even if the UI passed a duplicate, and
+  // applied ONLY when the proband Person actually resolves (the events belong to the proband).
+  const probandForEvents = next.people.find((p) => p.id === next.probandId);
+  if (probandForEvents) {
+    const existingEventIds = new Set(next.timeline.map((e) => e.id));
+    for (const ev of staged.events) {
+      if (!selected.has(ev.parseId)) continue;
+      if (ev.status === 'duplicate') continue;
+      if (existingEventIds.has(ev.parseId)) continue;
+      existingEventIds.add(ev.parseId);
+      next.timeline.push({
+        id: ev.parseId,
+        person: next.probandId,
+        year: ev.year,
+        date: ev.date,
+        type: ev.type,
+        title: ev.title,
+        detail: ev.detail,
+        coding: ev.coding.length ? ev.coding : undefined,
+        med: ev.med,
+        lab: ev.lab,
+        vital: ev.vital,
+        allergy: ev.allergy,
+        immunization: ev.immunization,
+        prov: 'record',
+      });
+    }
   }
 
   // Recompute generations + seed layout from the merged union graph (as the GEDCOM importer does).
