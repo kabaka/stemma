@@ -99,6 +99,20 @@
   flex-direction: column;
   gap: 14px;
 }
+.sidebar__legal {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.sidebar__legal a {
+  color: inherit;
+  text-decoration: none;
+}
+.sidebar__legal a:hover,
+.sidebar__legal a:focus-visible {
+  color: var(--text-dim);
+  text-decoration: underline;
+}
 .overline {
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1165,7 +1179,8 @@ input.field.mono {
 .pedigree-hl-row:focus-visible,
 .pedigree-scroll:focus-visible,
 .overline:focus-visible,
-.page-title:focus-visible {
+.page-title:focus-visible,
+.sidebar__legal a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
