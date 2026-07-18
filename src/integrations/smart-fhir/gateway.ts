@@ -72,6 +72,22 @@ function trimTrailingSlash(base: string): string {
   return base.replace(/\/+$/, '');
 }
 
+/** The origin of an (absolute) URL, or `null` if it can't be parsed. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `url`'s origin matches `baseOrigin`. Fails closed (false) if either is unparseable. */
+function isSameOrigin(url: string, baseOrigin: string | null): boolean {
+  if (baseOrigin === null) return false;
+  const o = originOf(url);
+  return o !== null && o === baseOrigin;
+}
+
 /** The `fetch` port implementation of {@link SmartFhirGateway}. */
 export class FetchSmartFhirGateway implements SmartFhirGateway {
   private readonly fetchImpl: typeof fetch;
@@ -150,6 +166,10 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
   ): Promise<FhirImportBundle> {
     const base = trimTrailingSlash(fhirBaseUrl);
     const id = encodeURIComponent(patientId);
+    // The origin the bearer token is scoped to. Pagination MUST stay same-origin — a malformed or
+    // compromised server could name a cross-origin `next` link and harvest the live access token
+    // (DR-0020). Derive it once from the discovered FHIR base URL and gate every `next` hop on it.
+    const baseOrigin = originOf(base);
     const entries: { resource?: unknown }[] = [];
 
     // Patient read (single resource, not a searchset).
@@ -159,17 +179,26 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
     // Condition + FamilyMemberHistory searches, each paged to exhaustion.
     for (const resource of ['Condition', 'FamilyMemberHistory']) {
       entries.push(
-        ...(await this.fetchSearchEntries(`${base}/${resource}?patient=${id}`, accessToken)),
+        ...(await this.fetchSearchEntries(
+          `${base}/${resource}?patient=${id}`,
+          accessToken,
+          baseOrigin,
+        )),
       );
     }
 
     return { resourceType: 'Bundle', entry: entries };
   }
 
-  /** Follow `Bundle.link[relation=next]` verbatim, accumulating every page's entries. */
+  /**
+   * Follow `Bundle.link[relation=next]` verbatim, accumulating every page's entries. A `next` link
+   * whose origin differs from the FHIR base URL's origin is NOT followed — the bearer token is never
+   * sent cross-origin (token-leak hardening); pagination simply stops and a warning is logged.
+   */
   private async fetchSearchEntries(
     firstUrl: string,
     accessToken: string,
+    baseOrigin: string | null,
   ): Promise<{ resource?: unknown }[]> {
     const out: { resource?: unknown }[] = [];
     let nextUrl: string | undefined = firstUrl;
@@ -187,7 +216,17 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
       const next = Array.isArray(bundle.link)
         ? bundle.link.find((l) => l?.relation === 'next' && typeof l.url === 'string')
         : undefined;
-      nextUrl = next?.url;
+      const candidate = next?.url;
+      if (candidate && !isSameOrigin(candidate, baseOrigin)) {
+        // Do NOT send the access token to a foreign origin. Stop paginating here.
+        console.warn(
+          `SMART pagination stopped: a "next" link pointed off-origin (${originOf(candidate) ?? 'unparseable'}); ` +
+            `refusing to send the access token cross-origin from ${baseOrigin ?? 'unknown'}.`,
+        );
+        nextUrl = undefined;
+      } else {
+        nextUrl = candidate;
+      }
     }
     return out;
   }

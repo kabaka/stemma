@@ -269,7 +269,10 @@ export function parseFhirImport(
     const suppressConditions = status === 'health-unknown' || dataAbsentReason != null;
 
     const effectiveCode = forceAmbiguous ? '' : relationshipCode;
-    const sab = parseSab(resource, effectiveCode);
+    // Placement uses the (possibly blanked) effective code so `subject-unknown` stays ambiguous,
+    // but sex-assigned-at-birth reads the UN-blanked relationship code: a known sex-specific role
+    // (e.g. MTH→'f') must not be downgraded to 'u' just because placement is ambiguous (guardrail #4).
+    const sab = parseSab(resource, relationshipCode);
 
     const problems: ProblemEntry[] = [];
     if (!suppressConditions) {
@@ -387,8 +390,9 @@ function parseDataAbsentReason(resource: Record<string, unknown>): string | null
 
 /**
  * Deceased status (explicit-presence-only, guardrail #1; death is never inferred):
- * `deceasedBoolean` → dead/alive with no year; `deceasedDate` → dead + that year; `deceasedAge` →
- * dead with no calendar year; absent → unknown (`dead: null`).
+ * `deceasedBoolean` → dead/alive with no year; `deceasedDate` → dead + that year; `deceasedAge` /
+ * `deceasedRange` / `deceasedString` → dead with no calendar year (a range/textual death description
+ * clearly asserts death but never a fabricated year); absent → unknown (`dead: null`).
  */
 function parseDeath(resource: Record<string, unknown>): {
   year: number | null;
@@ -401,7 +405,13 @@ function parseDeath(resource: Record<string, unknown>): {
   if (deceasedDate) {
     return { year: yearFromTs(deceasedDate), dead: true };
   }
-  if (resource.deceasedAge != null) {
+  // deceasedAge / deceasedRange / deceasedString all assert death without a calendar year — parity
+  // with deceasedAge's dead-true. Never invent a year; never infer death from an absent field.
+  if (
+    resource.deceasedAge != null ||
+    resource.deceasedRange != null ||
+    str(resource.deceasedString) != null
+  ) {
     return { year: null, dead: true };
   }
   return { year: null, dead: null };

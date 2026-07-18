@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import {
   applyHealthRecordImport,
+  parseFhirImport,
   stageHealthRecordImport,
   type HealthRecordSelections,
   type StagedHealthRecordImport,
@@ -65,6 +66,28 @@ function friendlyError(err: unknown, context: 'connect' | 'sync'): string {
     return message;
   }
   return context === 'connect' ? `Couldn't connect: ${message}` : `Sync failed: ${message}`;
+}
+
+/**
+ * Moves focus to whatever element `ref` is currently attached to, whenever `dep` changes
+ * to a new value — but never on the initial mount. `useDisclosureFocus` (see `hooks.ts`)
+ * is a one-shot mount effect shared by every other disclosure in the app; it can't help
+ * here because this component never unmounts across its own internal step transitions
+ * (connect form → sync-review; the collapsed "+ Connect another provider" row → its own
+ * form). Each of those swaps the DOM node the previously-focused control lived on without
+ * unmounting the *component*, so the mount-only effect never re-fires and focus silently
+ * falls to `<body>` (WCAG 2.4.3). Callers attach the SAME ref to whichever element should
+ * receive focus for the CURRENT render (e.g. a heading in one branch, a trigger button in
+ * another) — the ref always points at the right live node by the time this effect runs.
+ */
+function useFocusOnChange<T extends HTMLElement>(dep: unknown): RefObject<T | null> {
+  const ref = useRef<T>(null);
+  const prev = useRef(dep);
+  useEffect(() => {
+    if (prev.current !== dep) ref.current?.focus();
+    prev.current = dep;
+  }, [dep]);
+  return ref;
 }
 
 /** One label/value tile — a local copy of `PersonDrawer`'s private `IdentityTile`, matching
@@ -175,6 +198,12 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   const syncNow = useSmartConnectionStore((s) => s.syncNow);
   const disconnect = useSmartConnectionStore((s) => s.disconnect);
   const setStayConnected = useSmartConnectionStore((s) => s.setStayConnected);
+  // Set by `completeCallbackIfPresent` (see App.tsx) when the OAuth redirect back from the
+  // provider failed — the redirect is a full page reload, so this persisted-in-store error
+  // is the only way that failure can ever reach the user; there's no in-memory state left
+  // to carry it. `PedigreeView` reads the same field to auto-open this panel on mount.
+  const callbackError = useSmartConnectionStore((s) => s.callbackError);
+  const clearCallbackError = useSmartConnectionStore((s) => s.clearCallbackError);
 
   const [fhirBaseUrl, setFhirBaseUrl] = useState('');
   const [clientId, setClientId] = useState('');
@@ -187,13 +216,26 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncErrors, setSyncErrors] = useState<Record<string, string>>({});
   const [staged, setStaged] = useState<StagedHealthRecordImport | null>(null);
+  // Persistent polite live-region text (mirrors `CcdaImport`'s own `role="status"` idiom) —
+  // set once on a successful sync and never unmounted afterward (see the render below),
+  // so a screen reader announces the mutation rather than missing an already-populated
+  // region on mount.
+  const [syncStatus, setSyncStatus] = useState('');
 
-  const headingRef = useDisclosureFocus<HTMLHeadingElement>();
+  const mainHeadingRef = useDisclosureFocus<HTMLHeadingElement>();
+  // Recurring (not mount-only) focus-transition refs — see `useFocusOnChange` above. Each
+  // is attached to whichever element should take focus for the CURRENT render: the review
+  // step's own heading once `staged` is set, and either the "Connect another provider"
+  // heading (form open) or the trigger button that opened it (form closed) as `addingAnother`
+  // flips.
+  const reviewHeadingRef = useFocusOnChange<HTMLHeadingElement>(staged != null);
+  const addAnotherFocusRef = useFocusOnChange<HTMLElement>(addingAnother);
   const baseUrlId = useId();
   const baseUrlHintId = useId();
   const clientIdId = useId();
   const clientIdHintId = useId();
-  const redirectHintId = useId();
+  const redirectInputId = useId();
+  const connectErrorId = useId();
 
   const copyTimer = useRef<number | null>(null);
   useEffect(
@@ -228,6 +270,10 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   };
 
   const handleConnect = async (): Promise<void> => {
+    // Guard against a fast double-click/double-Enter firing this twice while the first
+    // call is still in flight — `aria-disabled` (below) doesn't stop a second event the
+    // way a real `disabled` attribute would (mirrors `CcdaReview.handleConfirmClick`).
+    if (connecting) return;
     setConnectError(null);
     const trimmedBase = fhirBaseUrl.trim();
     const trimmedClient = clientId.trim();
@@ -235,11 +281,20 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
       setConnectError('Enter both the FHIR base URL and the client ID your provider issued.');
       return;
     }
+    let parsedUrl: URL;
     try {
-      // eslint-disable-next-line no-new -- validated for its side effect (throws on a malformed URL)
-      new URL(trimmedBase);
+      parsedUrl = new URL(trimmedBase);
     } catch {
       setConnectError('That doesn’t look like a valid URL — it should start with https://.');
+      return;
+    }
+    // Stemma has no server to proxy around a plain-http endpoint, and the CSP failing the
+    // fetch silently would surface as an opaque "Couldn't reach that server" network error
+    // rather than telling the user what's actually wrong — check the scheme explicitly.
+    if (parsedUrl.protocol !== 'https:') {
+      setConnectError(
+        'That URL must start with https:// — Stemma only connects to a FHIR server over an encrypted connection.',
+      );
       return;
     }
     setConnecting(true);
@@ -256,6 +311,9 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   };
 
   const handleSync = async (connectionId: string): Promise<void> => {
+    // Same re-entrancy guard as handleConnect — `aria-disabled` on the Sync button doesn't
+    // block a second click while the first sync is still running.
+    if (syncingId) return;
     setSyncErrors((prev) => {
       if (!(connectionId in prev)) return prev;
       const rest = { ...prev };
@@ -264,7 +322,15 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
     });
     setSyncingId(connectionId);
     try {
-      const parsed = await syncNow(connectionId);
+      // The store hands back the RAW FhirImportBundle only (it never imports the `src/import`
+      // layer — see useSmartConnectionStore's own layering note); parsing it into a
+      // ParsedHealthRecord is UI-layer work, matching how CcdaImport.tsx parses its file
+      // before staging. `connection?.patientId` seeds parseFhirImport the same patient
+      // context the gateway itself scoped the read to (falls back to bundle-inferred
+      // matching when a connection somehow isn't found).
+      const connection = connections.find((c) => c.id === connectionId);
+      const bundle = await syncNow(connectionId);
+      const parsed = parseFhirImport(bundle, { patientId: connection?.patientId ?? undefined });
       if (parsed.proband.problems.length === 0 && parsed.familyMembers.length === 0) {
         setSyncErrors((prev) => ({
           ...prev,
@@ -272,6 +338,13 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
         }));
         return;
       }
+      setSyncStatus(
+        `Synced ${parsed.proband.problems.length} ${
+          parsed.proband.problems.length === 1 ? 'condition' : 'conditions'
+        } and ${parsed.familyMembers.length} ${
+          parsed.familyMembers.length === 1 ? 'family member' : 'family members'
+        } — review below.`,
+      );
       setStaged(stageHealthRecordImport(parsed, record, catalog));
     } catch (err) {
       setSyncErrors((prev) => ({ ...prev, [connectionId]: friendlyError(err, 'sync') }));
@@ -294,19 +367,35 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   if (staged) {
     return (
       <div className="card" style={{ marginBottom: 16, display: 'grid', gap: 14 }}>
-        <h2 className="overline" tabIndex={-1} ref={headingRef} style={{ margin: 0 }}>
+        <h2 className="overline" tabIndex={-1} ref={reviewHeadingRef} style={{ margin: 0 }}>
           Review synced health record
         </h2>
-        <CcdaReview staged={staged} record={record} onConfirm={handleConfirm} onCancel={onCancel} />
+        {/* Same DOM node (same type + position in the returned tree) as the live region in
+            the connect-form branch below, so React preserves it across the `staged`
+            transition instead of unmount/remount — a screen reader announces the text
+            mutation rather than potentially missing a freshly-inserted region. */}
+        <p role="status" className="mono-dim" style={{ margin: 0, minHeight: 18 }}>
+          {syncStatus}
+        </p>
+        <CcdaReview
+          staged={staged}
+          record={record}
+          onConfirm={handleConfirm}
+          onCancel={onCancel}
+          headingLevel="h3"
+        />
       </div>
     );
   }
 
   return (
     <div className="card" style={{ marginBottom: 16, display: 'grid', gap: 14 }}>
-      <h2 className="overline" tabIndex={-1} ref={headingRef} style={{ margin: 0 }}>
+      <h2 className="overline" tabIndex={-1} ref={mainHeadingRef} style={{ margin: 0 }}>
         Connect a health record (SMART on FHIR)
       </h2>
+      <p role="status" className="mono-dim" style={{ margin: 0, minHeight: 18 }}>
+        {syncStatus}
+      </p>
       <p className="mono-dim" style={{ margin: 0, lineHeight: 1.5 }}>
         Connect directly to your patient portal&rsquo;s FHIR server (Epic MyChart, Cerner, and most
         US portals support this) using the SMART-on-FHIR standard. You sign in with your provider,
@@ -314,6 +403,20 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
       </p>
 
       <ClinicalBoundary />
+
+      {callbackError && (
+        <div className="disclaimer" role="alert">
+          <p style={{ margin: 0 }}>{friendlyError(callbackError, 'connect')}</p>
+          <button
+            type="button"
+            className="btn btn--sm"
+            style={{ marginTop: 8 }}
+            onClick={clearCallbackError}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="disclaimer">
         <b>What this shares:</b> once connected, syncing reads your data directly from the FHIR
@@ -343,6 +446,22 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
 
       {showConnectForm ? (
         <div style={{ display: 'grid', gap: 12 }}>
+          {/* Only shown when opening the form via "+ Connect another provider" — the
+              zero-connections case already gets the panel's own top heading on mount
+              (mainHeadingRef), so this would be a redundant, misleadingly-worded ("another")
+              heading there. Receives focus via addAnotherFocusRef when `addingAnother`
+              flips true (see useFocusOnChange above) — the control that opened this form
+              (the trigger button below) unmounts, so focus must be moved explicitly. */}
+          {addingAnother && (
+            <h3
+              className="overline"
+              tabIndex={-1}
+              ref={addAnotherFocusRef as RefObject<HTMLHeadingElement>}
+              style={{ margin: 0 }}
+            >
+              Connect another provider
+            </h3>
+          )}
           <div>
             <label className="lbl" htmlFor={baseUrlId}>
               FHIR base URL
@@ -354,7 +473,8 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               inputMode="url"
               autoComplete="off"
               placeholder="https://fhir.myprovider.example/api/FHIR/R4"
-              aria-describedby={baseUrlHintId}
+              aria-describedby={connectError ? `${baseUrlHintId} ${connectErrorId}` : baseUrlHintId}
+              aria-invalid={Boolean(connectError)}
               value={fhirBaseUrl}
               onChange={(e) => setFhirBaseUrl(e.target.value)}
             />
@@ -373,7 +493,10 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               className="field"
               type="text"
               autoComplete="off"
-              aria-describedby={clientIdHintId}
+              aria-describedby={
+                connectError ? `${clientIdHintId} ${connectErrorId}` : clientIdHintId
+              }
+              aria-invalid={Boolean(connectError)}
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
             />
@@ -384,30 +507,36 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
           </div>
 
           <div>
-            <span className="lbl" id={redirectHintId}>
+            <label className="lbl" htmlFor={redirectInputId}>
               Redirect URI to register with your provider
-            </span>
+            </label>
             <div className="row" style={{ gap: 8 }}>
-              <code
-                aria-labelledby={redirectHintId}
-                style={{
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border-strong)',
-                  borderRadius: 7,
-                  padding: '8px 10px',
-                  flex: 1,
-                  minWidth: 0,
-                  fontSize: 12.5,
-                  wordBreak: 'break-all',
-                  userSelect: 'all',
-                }}
-              >
-                {uri}
-              </code>
+              {/* A `readOnly` text input, not a `<code>` block — natively focusable and
+                  keyboard-selectable (Tab to it, Ctrl/Cmd+A or the auto-select-on-focus
+                  below), unlike a `<code>` element which a keyboard user can't reach or
+                  select text from at all. The Copy button remains as the one-step
+                  convenience path. */}
+              <input
+                id={redirectInputId}
+                className="field mono"
+                type="text"
+                readOnly
+                aria-label="Redirect URI to register with your provider"
+                onFocus={(e) => e.currentTarget.select()}
+                value={uri}
+              />
               <button type="button" className="btn btn--sm" onClick={() => void copyRedirectUri()}>
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
+            {/* Visually-hidden confirmation — the "Copied" button-label swap above is
+                sighted-only feedback; a screen-reader user gets nothing from a button
+                label mutating on its own (WCAG 4.1.3). Always rendered (never
+                mounted/unmounted) so the mutation is announced rather than possibly
+                missed as an already-populated region. */}
+            <span role="status" className="visually-hidden">
+              {copied ? 'Copied' : ''}
+            </span>
             <p className="mono-dim" style={{ marginTop: 6 }}>
               When registering Stemma as an app, this exact URL must be entered as the
               redirect/callback URI — registration requires an exact match, including the trailing
@@ -426,7 +555,7 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
           </label>
 
           {connectError && (
-            <div className="disclaimer" role="alert">
+            <div id={connectErrorId} className="disclaimer" role="alert">
               {connectError}
             </div>
           )}
@@ -447,7 +576,12 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
         </div>
       ) : (
         <div className="row">
-          <button type="button" className="btn btn--sm" onClick={() => setAddingAnother(true)}>
+          <button
+            type="button"
+            className="btn btn--sm"
+            ref={addAnotherFocusRef as RefObject<HTMLButtonElement>}
+            onClick={() => setAddingAnother(true)}
+          >
             + Connect another provider
           </button>
           <button type="button" className="btn btn--sm" onClick={onCancel}>

@@ -335,12 +335,21 @@ export function CcdaReview({
   record,
   onConfirm,
   onCancel,
+  headingLevel = 'h2',
 }: {
   staged: StagedCcdaImport;
   record: FamilyRecord;
   onConfirm: (selections: CcdaSelections) => void;
   onCancel: () => void;
+  /** Heading level for this component's own "Your conditions" / "Family members"
+   * sections. Defaults to `'h2'` — CcdaImport's caller wraps this in no heading of its
+   * own, so `'h2'` is correct there. SmartFhirConnect wraps it in its OWN `<h2>` ("Review
+   * synced health record"), so it passes `'h3'` to keep these subordinate rather than a
+   * sibling h2 immediately following another h2 (WCAG 1.3.1/2.4.6 — heading order should
+   * reflect the visual nesting, not just increase monotonically). */
+  headingLevel?: 'h2' | 'h3';
 }) {
+  const Heading = headingLevel;
   const [selected, setSelected] = useState<Set<string>>(() => initialSelection(staged));
   const [overrides, setOverrides] = useState<Record<string, CcdaMemberOverride>>({});
 
@@ -428,9 +437,9 @@ export function CcdaReview({
       )}
 
       <section aria-labelledby={probandHeadingId}>
-        <h2 id={probandHeadingId} className="overline" style={{ marginBottom: 8 }}>
+        <Heading id={probandHeadingId} className="overline" style={{ marginBottom: 8 }}>
           Your conditions
-        </h2>
+        </Heading>
         {staged.probandConditions.length === 0 ? (
           <p className="mono-dim">No conditions were found in the problem list.</p>
         ) : (
@@ -454,9 +463,9 @@ export function CcdaReview({
       </section>
 
       <section aria-labelledby={familyHeadingId}>
-        <h2 id={familyHeadingId} className="overline" style={{ marginBottom: 8 }}>
+        <Heading id={familyHeadingId} className="overline" style={{ marginBottom: 8 }}>
           Family members
-        </h2>
+        </Heading>
         {staged.familyMembers.length === 0 ? (
           <p className="mono-dim">No family history section was found in this document.</p>
         ) : (

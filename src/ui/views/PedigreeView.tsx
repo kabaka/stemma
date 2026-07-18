@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useStore } from '@/store/useStore';
+import { useSmartConnectionStore } from '@/store/useSmartConnectionStore';
 import { useCatalog } from '../hooks';
 import { computeLayout, offsetParallel, segments } from '@/domain/graph';
 import { condIds, genderOf, hasCond, sabLabel, sabOf } from '@/domain/person';
@@ -243,6 +244,12 @@ export function PedigreeView() {
   // catalog entries after the swap).
   const extensions = useStore((s) => s.extensions);
   const catalog = useCatalog();
+  // Set by `completeCallbackIfPresent` (see App.tsx) when the OAuth redirect back from a
+  // SMART-on-FHIR provider failed. The redirect is a full page reload, so this
+  // persisted-in-store field is the only way that failure can reach the user — auto-open
+  // the panel so `SmartFhirConnect`'s own callbackError rendering (role="alert") is
+  // immediately visible rather than silently sitting in the store.
+  const callbackError = useSmartConnectionStore((s) => s.callbackError);
 
   const [importing, setImporting] = useState(false);
   const [importingCcda, setImportingCcda] = useState(false);
@@ -254,6 +261,16 @@ export function PedigreeView() {
   // once — a single slot, reinterpreted by `hlMode`, makes that invariant structural
   // instead of something every setter has to remember to uphold.
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Auto-open the SMART-on-FHIR panel when a callback error is waiting to be shown —
+  // covers both the common case (it's already set by the time this view first mounts,
+  // since App.tsx resolves the callback before routing here) and the rarer case where
+  // resolution finishes just after mount. Only reacts to callbackError itself flipping
+  // from null to a message (dependency array), so it never fights a user who closes the
+  // panel afterward while the same error is still sitting in the store.
+  useEffect(() => {
+    if (callbackError) setImportingSmart(true);
+  }, [callbackError]);
 
   // A fresh install (and resetRecord()) now yields a record holding only the proband —
   // no fictional relatives. Show a friendly prompt instead of an empty tree.
@@ -800,8 +817,11 @@ export function PedigreeView() {
           <EmptyState
             onAdd={() => setFormState({ mode: 'add', anchor: record.probandId, relation: 'child' })}
             onEditSelf={() => setFormState({ mode: 'edit', id: record.probandId })}
+            importing={importing}
             onImport={openImporting}
+            importingCcda={importingCcda}
             onImportCcda={openImportingCcda}
+            importingSmart={importingSmart}
             onImportSmart={openImportingSmart}
             onLoadSample={handleEmptyLoadSample}
           />
@@ -1009,15 +1029,25 @@ function formKey(state: PersonFormState): string {
 function EmptyState({
   onAdd,
   onEditSelf,
+  importing,
   onImport,
+  importingCcda,
   onImportCcda,
+  importingSmart,
   onImportSmart,
   onLoadSample,
 }: {
   onAdd: () => void;
   onEditSelf: () => void;
+  /** Whether each import panel is currently open — mirrors the trio of `aria-expanded`
+   * toggles `RecordActionsMenu` already gets right (see that component, below); these
+   * three buttons open the exact same panels and were missing the same treatment
+   * (WCAG 4.1.2). */
+  importing: boolean;
   onImport: () => void;
+  importingCcda: boolean;
   onImportCcda: () => void;
+  importingSmart: boolean;
   onImportSmart: () => void;
   onLoadSample: () => void;
 }) {
@@ -1038,13 +1068,18 @@ function EmptyState({
         <button type="button" className="btn" aria-haspopup="dialog" onClick={onEditSelf}>
           Edit your details
         </button>
-        <button type="button" className="btn" onClick={onImport}>
+        <button type="button" className="btn" aria-expanded={importing} onClick={onImport}>
           Import GEDCOM
         </button>
-        <button type="button" className="btn" onClick={onImportCcda}>
+        <button type="button" className="btn" aria-expanded={importingCcda} onClick={onImportCcda}>
           Import health record
         </button>
-        <button type="button" className="btn" onClick={onImportSmart}>
+        <button
+          type="button"
+          className="btn"
+          aria-expanded={importingSmart}
+          onClick={onImportSmart}
+        >
           Connect a health record (SMART on FHIR)
         </button>
         <button type="button" className="btn" onClick={onLoadSample}>

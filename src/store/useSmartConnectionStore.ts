@@ -10,9 +10,10 @@
  *
  * Clinical-safety / privacy (guardrail #5, local-first & private by default; DR-0020): the only
  * network egress is the user-initiated OAuth + FHIR reads against the EHR the user chose. No token
- * ever enters the persisted record or transits the UI. {@link syncNow} returns a parsed record for
- * the review surface but deliberately does NOT write it — the user reviews and applies it through
- * the existing import-review pipeline (`replaceRecord`), so nothing lands unreviewed.
+ * ever enters the persisted record or transits the UI. {@link syncNow} returns the raw FHIR bundle
+ * (the UI parses it with `parseFhirImport` — keeping the store out of the `import` layer) and
+ * deliberately does NOT write it — the user reviews and applies it through the existing
+ * import-review pipeline (`replaceRecord`), so nothing lands unreviewed.
  *
  * Layering: `src/store/` may import `domain`, `data`, `integrations`, and the pure `import` parser;
  * never `ui`. The gateway + token store are injectable (defaulting to the real ones) so tests can
@@ -31,13 +32,12 @@ import {
   isAccessTokenExpired,
 } from '@/integrations/smart-fhir';
 import type {
+  FhirImportBundle,
   SmartEndpoints,
   SmartFhirGateway,
   TokenResponse,
   TokenStore,
 } from '@/integrations/smart-fhir';
-import { parseFhirImport } from '@/import/fhir';
-import type { ParsedHealthRecord } from '@/import/health-record';
 
 /** Persisted, NON-secret connection metadata. Tokens never live here — they go through the
  * {@link TokenStore}. */
@@ -79,6 +79,15 @@ interface PendingConnect {
 const PERSIST_KEY = 'stemma-smart';
 const PENDING_KEY = 'stemma-smart-pending';
 
+/**
+ * In-flight latch for {@link SmartConnectionActions.completeCallbackIfPresent}. The synchronous
+ * prefix (read query → load pending → verify state) runs to completion before the first `await`,
+ * so without this guard React StrictMode's dev double-invoke — or any concurrent call — would
+ * exchange the SAME one-time authorization code twice. Set synchronously once a real handshake is
+ * committed to, and reset in the `finally`; a second concurrent call sees it set and no-ops.
+ */
+let callbackInFlight = false;
+
 /** The base scope set Stemma requests: patient context + read of the two axes it imports. */
 const BASE_SCOPES = [
   'openid',
@@ -99,6 +108,10 @@ const nowIso = (): string => new Date().toISOString();
 
 interface SmartConnectionState {
   connections: SmartConnection[];
+  /** A human-readable message when the last SMART OAuth callback failed (state mismatch or an
+   * exchange/persist error), else `null`. The UI reads this to surface a failed sign-in; it is a
+   * RAW message string only — the store never imports a UI helper (layering). Not persisted. */
+  callbackError: string | null;
   /** Injectable transport (default: the real fetch gateway). Not persisted. */
   gateway: SmartFhirGateway;
   /** Injectable token store (default: the real browser store). Not persisted. */
@@ -117,9 +130,13 @@ interface SmartConnectionActions {
   /** If the page URL carries an OAuth `code`+`state`, verify state, exchange the code, persist the
    * connection + tokens, strip the query, and return the new connection id (else `null`). */
   completeCallbackIfPresent: () => Promise<string | null>;
-  /** Fetch + parse the patient's data into a {@link ParsedHealthRecord} for review. Does NOT write
-   * the record — the caller applies the reviewed subset via the import-review pipeline. */
-  syncNow: (connectionId: string) => Promise<ParsedHealthRecord>;
+  /** Dismiss a surfaced {@link SmartConnectionState.callbackError} (sets it back to `null`). */
+  clearCallbackError: () => void;
+  /** Fetch the patient's raw FHIR {@link FhirImportBundle} (refreshing the access token as needed).
+   * The store deliberately does NOT parse or write it — the UI runs `parseFhirImport` +
+   * `stageHealthRecordImport` and applies the reviewed subset (keeps the store→import edge out of
+   * the layer graph; store may import `domain`/`data`/`integrations` only). */
+  syncNow: (connectionId: string) => Promise<FhirImportBundle>;
   /** Forget a connection and wipe its tokens. */
   disconnect: (connectionId: string) => void;
   /** Toggle "stay connected"; turning it off drops any persisted refresh token. */
@@ -231,8 +248,11 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
 
       return {
         connections: [],
+        callbackError: null,
         gateway: new FetchSmartFhirGateway(),
         tokenStore: defaultTokenStore,
+
+        clearCallbackError: () => set({ callbackError: null }),
 
         configure: (deps) =>
           set((s) => ({
@@ -289,52 +309,77 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
 
           const pending = loadPending();
           if (!pending) return null;
-          // CSRF: the returned state MUST match the one we generated for this handshake.
-          if (state !== pending.state) {
-            clearPending();
-            throw new Error('SMART callback state mismatch — the sign-in was rejected for safety.');
-          }
 
-          const { gateway } = get();
-          const response = await gateway.exchangeCode(pending.endpoints, {
-            code,
-            redirectUri: pending.redirectUri,
-            codeVerifier: pending.codeVerifier,
-            clientId: pending.clientId,
-          });
+          // Re-entrancy / concurrency guard: a second call while an exchange is in flight (React
+          // StrictMode's dev double-invoke, or a fast double navigation) must never re-issue the
+          // one-time code. The whole check→set is synchronous (no await between), so it is atomic.
+          if (callbackInFlight) return null;
+          callbackInFlight = true;
 
-          const id = newId();
-          const scopesGranted = scopesFrom(response, pending.scope);
-          const connection: SmartConnection = {
-            id,
-            fhirBaseUrl: pending.fhirBaseUrl,
-            authorizeEndpoint: pending.endpoints.authorizeEndpoint,
-            tokenEndpoint: pending.endpoints.tokenEndpoint,
-            clientId: pending.clientId,
-            patientId: response.patient ?? null,
-            scopesGranted,
-            offlineAccessGranted: scopesGranted.includes('offline_access'),
-            stayConnected: pending.stayConnected,
-            lastSyncAt: null,
-            createdAt: nowIso(),
-          };
+          // Fresh attempt — drop any error surfaced by a previous failed callback.
+          set({ callbackError: null });
 
-          persistTokens(id, response, pending.stayConnected);
-          set((s) => ({ connections: [...s.connections, connection] }));
-          clearPending();
-
-          // Strip the OAuth query params from the address bar (no code/state left behind).
           try {
-            globalThis.history?.replaceState(
-              null,
-              '',
-              `${globalThis.location.origin}${globalThis.location.pathname}`,
-            );
-          } catch {
-            /* history API unavailable — non-fatal */
-          }
+            // CSRF: verify state BEFORE exchanging. A mismatch must NEVER exchange the code.
+            if (state !== pending.state) {
+              throw new Error(
+                'SMART callback state mismatch — the sign-in was rejected for safety.',
+              );
+            }
 
-          return id;
+            const { gateway } = get();
+            const response = await gateway.exchangeCode(pending.endpoints, {
+              code,
+              redirectUri: pending.redirectUri,
+              codeVerifier: pending.codeVerifier,
+              clientId: pending.clientId,
+            });
+
+            const id = newId();
+            const scopesGranted = scopesFrom(response, pending.scope);
+            const connection: SmartConnection = {
+              id,
+              fhirBaseUrl: pending.fhirBaseUrl,
+              authorizeEndpoint: pending.endpoints.authorizeEndpoint,
+              tokenEndpoint: pending.endpoints.tokenEndpoint,
+              clientId: pending.clientId,
+              patientId: response.patient ?? null,
+              scopesGranted,
+              offlineAccessGranted: scopesGranted.includes('offline_access'),
+              stayConnected: pending.stayConnected,
+              lastSyncAt: null,
+              createdAt: nowIso(),
+            };
+
+            persistTokens(id, response, pending.stayConnected);
+            set((s) => ({ connections: [...s.connections, connection], callbackError: null }));
+            return id;
+          } catch (err) {
+            // Surface a human-readable message for the UI to render (state mismatch or an
+            // exchange/persist failure). Raw string only — no UI helper crosses the layer boundary.
+            set({
+              callbackError:
+                err instanceof Error
+                  ? err.message
+                  : 'The SMART sign-in could not be completed. Please try connecting again.',
+            });
+            throw err;
+          } finally {
+            callbackInFlight = false;
+            // Clear the PKCE handshake and scrub `?code&state` REGARDLESS of outcome. On failure
+            // this is what stops a reload from silently re-running the one-time exchange forever
+            // (and leaves no raw codeVerifier in sessionStorage / no code in the URL).
+            clearPending();
+            try {
+              globalThis.history?.replaceState(
+                null,
+                '',
+                `${globalThis.location.origin}${globalThis.location.pathname}`,
+              );
+            } catch {
+              /* history API unavailable — non-fatal */
+            }
+          }
         },
 
         syncNow: async (connectionId) => {
@@ -351,14 +396,13 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
             connection.patientId,
             accessToken,
           );
-          const parsed = parseFhirImport(bundle, { patientId: connection.patientId });
 
           set((s) => ({
             connections: s.connections.map((c) =>
               c.id === connectionId ? { ...c, lastSyncAt: nowIso() } : c,
             ),
           }));
-          return parsed;
+          return bundle;
         },
 
         disconnect: (connectionId) => {
