@@ -299,7 +299,9 @@ describe('FetchSmartFhirGateway.fetchPatientData', () => {
     const bundle = await gateway.fetchPatientData(fhirBaseUrl, patientId, accessToken);
 
     expect(calls.some((c) => c.url === crossOriginNext)).toBe(false);
-    expect(calls.some((c) => c.url.startsWith('https://evil.example.net'))).toBe(false);
+    // Compare parsed origins (not a substring/prefix, which a crafted host could satisfy): no
+    // request left for the attacker's origin at all.
+    expect(calls.some((c) => new URL(c.url).origin === 'https://evil.example.net')).toBe(false);
     // Pagination stopped at the cross-origin hop — only the first Condition page's entry made it
     // through, never a fabricated second page.
     const conditionEntries = (bundle.entry ?? [])

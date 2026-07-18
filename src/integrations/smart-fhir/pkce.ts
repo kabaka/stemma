@@ -49,11 +49,14 @@ export function generateCodeVerifier(rand: (n: number) => Uint8Array = defaultRa
 }
 
 /** Default digest: real SHA-256 via Web Crypto (deterministic — a fixed hash of a fixed input).
- * Copies into a plain `ArrayBuffer` so the input is an unambiguous `BufferSource`. */
+ * Passes a `Uint8Array` VIEW over a fresh `ArrayBuffer` (never the raw buffer): `ArrayBuffer.isView`
+ * accepts a view cross-realm, whereas a bare `ArrayBuffer` fails Node 20's stricter same-realm check
+ * under jsdom (the CI test env); the fresh-buffer view is also typed `Uint8Array<ArrayBuffer>`, which
+ * satisfies the strict `BufferSource` parameter type. */
 const defaultDigest = (data: Uint8Array): Promise<ArrayBuffer> => {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  return crypto.subtle.digest('SHA-256', buffer);
+  const bytes = new Uint8Array(data.byteLength);
+  bytes.set(data);
+  return crypto.subtle.digest('SHA-256', bytes);
 };
 
 /**
