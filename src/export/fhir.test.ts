@@ -175,3 +175,104 @@ describe('buildFhirBundle', () => {
     expect(rel!.sex.coding[0].code).toBe('unknown');
   });
 });
+
+describe('buildFhirBundle — precise dates (W7)', () => {
+  const patientOf = (record: FamilyRecord): FhirPatient =>
+    buildFhirBundle(record, catalog, { now: NOW })
+      .entry.map((e) => e.resource)
+      .find((r): r is FhirPatient => r.resourceType === 'Patient')!;
+  const conditionsOf = (record: FamilyRecord): FhirCondition[] =>
+    buildFhirBundle(record, catalog, { now: NOW })
+      .entry.map((e) => e.resource)
+      .filter((r): r is FhirCondition => r.resourceType === 'Condition');
+
+  it('emits Patient.birthDate at the PartialDate precision when present (full date)', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1988, birthDate: '1988-04-02' })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    expect(patientOf(record).birthDate).toBe('1988-04-02');
+  });
+
+  it('emits Patient.birthDate at year-month precision when that is all the source gave', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1988, birthDate: '1988-04' })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    expect(patientOf(record).birthDate).toBe('1988-04');
+  });
+
+  it('falls back to the coarse year for Patient.birthDate when no precise date is present', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1988 })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    expect(patientOf(record).birthDate).toBe('1988');
+  });
+
+  it('emits Condition.onsetDateTime (not onsetAge) when a condition carries a precise onset date', () => {
+    const record: FamilyRecord = {
+      people: [
+        mkPerson('p1', {
+          isProband: true,
+          birth: 1988,
+          conds: [{ id: 'brca', onset: 31, prov: 'record', onsetDate: '2019-03-15' }],
+        }),
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const [cond] = conditionsOf(record);
+    expect(cond.onsetDateTime).toBe('2019-03-15');
+    // FHIR permits exactly one onset[x]; the precise date replaces the age.
+    expect(cond.onsetAge).toBeUndefined();
+  });
+
+  it('preserves partial onset precision — a year-only onsetDate emits "2019", never a fabricated month/day', () => {
+    const record: FamilyRecord = {
+      people: [
+        mkPerson('p1', {
+          isProband: true,
+          birth: 1988,
+          conds: [{ id: 'brca', onset: 31, prov: 'record', onsetDate: '2019' }],
+        }),
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const [cond] = conditionsOf(record);
+    expect(cond.onsetDateTime).toBe('2019');
+    expect(cond.onsetAge).toBeUndefined();
+  });
+
+  it('keeps onsetAge (no onsetDateTime) for a condition with only an onset age — unchanged behaviour', () => {
+    const record: FamilyRecord = {
+      people: [
+        mkPerson('p1', {
+          isProband: true,
+          birth: 1988,
+          conds: [{ id: 'brca', onset: 31, prov: 'record' }],
+        }),
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const [cond] = conditionsOf(record);
+    expect(cond.onsetDateTime).toBeUndefined();
+    expect(cond.onsetAge).toEqual({
+      value: 31,
+      unit: 'years',
+      system: 'http://unitsofmeasure.org',
+      code: 'a',
+    });
+  });
+});

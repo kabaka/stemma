@@ -29,6 +29,8 @@ const build = (): FhirBundle => buildFhirBundle(seedRecord(), catalog, { now: NO
 // --- Normative value sets / formats (the subset R4 requires of what we emit) ---
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const DATE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
+// FHIR `dateTime`: a partial date (`YYYY` | `YYYY-MM` | `YYYY-MM-DD`) or a full timestamp.
+const DATETIME = /^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2}))?)?)?$/;
 const ADMIN_GENDER = new Set(['male', 'female', 'other', 'unknown']);
 const BIRTHSEX = new Set(['F', 'M', 'UNK', 'ASKU', 'OTH']);
 const FMH_STATUS = new Set(['partial', 'completed', 'entered-in-error', 'health-unknown']);
@@ -117,6 +119,11 @@ export function validateFhirBundle(bundle: FhirBundle): string[] {
       if (!refResolves(c.subject?.reference))
         errs.push(`${at} Condition.subject does not resolve to a Patient in the bundle`);
       checkAge(c.onsetAge, `${at} Condition.onsetAge`, errs);
+      if (c.onsetDateTime !== undefined && !DATETIME.test(c.onsetDateTime))
+        errs.push(`${at} Condition.onsetDateTime "${c.onsetDateTime}" is not a FHIR dateTime`);
+      // FHIR permits exactly one onset[x] — onsetAge and onsetDateTime are mutually exclusive.
+      if (c.onsetAge !== undefined && c.onsetDateTime !== undefined)
+        errs.push(`${at} Condition has more than one onset[x] (onsetAge and onsetDateTime)`);
     } else if (r.resourceType === 'FamilyMemberHistory') {
       const f = r as FhirFamilyMemberHistory;
       if (!nonEmpty(f.id)) errs.push(`${at} FamilyMemberHistory.id is required`);
@@ -198,5 +205,47 @@ describe('FHIR R4 conformance', () => {
     )!.resource as FhirCondition;
     cond.onsetAge!.code = 'mo';
     expect(validateFhirBundle(bad).some((e) => /annum code/.test(e))).toBe(true);
+  });
+
+  // --- Precise onset dates (W7) stay schema-valid, at every partial precision ---
+
+  it('accepts a Condition.onsetDateTime at full, year-month and year precision', () => {
+    for (const precise of ['2019-03-15', '2019-03', '2019']) {
+      const b = build();
+      const cond = b.entry.find(
+        (e) => e.resource.resourceType === 'Condition' && (e.resource as FhirCondition).onsetAge,
+      )!.resource as FhirCondition;
+      // A real record never carries both onset[x]; mirror the exporter (dateTime replaces age).
+      delete cond.onsetAge;
+      cond.onsetDateTime = precise;
+      expect(validateFhirBundle(b)).toEqual([]);
+    }
+  });
+
+  it('rejects a Condition.onsetDateTime that is not a FHIR dateTime', () => {
+    const bad = build();
+    const cond = bad.entry.find(
+      (e) => e.resource.resourceType === 'Condition' && (e.resource as FhirCondition).onsetAge,
+    )!.resource as FhirCondition;
+    delete cond.onsetAge;
+    cond.onsetDateTime = '2019-3-5'; // unpadded month/day — not a FHIR dateTime.
+    expect(validateFhirBundle(bad).some((e) => /onsetDateTime/.test(e))).toBe(true);
+  });
+
+  it('rejects a Condition carrying more than one onset[x] (onsetAge AND onsetDateTime)', () => {
+    const bad = build();
+    const cond = bad.entry.find(
+      (e) => e.resource.resourceType === 'Condition' && (e.resource as FhirCondition).onsetAge,
+    )!.resource as FhirCondition;
+    cond.onsetDateTime = '2019-03-15'; // leave onsetAge in place → two onset[x].
+    expect(validateFhirBundle(bad).some((e) => /more than one onset/.test(e))).toBe(true);
+  });
+
+  it('accepts a Patient.birthDate at year-month-day precision', () => {
+    const b = build();
+    const patient = b.entry.find((e) => e.resource.resourceType === 'Patient')!
+      .resource as FhirPatient;
+    patient.birthDate = '1988-04-02';
+    expect(validateFhirBundle(b)).toEqual([]);
   });
 });

@@ -10,10 +10,53 @@
  * `FAM` per union, cross-referenced by `@I{n}@` / `@F{n}@` pointers, terminated by
  * `TRLR`. Each person's conditions ride along as a `NOTE`. Pure and deterministic.
  */
-import type { FamilyRecord, Person, Sab } from '@/domain/types';
+import type { FamilyRecord, PartialDate, Person, Sab } from '@/domain/types';
 import { sabOf } from '@/domain/person';
+import {
+  dayOfPartialDate,
+  isPartialDate,
+  monthOfPartialDate,
+  yearOfPartialDate,
+} from '@/domain/dates';
 
 const APP = 'Stemma';
+
+/** GEDCOM 5.5.1 month abbreviations, indexed 0–11 (uppercase, English). */
+const GED_MONTHS: readonly string[] = [
+  'JAN',
+  'FEB',
+  'MAR',
+  'APR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AUG',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DEC',
+];
+
+/**
+ * Format a GEDCOM `DATE` value. Prefers the precise {@link PartialDate} when present — a
+ * full date renders `15 MAR 2019`, a year-month `MAR 2019`, a bare year `2019` — echoing
+ * exactly the precision the source gave (never fabricating a month or day). Falls back to
+ * the coarse `year` when no precise date is present, byte-identical to the pre-W7 output.
+ * Built from the parsed integer components (via `dates.ts`), never `new Date()`, so it is
+ * timezone-independent and clock-free.
+ */
+function gedcomDate(year: number, precise: PartialDate | undefined): string {
+  if (precise && isPartialDate(precise)) {
+    const y = yearOfPartialDate(precise);
+    const month = monthOfPartialDate(precise);
+    if (month === null) return String(y);
+    const mon = GED_MONTHS[month - 1];
+    const day = dayOfPartialDate(precise);
+    if (day === null) return `${mon} ${y}`;
+    return `${day} ${mon} ${y}`;
+  }
+  return String(year);
+}
 
 /**
  * GEDCOM SEX tag from sex assigned at birth (M / F / U).
@@ -85,12 +128,12 @@ export function buildGedcom(record: FamilyRecord): string {
     lines.push(`1 SEX ${sexTag(sabOf(p))}`);
     if (p.birth != null) {
       lines.push('1 BIRT');
-      lines.push(`2 DATE ${p.birth}`);
+      lines.push(`2 DATE ${gedcomDate(p.birth, p.birthDate)}`);
     }
     if (p.dead) {
       if (p.death != null) {
         lines.push('1 DEAT');
-        lines.push(`2 DATE ${p.death}`);
+        lines.push(`2 DATE ${gedcomDate(p.death, p.deathDate)}`);
       } else {
         lines.push('1 DEAT Y');
       }

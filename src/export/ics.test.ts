@@ -243,6 +243,33 @@ describe('buildIcsCalendar — UID identity', () => {
   });
 });
 
+describe('buildIcsCalendar — projected dates stay year-only (W7)', () => {
+  // The calendar events are *projected future due-dates* (nextDueYear = lastDone + interval),
+  // never a stored source date — so there is no precise date to emit, and none must be
+  // fabricated. Even when the completion event that seeds the projection carries a precise
+  // `date`, DTSTART stays year-anchored to Jan 1 (guardrail: never manufacture a month/day).
+  it('anchors DTSTART to the projected year even when the completion event has a precise date', () => {
+    const root = mkPerson('pw7', { name: 'Ann', birth: 1982, organs: ['breasts'] });
+    const doneWithDate: TimelineEvent = {
+      id: 'evt-precise',
+      person: 'pw7',
+      year: 2019,
+      date: '2019-06-15', // precise completion date on the source event…
+      type: 'screening',
+      title: 'Mammogram',
+      detail: '',
+      screeningId: 'mammogram',
+    };
+    const record = mkRecord([root], [doneWithDate]);
+    const ics = buildIcsCalendar(record, 'pw7', { now: NOW, asOfYear: ASOF });
+    const lines = unfoldLines(ics);
+    // nextDueYear = 2019 + 2 = 2021 → all-day, year-only, no month/day carried over.
+    const block = findVevent(lines, 'pw7.mammogram.2021@stemma.local');
+    expect(block).toContain('DTSTART;VALUE=DATE:20210101');
+    expect(block).not.toContain('20210615');
+  });
+});
+
 describe('buildIcsCalendar — text escaping', () => {
   it('escapes a comma, semicolon, backslash and newline in a person name within SUMMARY', () => {
     // Raw name contains one each of the four RFC 5545 §3.3.11 reserved constructs.
