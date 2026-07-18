@@ -20,6 +20,26 @@ export type Provenance =
   | 'death';
 
 /**
+ * A code from a controlled vocabulary (ICD-10-CM, SNOMED, LOINC, RxNorm, CVX, …),
+ * attached verbatim to an imported fact. `system` is the vocabulary's canonical URI
+ * and `code` its identifier within that system; `display` is the human-readable name
+ * the source gave, when present.
+ */
+export interface Coding {
+  system: string;
+  code: string;
+  display?: string;
+}
+
+/**
+ * An ISO-8601 partial date: `"YYYY"` | `"YYYY-MM"` | `"YYYY-MM-DD"`. Carries exactly the
+ * precision the source gave — never fabricate a day or month the source didn't provide.
+ * Always an additive higher-precision echo of a coarse sibling (an event's `year`, a
+ * person's `birth`/`death`); see `src/domain/dates.ts` for parsing/formatting.
+ */
+export type PartialDate = string;
+
+/**
  * Sex assigned at birth. Drives the genetics and the pedigree geometry — kept
  * separate from {@link Gender} per the 2022 NSGC gender-inclusive nomenclature.
  */
@@ -103,6 +123,11 @@ export interface ConditionEntry {
   onset: number | null;
   /** Where the fact came from. */
   prov: Provenance;
+  /**
+   * Precise onset date when the source gave one (import). A shape-only echo — `onset`
+   * is an age, not a year, so there is no coarse year to cross-check against.
+   */
+  onsetDate?: PartialDate;
 }
 
 /**
@@ -133,8 +158,18 @@ export interface Person {
   dead: boolean;
   /** Birth year, if known. */
   birth: number | null;
+  /**
+   * Precise birth date when known (import) — an additive higher-precision echo of
+   * `birth`; its year component must equal `birth`.
+   */
+  birthDate?: PartialDate;
   /** Death year, if known. */
   death: number | null;
+  /**
+   * Precise death date when known (import) — an additive higher-precision echo of
+   * `death`; its year component must equal `death`.
+   */
+  deathDate?: PartialDate;
   /** Conditions this person carries. */
   conds: ConditionEntry[];
   /** True for the record owner (the default vantage for risk/screening). */
@@ -238,9 +273,18 @@ export interface TimelineEvent {
   /** Owning {@link Person.id}. */
   person: string;
   year: number;
+  /**
+   * Precise event date when the source gave one (import) — an additive higher-precision
+   * echo of `year`; its year component must equal `year`.
+   */
+  date?: PartialDate;
   type: EventType;
   title: string;
   detail: string;
+  /** Provenance of the event; defaults to `'self'` when absent (see `eventProv`). */
+  prov?: Provenance;
+  /** Controlled-vocabulary codes attached at import, preserved verbatim. */
+  coding?: Coding[];
   /**
    * When `type === 'screening'`, the {@link import('./screening').ScreeningDef | ScreeningDef}
    * `id` this event completes. Optional so pre-existing free-text screening events stay

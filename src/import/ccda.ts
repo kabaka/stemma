@@ -206,7 +206,7 @@ export function parseCcda(
   const maxProblems = limits?.maxProblems ?? MAX_PARSED_PROBLEMS;
   const maxFamilyMembers = limits?.maxFamilyMembers ?? MAX_PARSED_FAMILY_MEMBERS;
   const emptyWith = (warning: string): ParsedCcda => ({
-    proband: { problems: [] },
+    proband: { problems: [], events: [] },
     familyMembers: [],
     warnings: [warning],
   });
@@ -385,7 +385,9 @@ export function parseCcda(
     );
   }
 
-  return { proband: { problems: probandProblems }, familyMembers, warnings };
+  // C-CDA import carries no full-timeline events (Wave 2/3 events are FHIR-only today); the
+  // source-agnostic engine still requires the field, so it is always the empty list here.
+  return { proband: { problems: probandProblems, events: [] }, familyMembers, warnings };
 }
 
 /** Whether a problem/FH observation is a negation or an "absence" assertion (must never become

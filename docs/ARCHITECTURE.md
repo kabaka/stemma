@@ -61,8 +61,8 @@ graph TD
 
 | Layer | Directory | Responsibility | Depends on |
 | --- | --- | --- | --- |
-| **Domain** | `src/domain/` | Pure, typed, tested engine: model, kinship math, pattern detection, screening, catalog search | itself + curated `data` tables |
-| **Data** | `src/data/` | Curated, pure constants (catalog, categories, recommendations, seed family) | `domain` (types only) |
+| **Domain** | `src/domain/` | Pure, typed, tested engine: model, kinship math, pattern detection, screening, catalog search, partial-date parsing/formatting (`dates.ts`) | itself + curated `data` tables |
+| **Data** | `src/data/` | Curated, pure constants (catalog, categories, recommendations, seed family, FHIR terminology constants in `fhir-codes.ts`) | `domain` (types only) |
 | **Integrations** | `src/integrations/` | Ports to external services: the vocabulary adapter, and the SMART-on-FHIR OAuth2+PKCE transport (`src/integrations/smart-fhir/`) | `domain` (types) |
 | **Export** | `src/export/` | Serialize the graph to open standards | `domain`, `data` |
 | **Import** | `src/import/` | Parse an external file/bundle into the graph (the inverse of Export) | `domain`, `data` |
@@ -70,7 +70,7 @@ graph TD
 | **UI** | `src/ui/` | React views over the store | everything below |
 
 > **Current state.** All layers are implemented; the domain, store, export, import, and view layers
-> are covered by the test suite (229 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
+> are covered by the test suite (1,114 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
 > / `tsconfig.app.json`).
 
 The pure core is genuinely pure: `src/domain` imports no React, performs no I/O (`fetch`,
@@ -90,10 +90,16 @@ and lets any computation be **re-rooted on any person** in the record.
 The model lives in [`src/domain/types.ts`](../src/domain/types.ts):
 
 ```ts
+type PartialDate = string; // ISO-8601 "YYYY" | "YYYY-MM" | "YYYY-MM-DD" — exactly the source's precision
+
+interface Coding {                // a controlled-vocabulary code, attached verbatim at import
+  system: string; code: string; display?: string;
+}
+
 interface Person {
   id: string;
   name: string;
-  sab: 'm' | 'f' | 'u';          // sex assigned at birth — drives genetics + geometry
+  sab: 'm' | 'f' | 'u' | 'x';     // sex assigned at birth — drives genetics + geometry
   gender: 'man' | 'woman' | 'nb'; // gender identity — drives display only
   pronouns?: string;
   organs?: Organ[];               // explicit organ inventory; else derived from `sab`
@@ -101,8 +107,10 @@ interface Person {
   x: number;                      // horizontal layout hint
   dead: boolean;
   birth: number | null;
+  birthDate?: PartialDate;        // precise echo of `birth`; year component must match
   death: number | null;
-  conds: ConditionEntry[];        // { id, onset: number | null, prov: 'self'|'record'|'death' }
+  deathDate?: PartialDate;        // precise echo of `death`; year component must match
+  conds: ConditionEntry[];        // { id, onset: number | null, prov, onsetDate?: PartialDate }
   isProband?: boolean;
 }
 
@@ -110,12 +118,17 @@ interface Union {                 // a typed relationship edge
   parents: string[];
   children: string[];
   consanguineous?: boolean;       // blood-related partners — changes recessive risk
+  twins?: TwinSet[];              // multiple-birth groups among `children`
 }
 
 interface TimelineEvent {         // one dated event owned by a person
   id: string; person: string; year: number;
-  type: 'immunization'|'visit'|'lab'|'diagnosis'|'medication'|'screening'|'procedure'|'genetic';
+  date?: PartialDate;             // precise echo of `year`; year component must match
+  type: 'immunization'|'visit'|'lab'|'diagnosis'|'medication'|'screening'|'procedure'|'genetic'|'allergy'|'vital';
   title: string; detail: string;
+  prov?: Provenance;              // defaults to 'self' when absent (`eventProv`)
+  coding?: Coding[];               // controlled-vocabulary codes, preserved verbatim at import
+  // + type-specific structured payloads: med / lab / vital / allergy / immunization
 }
 
 interface FamilyRecord {          // the single graph every view reads
@@ -125,6 +138,14 @@ interface FamilyRecord {          // the single graph every view reads
   probandId: string;
 }
 ```
+
+`Coding` and `PartialDate` (DR-0023/DR-0024) are additive, source-agnostic carriers introduced for
+the full-timeline SMART-on-FHIR import (see [ADR-011](#adr-011--full-timeline-smart-on-fhir-import-and-the-partialdate--coding--event-provenance-uplift))
+but usable by any import/entry path: `PartialDate` preserves whatever date precision a source
+actually gave (never fabricating a day/month it didn't), and `Coding` preserves a controlled
+vocabulary code (RxNorm/CVX/LOINC/SNOMED CT/ICD-10-CM) verbatim rather than dropping it. Both are
+optional, higher-precision *echoes* of an always-present coarse field (`year`/`birth`/`death`) —
+existing consumers that only read the coarse field are unaffected.
 
 ### Gender-inclusive by construction (2022 NSGC)
 
@@ -352,15 +373,14 @@ and both go through **merge-with-review** rather than a structural replace — s
 [ADR-009](#adr-009--c-cda-import-is-merge-with-review-relationship-placement-is-conservative-by-construction)
 for the C-CDA importer (`src/import/ccda.ts`). [`src/import/fhir.ts`](../src/import/fhir.ts)'s
 **`parseFhirImport(bundle, {patientId})`** is the FHIR R4 counterpart: a pure mapping of a
-`Patient`/`Condition`/`FamilyMemberHistory` `Bundle` into the same source-agnostic parsed shape,
-so both importers share one reconciliation/merge engine —
-[`src/import/health-record.ts`](../src/import/health-record.ts), hoisted out of `ccda.ts` for this
-purpose (`stageHealthRecordImport` → review → `applyHealthRecordImport`; `ccda.ts` re-exports the
-same functions under its established `stageCcdaImport`/`applyCcdaImport` names, so its own test
-oracle stays a byte-for-byte regression check across the hoist). `parseFhirImport` itself never
-touches the network — the bundle it reads comes from the impure
-[`src/integrations/smart-fhir/`](../src/integrations/smart-fhir/) transport (discovery, OAuth2 +
-PKCE token exchange, paginated `Condition`/`FamilyMemberHistory` search), which
+`Bundle` into the same source-agnostic parsed shape, so both importers share one
+reconciliation/merge engine — [`src/import/health-record.ts`](../src/import/health-record.ts),
+hoisted out of `ccda.ts` for this purpose (`stageHealthRecordImport` → review →
+`applyHealthRecordImport`; `ccda.ts` re-exports the same functions under its established
+`stageCcdaImport`/`applyCcdaImport` names, so its own test oracle stays a byte-for-byte regression
+check across the hoist). `parseFhirImport` itself never touches the network — the bundle it reads
+comes from the impure [`src/integrations/smart-fhir/`](../src/integrations/smart-fhir/) transport
+(discovery, OAuth2 + PKCE token exchange, paginated search), which
 [`src/store/useSmartConnectionStore.ts`](../src/store/useSmartConnectionStore.ts) is the only code
 path that drives — but the store's `syncNow` returns that **raw `FhirImportBundle`** rather than
 a parsed record; parsing (`parseFhirImport`) and staging (`stageHealthRecordImport`) happen in
@@ -368,7 +388,30 @@ a parsed record; parsing (`parseFhirImport`) and staging (`stageHealthRecordImpo
 the C-CDA importer already does the equivalent `parseCcda`/`stageCcdaImport` work. The store's
 only outbound dependency stays `domain`/`data`/`integrations` — it never imports `src/import/`.
 See [ADR-010](#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral)
-for the full design.
+for the original design and
+[ADR-011](#adr-011--full-timeline-smart-on-fhir-import-and-the-partialdate--coding--event-provenance-uplift)
+for the full-timeline expansion below.
+
+**FHIR now imports the full clinical timeline, not just `Condition`/`FamilyMemberHistory`**
+(DR-0023/DR-0024). Alongside the proband's problems and relatives, `parseFhirImport` maps
+`MedicationStatement`/`MedicationRequest`, `Observation` (laboratory, vital-signs, and genomic —
+each identified by `category` or, for genomic, a known genetic LOINC code from
+[`src/data/fhir-codes.ts`](../src/data/fhir-codes.ts)), `Immunization`, `AllergyIntolerance`,
+`Procedure`, and `Encounter` into `ParsedEvent`s — a source-agnostic sibling of `ProblemEntry` that
+`src/import/health-record.ts` stages (`stageEvent`, dedup by a deterministic
+`"fhir:<ResourceType>:<id>"` `parseId`) and applies into `FamilyRecord.timeline` with
+`prov: 'record'`, exactly like a condition. Every mapper honors the same status-gating and
+absence-handling contract `Condition`/`FamilyMemberHistory` already established (§ "How statuses
+and absences are handled" in [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md)): `entered-in-error` is
+dropped silently, an explicit absence (`not-done`/`not-taken`/`refuted`/`cancelled`) is dropped and
+counted in a warning rather than staged, an uncertain/interim status is staged but defaulted off,
+and a resource with no usable date is dropped and counted rather than assigned a fabricated year. A
+genomic `Observation` is deliberately **fact-of-test only** — the parser never reads its
+`value[x]`/`interpretation`/`component` — and, like `Encounter`, is always staged needs-review
+regardless of status, so nothing from either resource type is ever pre-selected. `gateway.ts`
+fetches the expanded resource set with one search per type via `Promise.all`; a single failing
+search degrades to a `fetchWarnings` entry (surfaced to the user) instead of aborting the sync — the
+mandatory `Patient` read is the only fetch that still fails closed.
 
 ## 10. Determinism
 
@@ -608,6 +651,106 @@ client a refresh token; this ADR covers the client-side subset only. See
 [DR-0019](../.ai-dlc/records/DR-0019-smart-fhir-import-inception.md) /
 [DR-0020](../.ai-dlc/records/DR-0020-smart-fhir-import-design-fork.md) for the full decision
 record. (roadmap Phase 3.)
+
+### ADR-011 — Full-timeline SMART-on-FHIR import, and the `PartialDate` / `Coding` / event-provenance uplift
+
+**Context:** ADR-010's shipped importer read only `Patient`/`Condition`/`FamilyMemberHistory` —
+the proband's problem list and family history. `TimelineEvent` already modeled medications, labs,
+vitals, immunizations, allergies, procedures, visits, and genetic events (Phase 2), but nothing
+populated them from a sync. The maintainer directed that **everything the domain model can hold
+must be ingested** — no partial coverage, no stub (DR-0023). Two further scope additions followed
+mid-inception: dates need source precision (not just a bare year), and a chosen code should always
+be retained, from every entry path, not only FHIR import (DR-0023 §3–4). DR-0024 is the resulting
+design-fork approval.
+
+**Decision — additive domain uplift.** `src/domain/types.ts` gains two source-agnostic carriers,
+both optional and backward-compatible: `Coding { system; code; display? }` (a controlled-vocabulary
+code preserved verbatim — RxNorm/CVX/LOINC/SNOMED CT/ICD-10-CM) and `PartialDate` (an ISO-8601
+string of exactly `"YYYY"` | `"YYYY-MM"` | `"YYYY-MM-DD"`, carrying precisely the precision a
+source gave, never a fabricated day/month). `TimelineEvent` gains `date?`, `prov?` (defaulting to
+`'self'` via `eventProv()` when absent — parity with `ConditionEntry.prov`, which already had
+provenance), and `coding?`; `ConditionEntry` gains `onsetDate?`; `Person` gains `birthDate?` /
+`deathDate?`. Every precise field is a **higher-precision echo of an always-present coarse
+sibling** — a precise field's year component must equal `year`/`birth`/`death` — enforced additively
+in `isValidEvent`/`isValidPerson` (`src/domain/record.ts`); a pre-uplift persisted record with none
+of these fields round-trips unchanged, and the full pre-existing test suite stayed green throughout
+(DR-0024, below). New pure `src/domain/dates.ts` provides
+`isPartialDate`/`yearOfPartialDate`/`monthOfPartialDate`/`dayOfPartialDate`/`formatPartialDate` —
+deliberately built from the string's own parsed integer components, **never `new Date(str)`**,
+because `new Date('2019-03-01')` parses as UTC midnight and a local-time getter rolls it back a day
+in any negative-UTC-offset timezone; component-based parsing renders identically in every timezone.
+
+**Decision — the event pipeline.** `src/import/health-record.ts` (the source-agnostic
+merge/reconciliation engine ADR-010 already hoisted out of `ccda.ts`) gains a parallel `ParsedEvent`
+→ `StagedEvent` path alongside `ProblemEntry`/`RelativeEntry`: `ParsedHealthRecord.proband.events`
+and `StagedHealthRecordImport.events` (both required fields — `ccda.ts` sets `events: []`,
+TS-enforced, so C-CDA parses are structurally unaffected). `stageEvent` dedups on a deterministic
+`parseId = "fhir:<ResourceType>:<id>"` (identity dedup makes a re-sync safe — a resource with no
+`id` has no dedup identity and is dropped + counted, never randomly id'd) and defaults a `'new'`
+item selected, a `'duplicate'`/`'needs-review'` item unselected. `applyHealthRecordImport` writes
+selected, non-duplicate events into `record.timeline` with `prov: 'record'`, deduped by id even if
+the caller passed a duplicate.
+
+**Decision — parsers.** [`src/import/fhir.ts`](../src/import/fhir.ts) gains one pure mapper per
+resource type (§9 above and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#what-gets-imported--and-what-doesnt)
+have the full resource-to-event mapping and status-gating contract). A new
+[`src/data/fhir-codes.ts`](../src/data/fhir-codes.ts) (data layer — importable by both `import/`
+and `integrations/`) is the single source of truth for code-system URIs and category tokens, so the
+parser and the gateway share one definition rather than each carrying a drifting copy; only
+`RXNORM`/`CVX`/`LOINC`/`SNOMED`/`ICD10CM` codings land in `coding[]` (`VERIFIED_CODE_SYSTEMS`) —
+CPT/HCPCS/NDC/ICD-9-CM/proprietary route to narrative text, never crosswalked. Genomic
+`Observation` identification is a **heuristic, verified by the medical-coder**: a `category`
+coding of `v2-0074|GE` or `CG`, OR a known genetic LOINC code (`GENETIC_LOINC`) on the
+`Observation.code` or any `component.code` — there is no universal `category=genomics` token in
+FHIR, so this is the documented, deliberate substitute, not an invented code.
+
+**Arbiter decisions on surfaced residuals (DR-0024).** *Partial-failure resilience* — one failing
+resource search degrades to a `fetchWarnings` entry instead of aborting the whole sync (this also
+changes the pre-existing `Condition`/`FamilyMemberHistory` behavior; a decision-support tool must
+not lose everything because one endpoint is unavailable). *`medicationReference`* — resolved, not
+dropped: the medication searches add `_include=MedicationRequest:medication` /
+`_include=MedicationStatement:medication` so the referenced `Medication` comes back in the same
+bundle; only a genuinely unresolvable reference is surfaced needs-review. *No-date resources* —
+dropped with a counted warning (`TimelineEvent.year` stays required; there is no
+unknown-year representation). *Genomic Observations* — fact-of-test-only, always needs-review; the
+parser never reads `value[x]`/`interpretation`/`component`. *Exact-date UI entry + export
+emission* — in scope for this unit (birth/death/onset/event date fields in `PersonForm.tsx`,
+`ConditionPicker.tsx`, `TimelineView.tsx`'s event form; additive precise-date emission in
+`export/fhir.ts`/`export/gedcom.ts`/`export/ics.ts`, preferring the precise field and falling back
+to the coarse year exactly as before). *GEDCOM import date precision* — deliberately **deferred**:
+GEDCOM's `ABT`/`BEF`/`AFT`/range date grammar doesn't reduce cleanly to `PartialDate`, so importing
+it was cut as scope creep (GEDCOM *export* of precise dates is unaffected and in scope).
+
+**Consequence — `Encounter` is supported but default-off.** A full visit history is the highest-
+noise resource type a portal exposes; every `Encounter` event is staged needs-review regardless of
+its FHIR status, so it is fetched and offered (nothing the domain model can hold is silently
+skipped) but never pre-selected — the user opts in per visit.
+
+**Consequence — requested scopes stay in lockstep with the search set.** `useSmartConnectionStore`'s
+`BASE_SCOPES` requests a `patient/<Resource>.read` scope for every resource type the gateway
+searches — `patient/Patient.read`, `patient/Condition.read`, `patient/FamilyMemberHistory.read`,
+`patient/MedicationRequest.read`, `patient/MedicationStatement.read`, `patient/Observation.read`,
+`patient/Immunization.read`, `patient/AllergyIntolerance.read`, `patient/Procedure.read`,
+`patient/Encounter.read` (plus `openid`/`fhirUser`/`launch/patient`, and `offline_access` when
+opted in). Keeping this list in lockstep with `fetchPatientData`'s search set matters because a
+provider that enforces per-resource scopes strictly (Epic among them) only returns data for a
+resource type whose scope was actually granted; a registration that grants fewer scopes than
+Stemma requests still degrades gracefully to a per-resource `fetchWarnings` line rather than
+failing the whole sync (see the partial-failure resilience decision above). See
+[`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#registering-stemma-as-an-app-with-your-provider) for the
+full scope table.
+
+**Guardrail commitments (unchanged from ADR-010, extended to every new resource type):** no
+manufactured value/range/flag — a lab/vital reference range imports only when exactly one
+`referenceRange` applies and its unit matches the value's, taken verbatim, never a Stemma default,
+never unit-converted, never an in/out-of-range flag; genomic interpretation is never imported;
+every accepted event carries `prov: 'record'`; the parser stays pure/deterministic (no
+clock/network/random); the review surface keeps the single standing `ClinicalBoundary`. Full review
+gate (`code-reviewer` + `clinical-safety-reviewer` + `security-privacy-reviewer` +
+`medical-domain-expert` + `accessibility-reviewer`) cleared before merge. See
+[DR-0023](../.ai-dlc/records/DR-0023-smart-fhir-timeline-import-inception.md) and
+[DR-0024](../.ai-dlc/records/DR-0024-smart-fhir-timeline-import-design-fork.md) for the full
+decision record. (roadmap Phase 3.)
 
 ---
 

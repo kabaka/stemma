@@ -580,6 +580,139 @@ describe('TimelineView', () => {
   });
 });
 
+describe('TimelineView — exact-date entry (W6)', () => {
+  it('leaves `date` undefined for year-only entry (the default, most common path)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    const yearField = screen.getByLabelText(/^year$/i);
+    await user.clear(yearField);
+    await user.type(yearField, '2020');
+    await user.type(screen.getByLabelText(/^title$/i), 'Year-only event');
+    // The exact-date refinement stays collapsed — never forced open.
+    expect(screen.getByRole('button', { name: /add exact date/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore.getState().record.timeline.find((e) => e.title === 'Year-only event');
+    expect(saved?.year).toBe(2020);
+    expect(saved?.date).toBeUndefined();
+    // The coarse year is still what every other consumer (sorting, the row badge) reads.
+    expect(screen.getByText('Year-only event').closest('li')).toHaveTextContent('2020');
+  });
+
+  it('writes a full year-month-day PartialDate when the exact-date refinement is filled in', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    const yearField = screen.getByLabelText(/^year$/i);
+    await user.clear(yearField);
+    await user.type(yearField, '2019');
+    await user.type(screen.getByLabelText(/^title$/i), 'Precise-date event');
+
+    await user.click(screen.getByRole('button', { name: /add exact date/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^month$/i }), '03');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^day$/i }), '15');
+    expect(screen.getByText(/recorded as: march 15, 2019/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore.getState().record.timeline.find((e) => e.title === 'Precise-date event');
+    expect(saved?.year).toBe(2019);
+    expect(saved?.date).toBe('2019-03-15');
+  });
+
+  it('clears an already-set exact date when the coarse year is changed (never silently rewrites the day)', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    const yearField = screen.getByLabelText(/^year$/i);
+    await user.clear(yearField);
+    await user.type(yearField, '2019');
+    await user.type(screen.getByLabelText(/^title$/i), 'Year-changed event');
+
+    await user.click(screen.getByRole('button', { name: /add exact date/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^month$/i }), '03');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^day$/i }), '15');
+    expect(screen.getByText(/recorded as: march 15, 2019/i)).toBeInTheDocument();
+
+    // Changing the coarse year invalidates the refinement — the control collapses back
+    // to its unset disclosure state rather than keeping a now-mismatched March 15.
+    await user.clear(yearField);
+    await user.type(yearField, '2021');
+    expect(screen.getByRole('button', { name: /add exact date/i })).toBeInTheDocument();
+    expect(screen.queryByText(/recorded as:/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore.getState().record.timeline.find((e) => e.title === 'Year-changed event');
+    expect(saved?.year).toBe(2021);
+    expect(saved?.date).toBeUndefined();
+  });
+
+  it('rejects an impossible day for the chosen month with an inline, associated error, falling back to month-only precision', async () => {
+    const user = userEvent.setup();
+    render(<TimelineView />);
+    await user.click(screen.getByRole('button', { name: /log event/i }));
+
+    const yearField = screen.getByLabelText(/^year$/i);
+    await user.clear(yearField);
+    await user.type(yearField, '2019');
+    await user.type(screen.getByLabelText(/^title$/i), 'Invalid-day event');
+
+    await user.click(screen.getByRole('button', { name: /add exact date/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^month$/i }), '02'); // February
+    const daySelect = screen.getByRole('combobox', { name: /^day$/i });
+    await user.selectOptions(daySelect, '30'); // February never has a 30th
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/doesn't have a day 30/i);
+    // Programmatically associated with the offending field (WCAG 3.3.1), not just visible text.
+    expect(daySelect).toHaveAttribute('aria-describedby', alert.id);
+    expect(daySelect).toHaveAttribute('aria-invalid', 'true');
+    // Falls back to the still-valid month-only precision rather than a malformed date.
+    expect(screen.getByText(/recorded as: february 2019/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save event/i }));
+
+    const saved = useStore.getState().record.timeline.find((e) => e.title === 'Invalid-day event');
+    expect(saved?.date).toBe('2019-02');
+  });
+
+  it('shows an existing precise date already expanded when editing, and round-trips it unchanged', async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useStore.getState().addEvent({
+        person: useStore.getState().record.probandId,
+        year: 2018,
+        date: '2018-06-05',
+        type: 'diagnosis',
+        title: 'Already-precise event',
+        detail: '',
+      });
+    });
+    render(<TimelineView />);
+
+    await user.click(screen.getByRole('button', { name: /edit already-precise event/i }));
+
+    // Expanded immediately — no extra "+ Add exact date" click needed to see it.
+    expect(screen.queryByRole('button', { name: /^\+ add exact date$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /^month$/i })).toHaveValue('06');
+    expect(screen.getByRole('combobox', { name: /^day$/i })).toHaveValue('05');
+    expect(screen.getByText(/recorded as: june 5, 2018/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    const saved = useStore
+      .getState()
+      .record.timeline.find((e) => e.title === 'Already-precise event');
+    expect(saved?.date).toBe('2018-06-05');
+    expect(saved?.year).toBe(2018);
+  });
+});
+
 describe('PedigreeView', () => {
   it('renders every person as a keyboard-operable, named pedigree node', () => {
     render(<PedigreeView />);

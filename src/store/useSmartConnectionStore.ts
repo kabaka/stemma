@@ -88,7 +88,14 @@ const PENDING_KEY = 'stemma-smart-pending';
  */
 let callbackInFlight = false;
 
-/** The base scope set Stemma requests: patient context + read of the two axes it imports. */
+/**
+ * The base scope set Stemma requests: patient context + read of every resource the import
+ * pulls — the problem list and family history plus the full clinical timeline (medications,
+ * observations/labs/vitals, immunizations, allergies, procedures, encounters). A provider that
+ * enforces per-resource scopes strictly (e.g. Epic) rejects a read whose scope wasn't granted, so
+ * these must stay in lockstep with the gateway's `fetchPatientData` search set. The user still
+ * consents to each on the provider's authorization screen.
+ */
 const BASE_SCOPES = [
   'openid',
   'fhirUser',
@@ -96,6 +103,13 @@ const BASE_SCOPES = [
   'patient/Patient.read',
   'patient/Condition.read',
   'patient/FamilyMemberHistory.read',
+  'patient/MedicationRequest.read',
+  'patient/MedicationStatement.read',
+  'patient/Observation.read',
+  'patient/Immunization.read',
+  'patient/AllergyIntolerance.read',
+  'patient/Procedure.read',
+  'patient/Encounter.read',
 ];
 
 /** Same id scheme as the other stores — `crypto.randomUUID` with a deterministic-ish fallback. */

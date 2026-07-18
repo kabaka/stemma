@@ -3,7 +3,15 @@
  * access. These centralise the 2022 NSGC split between sex-assigned-at-birth (drives
  * genetics + screening) and gender identity (drives display).
  */
-import type { ConditionEntry, Gender, Organ, Person, Sab } from './types';
+import type {
+  ConditionEntry,
+  Gender,
+  Organ,
+  Person,
+  Provenance,
+  Sab,
+  TimelineEvent,
+} from './types';
 
 /** All screening-relevant organs, in display order. */
 export const ORGANS: readonly Organ[] = ['breasts', 'ovaries', 'uterus', 'cervix', 'prostate'];
@@ -24,6 +32,14 @@ export function sabOf(p: Person): Sab {
 /** Gender identity. */
 export function genderOf(p: Person): Gender {
   return p.gender;
+}
+
+/**
+ * Provenance of a timeline event. Absent `prov` defaults to `'self'` (family
+ * recollection), matching how a legacy free-text event is weighted.
+ */
+export function eventProv(e: TimelineEvent): Provenance {
+  return e.prov ?? 'self';
 }
 
 /** The organ inventory implied by a sab when none is recorded explicitly. */

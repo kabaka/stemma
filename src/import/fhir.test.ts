@@ -28,18 +28,41 @@ import type { FhirImportBundle } from './fhir';
 import { applyHealthRecordImport, stageHealthRecordImport } from './health-record';
 import {
   ABSENCE_SNOMED_CODE,
+  GENETIC_LOINC_CODES,
   SYS,
+  allergyIntoleranceResource,
   conditionResource,
+  encounterResource,
   familyMemberHistoryResource,
   fhirBundle,
+  immunizationResource,
+  medicationRequestResource,
+  medicationResource,
+  medicationStatementResource,
+  observationResource,
   patientResource,
+  procedureResource,
 } from './fixtures/fhir';
-import type { FixtureCoding, FixtureFmhConditionOpts, FixtureFmhOpts } from './fixtures/fhir';
+import type {
+  FixtureCoding,
+  FixtureFmhConditionOpts,
+  FixtureFmhOpts,
+  FixtureMedicationRequestOpts,
+  FixtureMedicationStatementOpts,
+} from './fixtures/fhir';
 import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord, seedRecord } from '@/data/seed';
 import { indexPeople, personById } from '@/domain/graph';
 import { isValidRecord } from '@/domain/record';
 import type { FamilyRecord } from '@/domain/types';
+
+/** The proband's parsed+staged health events (Wave 2/3) for a bundle. */
+function parsedEvents(bundle: FhirImportBundle) {
+  return parseFhirImport(bundle).proband.events;
+}
+function stagedEvents(bundle: FhirImportBundle, record: FamilyRecord = emptyRecord()) {
+  return stage(bundle, record).events;
+}
 
 const catalog = buildCatalog([]);
 
@@ -1069,5 +1092,1362 @@ describe('parseFhirImport → stageHealthRecordImport → applyHealthRecordImpor
     expect(brother.sab).toBe('m');
     expect(brother.birth).toBe(1990);
     expect(brother.conds).toEqual([{ id: 't2d', onset: 40, prov: 'record' }]);
+  });
+});
+
+// ===========================================================================
+// Wave 2/3 — full-timeline events (medications, labs, vitals, genomic,
+// immunizations, allergies, procedures, encounters). See timeline-import-contract.md
+// §W2/§W3 and the medical-verified status-bucket table. Every assertion targets the
+// STAGED (and, where dedup/apply matters, APPLIED) shape — the review UI and final
+// FamilyRecord are what a user actually sees.
+// ===========================================================================
+
+const RXNORM_METFORMIN: FixtureCoding = {
+  system: SYS.rxnorm,
+  code: '860975',
+  display: 'Metformin 500 MG Oral Tablet',
+};
+const CVX_FLU: FixtureCoding = { system: SYS.cvx, code: '158', display: 'Influenza vaccine' };
+const LOINC_A1C: FixtureCoding = { system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' };
+const LOINC_BP: FixtureCoding = {
+  system: SYS.loinc,
+  code: '8480-6',
+  display: 'Systolic blood pressure',
+};
+const SNOMED_APPENDECTOMY: FixtureCoding = {
+  system: SYS.snomed,
+  code: '80146002',
+  display: 'Appendectomy',
+};
+const SNOMED_PEANUT: FixtureCoding = { system: SYS.snomed, code: '256349002', display: 'Peanut' };
+
+// ---------------------------------------------------------------------------
+// MedicationStatement — status disposition
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — MedicationStatement.status disposition', () => {
+  function bundleFor(opts: Partial<FixtureMedicationStatementOpts>) {
+    return fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-05-01',
+        ...opts,
+      }),
+    ]);
+  }
+
+  it.each(['active', 'completed', 'stopped'] as const)(
+    'status=%s (settled) is staged as a new, defaulted-ON medication event',
+    (status) => {
+      const staged = stagedEvents(bundleFor({ status }))[0];
+      expect(staged).toMatchObject({ type: 'medication', status: 'new', defaultSelected: true });
+    },
+  );
+
+  it.each(['intended', 'on-hold', 'unknown'] as const)(
+    'status=%s (interim) is staged needs-review, defaulted OFF',
+    (status) => {
+      const staged = stagedEvents(bundleFor({ status }))[0];
+      expect(staged.status).toBe('needs-review');
+      expect(staged.defaultSelected).toBe(false);
+    },
+  );
+
+  it('status=not-taken (absence) is excluded and counted in a warning, never staged as a positive event', () => {
+    const bundle = bundleFor({ status: 'not-taken' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently — never staged, never counted in any warning', () => {
+    const bundle = bundleFor({ status: 'entered-in-error' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it.each([
+    ['active', true],
+    ['completed', false],
+    ['stopped', false],
+  ] as const)('med.ongoing = (status===active): status=%s -> ongoing=%s', (status, ongoing) => {
+    const staged = stagedEvents(bundleFor({ status }))[0];
+    expect(staged.med?.ongoing).toBe(ongoing);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MedicationRequest — status disposition
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — MedicationRequest.status disposition', () => {
+  function bundleFor(opts: Partial<FixtureMedicationRequestOpts>) {
+    return fhirBundle([
+      patientResource(),
+      medicationRequestResource({
+        id: 'mr1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        authoredOn: '2020-05-01',
+        ...opts,
+      }),
+    ]);
+  }
+
+  it.each(['active', 'completed', 'stopped'] as const)(
+    'status=%s (settled) is staged as a new, defaulted-ON medication event',
+    (status) => {
+      const staged = stagedEvents(bundleFor({ status }))[0];
+      expect(staged).toMatchObject({ type: 'medication', status: 'new', defaultSelected: true });
+    },
+  );
+
+  it.each(['on-hold', 'draft', 'unknown'] as const)(
+    'status=%s (interim) is staged needs-review, defaulted OFF',
+    (status) => {
+      const staged = stagedEvents(bundleFor({ status }))[0];
+      expect(staged.status).toBe('needs-review');
+      expect(staged.defaultSelected).toBe(false);
+    },
+  );
+
+  it('status=cancelled (absence) is excluded and counted in a warning, never a positive event', () => {
+    const bundle = bundleFor({ status: 'cancelled' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently', () => {
+    const bundle = bundleFor({ status: 'entered-in-error' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it('date comes from authoredOn (not effectiveDateTime, which MedicationRequest has no such field for)', () => {
+    const staged = stagedEvents(bundleFor({ authoredOn: '2021-07-04' }))[0];
+    expect(staged.year).toBe(2021);
+    expect(staged.date).toBe('2021-07-04');
+  });
+
+  it('a MedicationRequest with no authoredOn is dropped and counted, never defaulted to any date', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationRequestResource({
+        id: 'mr-nodate',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Medication payload — CodeableConcept vs Reference vs contained, dose
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — medication payload resolution', () => {
+  it('medicationCodeableConcept resolves to coding + a display name', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    expect(staged.title).toMatch(/metformin/i);
+  });
+
+  it('medicationReference resolves against a separate, `_include`d Medication bundle entry', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationResource({ id: 'med-included', codings: [RXNORM_METFORMIN] }),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationReferenceId: 'med-included',
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    // Resolved to a real medication — never surfaced as needs-review for THIS reason.
+    expect(staged.status).toBe('new');
+  });
+
+  it('medicationReference resolves against a `contained` Medication resource', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationRequestResource({
+        id: 'mr1',
+        status: 'active',
+        containedMedication: { id: 'med-c1', codings: [RXNORM_METFORMIN] },
+        authoredOn: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+  });
+
+  it('an unresolvable medicationReference is surfaced narrative/needs-review, never silently dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationReferenceId: 'does-not-exist-anywhere',
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle);
+    expect(staged).toHaveLength(1); // never dropped
+    expect(staged[0].status).toBe('needs-review');
+  });
+
+  it('dose comes from MedicationStatement.dosage[0].text', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-01-01',
+        dosageText: '500mg twice daily',
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].med?.dose).toBe('500mg twice daily');
+  });
+
+  it('dose comes from MedicationRequest.dosageInstruction[0].text', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationRequestResource({
+        id: 'mr1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        authoredOn: '2020-01-01',
+        dosageText: '10mg once daily',
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].med?.dose).toBe('10mg once daily');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Medication payload resolution — fullUrl / urn:uuid (Epic pattern)
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — medicationReference resolves against entry.fullUrl (Epic urn:uuid pattern)', () => {
+  const guid = '5b3a1e2a-9c4b-4abc-9def-abcdef012345';
+
+  it("resolves a `urn:uuid:<guid>` medicationReference matched against the included Medication's entry.fullUrl, even when the Medication's own `.id` is a DIFFERENT internal id", () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationResource({
+        id: 'med-internal-99', // deliberately different from the urn:uuid the reference uses
+        codings: [RXNORM_METFORMIN],
+        entryFullUrl: `urn:uuid:${guid}`,
+      }),
+      medicationRequestResource({
+        id: 'mr-urn',
+        status: 'active',
+        medicationReferenceRaw: `urn:uuid:${guid}`,
+        authoredOn: '2020-05-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+
+    // Resolved to the real Medication's coding/name — an id-only resolver (matching only
+    // `.id`/`Medication/<id>`) would find no entry keyed by the urn:uuid and fall through to the
+    // generic unresolved fallback below, failing both of these.
+    expect(staged.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    expect(staged.title).toMatch(/metformin/i);
+    expect(staged.title).not.toBe('Medication'); // not the unresolved-reference fallback title
+    expect(staged.status).toBe('new'); // resolved — never needs-review for this reason
+  });
+
+  it('BOTH the urn:uuid-fullUrl form and the plain `Medication/<id>` form resolve correctly in the same bundle', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationResource({
+        id: 'med-internal-99',
+        codings: [RXNORM_METFORMIN],
+        entryFullUrl: `urn:uuid:${guid}`,
+      }),
+      medicationResource({
+        id: 'med-plain',
+        codings: [
+          { system: SYS.rxnorm, code: '197361', display: 'Atorvastatin 20 MG Oral Tablet' },
+        ],
+      }),
+      medicationRequestResource({
+        id: 'mr-urn',
+        status: 'active',
+        medicationReferenceRaw: `urn:uuid:${guid}`,
+        authoredOn: '2020-05-01',
+      }),
+      medicationStatementResource({
+        id: 'ms-plain',
+        status: 'active',
+        medicationReferenceId: 'med-plain',
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    const events = stagedEvents(bundle);
+    expect(events).toHaveLength(2);
+
+    const urnEvent = events.find((e) => e.parseId === 'fhir:MedicationRequest:mr-urn');
+    expect(urnEvent?.coding).toEqual([
+      { system: SYS.rxnorm, code: '860975', display: 'Metformin 500 MG Oral Tablet' },
+    ]);
+    expect(urnEvent?.status).toBe('new');
+
+    const plainEvent = events.find((e) => e.parseId === 'fhir:MedicationStatement:ms-plain');
+    expect(plainEvent?.coding).toEqual([
+      { system: SYS.rxnorm, code: '197361', display: 'Atorvastatin 20 MG Oral Tablet' },
+    ]);
+    expect(plainEvent?.status).toBe('new');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation/laboratory — status disposition
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation(laboratory).status disposition', () => {
+  function bundleFor(status: string) {
+    return fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status,
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+    ]);
+  }
+
+  it.each(['final', 'amended', 'corrected'] as const)(
+    'status=%s (settled) is staged as a new, defaulted-ON lab event',
+    (status) => {
+      const staged = stagedEvents(bundleFor(status))[0];
+      expect(staged).toMatchObject({ type: 'lab', status: 'new', defaultSelected: true });
+    },
+  );
+
+  it.each(['registered', 'preliminary', 'unknown'] as const)(
+    'status=%s (interim) is staged needs-review, defaulted OFF',
+    (status) => {
+      const staged = stagedEvents(bundleFor(status))[0];
+      expect(staged.status).toBe('needs-review');
+      expect(staged.defaultSelected).toBe(false);
+    },
+  );
+
+  it('status=cancelled (absence) is excluded and counted in a warning', () => {
+    const bundle = bundleFor('cancelled');
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently', () => {
+    const bundle = bundleFor('entered-in-error');
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation — value & referenceRange handling
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation value & referenceRange', () => {
+  it('valueQuantity produces a Measurement {value, unit}', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toMatchObject({ value: 5.4, unit: '%' });
+    expect(staged.lab?.refLow).toBeUndefined();
+    expect(staged.lab?.refHigh).toBeUndefined();
+  });
+
+  it('valueString produces narrative detail, never a numeric Measurement', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '33747-0', display: 'General appearance' }],
+        effectiveDateTime: '2021-03-01',
+        valueString: 'Well-appearing, no acute distress',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toBeUndefined();
+    expect(staged.detail).toMatch(/well-appearing/i);
+  });
+
+  it('exactly one referenceRange with a matching unit is imported as refLow/refHigh, verbatim', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+        referenceRanges: [{ low: { value: 4, unit: '%' }, high: { value: 5.6, unit: '%' } }],
+      }),
+    ]);
+    const lab = stagedEvents(bundle)[0].lab;
+    expect(lab).toEqual({ value: 5.4, unit: '%', refLow: 4, refHigh: 5.6 });
+  });
+
+  it('never emits an in/out-of-range interpretation flag alongside a value+range', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 9.9, unit: '%' }, // clinically "abnormal" — must not be flagged
+        referenceRanges: [{ low: { value: 4, unit: '%' }, high: { value: 5.6, unit: '%' } }],
+      }),
+    ]);
+    const lab = stagedEvents(bundle)[0].lab;
+    expect(Object.keys(lab ?? {}).sort()).toEqual(['refHigh', 'refLow', 'unit', 'value']);
+  });
+
+  it('multiple referenceRange entries are skipped entirely — no range imported, value still imported', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+        referenceRanges: [
+          { low: { value: 4, unit: '%' }, high: { value: 5.6, unit: '%' } },
+          { low: { value: 4.5, unit: '%' }, high: { value: 6, unit: '%' } },
+        ],
+      }),
+    ]);
+    const lab = stagedEvents(bundle)[0].lab;
+    expect(lab).toEqual({ value: 5.4, unit: '%' });
+  });
+
+  it('a unit-mismatched referenceRange is skipped — no range imported, value still imported', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2345-7', display: 'Glucose' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 95, unit: 'mg/dL' },
+        referenceRanges: [
+          { low: { value: 3.9, unit: 'mmol/L' }, high: { value: 5.6, unit: 'mmol/L' } },
+        ],
+      }),
+    ]);
+    const lab = stagedEvents(bundle)[0].lab;
+    expect(lab).toEqual({ value: 95, unit: 'mg/dL' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation value — UCUM `code`-only fallback (no `unit` display)
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation valueQuantity: UCUM `code` fallback when `unit` is absent', () => {
+  it('a value carrying only a UCUM `code` (no `unit` display) is imported, using the code as the unit — never silently dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' }, // NO `unit` display, code-only
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L' });
+  });
+
+  it('a code-only referenceRange bound whose `code` matches the code-only value unit still attaches (refLow/refHigh)', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum-range',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' },
+        referenceRanges: [
+          { low: { value: 3.0, code: 'mmol/L' }, high: { value: 5.2, code: 'mmol/L' } },
+        ],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L', refLow: 3.0, refHigh: 5.2 });
+  });
+
+  it('a code-only value with a genuinely mismatched code-only referenceRange bound drops the range but keeps the value', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-ucum-mismatch',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '2093-3', display: 'Cholesterol' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 4.2, code: 'mmol/L' },
+        referenceRanges: [
+          { low: { value: 150, code: 'mg/dL' }, high: { value: 200, code: 'mg/dL' } },
+        ],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toEqual({ value: 4.2, unit: 'mmol/L' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation/vital-signs
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation(vital-signs)', () => {
+  it('classifies as a vital event with a Measurement, same status rules as laboratory', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'vital-signs',
+        status: 'final',
+        codings: [LOINC_BP],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 120, unit: 'mmHg' },
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.type).toBe('vital');
+    expect(staged.vital).toMatchObject({ value: 120, unit: 'mmHg' });
+    expect(staged.lab).toBeUndefined();
+  });
+
+  it('an interim vital-signs status is staged needs-review, defaulted OFF', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'vital-signs',
+        status: 'preliminary',
+        codings: [LOINC_BP],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 120, unit: 'mmHg' },
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.status).toBe('needs-review');
+    expect(staged.defaultSelected).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observation/genomic — fact-of-test only, always needs-review
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Observation genomic classification & fact-of-test-only', () => {
+  it('a laboratory-category Observation additionally tagged v2-0074|GE classifies as genetic', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-gen',
+        category: 'laboratory',
+        genomicCategoryCode: 'GE',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '21636-6', display: 'BRCA1 gene mutation analysis' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 1, unit: 'positive' }, // must NEVER leak through
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.type).toBe('genetic');
+  });
+
+  it.each(GENETIC_LOINC_CODES)(
+    'a plain-lab Observation tagged only by genetic LOINC %s (no v2-0074 category) still classifies as genetic',
+    (loincCode) => {
+      const bundle = fhirBundle([
+        patientResource(),
+        observationResource({
+          id: 'obs-gen2',
+          category: 'laboratory', // no genomicCategoryCode
+          status: 'final',
+          codings: [{ system: SYS.loinc, code: loincCode, display: 'Genetic test' }],
+          effectiveDateTime: '2021-03-01',
+        }),
+      ]);
+      expect(stagedEvents(bundle)[0].type).toBe('genetic');
+    },
+  );
+
+  it('an ordinary laboratory Observation (non-genetic LOINC, no v2-0074 tag) classifies as lab, not genetic', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-plain',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].type).toBe('lab');
+  });
+
+  it('a genetic event is ALWAYS needs-review, even when Observation.status is settled (final)', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-gen',
+        category: 'laboratory',
+        genomicCategoryCode: 'GE',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '21636-6', display: 'BRCA1 gene mutation analysis' }],
+        effectiveDateTime: '2021-03-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.status).toBe('needs-review');
+    expect(staged.defaultSelected).toBe(false);
+  });
+
+  it('NEVER reads value[x] into the event — a genetic Observation with a definitive valueQuantity carries no Measurement anywhere', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-gen',
+        category: 'laboratory',
+        genomicCategoryCode: 'GE',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '21636-6', display: 'BRCA1 gene mutation analysis' }],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 1, unit: 'positive' },
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.lab).toBeUndefined();
+    expect(staged.vital).toBeUndefined();
+    // The title/detail come from Observation.code, not the value.
+    expect(staged.title).toMatch(/brca1/i);
+    expect(JSON.stringify(staged)).not.toMatch(/positive/);
+  });
+
+  it('a genomic Observation with no effectiveDateTime (period/issued only) is dropped and counted — genomic date source is effectiveDateTime only', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs-gen',
+        category: 'laboratory',
+        genomicCategoryCode: 'GE',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '21636-6', display: 'BRCA1 gene mutation analysis' }],
+        effectivePeriodStart: '2021-03-01',
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Immunization
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Immunization', () => {
+  it('status=completed (settled) is staged new, defaulted ON', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({
+        id: 'imm1',
+        status: 'completed',
+        occurrenceDateTime: '2022-10-15',
+        vaccineCodings: [CVX_FLU],
+        doseNumber: 1,
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged).toMatchObject({ type: 'immunization', status: 'new', defaultSelected: true });
+    expect(staged.immunization).toMatchObject({ vaccine: expect.stringMatching(/influenza/i) });
+  });
+
+  it('status=not-done (absence) is excluded and counted in a warning, never staged', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({ id: 'imm1', status: 'not-done', vaccineCodings: [CVX_FLU] }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({
+        id: 'imm1',
+        status: 'entered-in-error',
+        occurrenceDateTime: '2022-10-15',
+        vaccineCodings: [CVX_FLU],
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it('doseLabel comes from protocolApplied[].doseNumber', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({
+        id: 'imm1',
+        status: 'completed',
+        occurrenceDateTime: '2022-10-15',
+        vaccineCodings: [CVX_FLU],
+        doseNumber: 2,
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.immunization?.doseLabel).toMatch(/2/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AllergyIntolerance — verificationStatus disposition (two-axis: clinicalStatus never excludes)
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — AllergyIntolerance.verificationStatus disposition', () => {
+  function bundleFor(opts: {
+    verificationStatus?: 'confirmed' | 'unconfirmed' | 'refuted' | 'entered-in-error';
+    omitVerificationStatus?: boolean;
+    clinicalStatus?: 'active' | 'inactive' | 'resolved';
+  }) {
+    return fhirBundle([
+      patientResource(),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetDateTime: '2010-06-01',
+        reactions: [{ manifestationText: 'Hives', severity: 'moderate' }],
+        ...opts,
+      }),
+    ]);
+  }
+
+  it('verificationStatus=confirmed is staged as a new, defaulted-ON allergy event', () => {
+    const staged = stagedEvents(bundleFor({ verificationStatus: 'confirmed' }))[0];
+    expect(staged).toMatchObject({ type: 'allergy', status: 'new', defaultSelected: true });
+  });
+
+  it('verificationStatus=unconfirmed is staged needs-review, defaulted OFF', () => {
+    const staged = stagedEvents(bundleFor({ verificationStatus: 'unconfirmed' }))[0];
+    expect(staged.status).toBe('needs-review');
+    expect(staged.defaultSelected).toBe(false);
+  });
+
+  it('a missing verificationStatus is treated as interim (needs-review), never assumed confirmed', () => {
+    const staged = stagedEvents(bundleFor({ omitVerificationStatus: true }))[0];
+    expect(staged.status).toBe('needs-review');
+    expect(staged.defaultSelected).toBe(false);
+  });
+
+  it('verificationStatus=refuted is excluded and counted in a warning, never a positive event', () => {
+    const bundle = bundleFor({ verificationStatus: 'refuted' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('verificationStatus=entered-in-error is excluded silently', () => {
+    const bundle = bundleFor({ verificationStatus: 'entered-in-error' });
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it.each(['active', 'inactive', 'resolved'] as const)(
+    'clinicalStatus=%s NEVER excludes a confirmed allergy (parity with Condition.clinicalStatus)',
+    (clinicalStatus) => {
+      const staged = stagedEvents(
+        bundleFor({ verificationStatus: 'confirmed', clinicalStatus }),
+      )[0];
+      expect(staged.status).toBe('new');
+      expect(staged.defaultSelected).toBe(true);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// AllergyIntolerance — payload (substance/reaction/severity) + onset order
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — AllergyIntolerance payload', () => {
+  it('substance comes from code, reaction from reaction[].manifestation', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetDateTime: '2010-06-01',
+        reactions: [{ manifestationText: 'Anaphylaxis', severity: 'severe' }],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.allergy?.substance).toMatch(/peanut/i);
+    expect(staged.allergy?.reaction).toMatch(/anaphylaxis/i);
+  });
+
+  it('severity comes from reaction[].severity, NEVER from AllergyIntolerance.criticality', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetDateTime: '2010-06-01',
+        criticality: 'low', // deliberately a DIFFERENT bucket than reaction severity
+        reactions: [{ manifestationText: 'Hives', severity: 'severe' }],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.allergy?.severity).toBe('severe');
+  });
+
+  it('onset order: onsetDateTime is used when present', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetDateTime: '2010-06-01',
+        onsetPeriodStart: '2005-01-01', // must be ignored — onsetDateTime wins
+        recordedDate: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.year).toBe(2010);
+    expect(staged.date).toBe('2010-06-01');
+  });
+
+  it('onset order: falls back to onsetPeriod.start when onsetDateTime is absent', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetPeriodStart: '2005-01-01',
+        recordedDate: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.year).toBe(2005);
+  });
+
+  it('onset order: falls back to onsetAge (resolved via Patient.birthDate) when neither date is present', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetAgeYears: 22,
+        recordedDate: '2020-01-01',
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.year).toBe(2010); // 1988 + 22
+  });
+
+  it('recordedDate is NEVER used as onset — a resource with only recordedDate is dropped and counted', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        recordedDate: '2020-01-01', // the ONLY date-shaped field present
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('onsetString is not parsed into a date — resource is dropped (no other onset field present)', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetString: 'childhood',
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+  });
+
+  it('onsetAge with no resolvable Patient.birthDate is dropped and counted (never a fabricated year)', () => {
+    const bundle = fhirBundle([
+      patientResource(), // no birthDate
+      allergyIntoleranceResource({
+        id: 'al1',
+        codings: [SNOMED_PEANUT],
+        onsetAgeYears: 22,
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Procedure
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Procedure.status disposition + codings', () => {
+  function bundleFor(status: string) {
+    return fhirBundle([
+      patientResource(),
+      procedureResource({
+        id: 'proc1',
+        status,
+        performedDateTime: '2018-09-01',
+        codings: [SNOMED_APPENDECTOMY],
+      }),
+    ]);
+  }
+
+  it.each(['completed', 'stopped'] as const)(
+    'status=%s (settled) is staged new, defaulted ON',
+    (status) => {
+      const staged = stagedEvents(bundleFor(status))[0];
+      expect(staged).toMatchObject({ type: 'procedure', status: 'new', defaultSelected: true });
+    },
+  );
+
+  it.each(['preparation', 'in-progress', 'on-hold', 'unknown'] as const)(
+    'status=%s (interim) is staged needs-review, defaulted OFF',
+    (status) => {
+      const staged = stagedEvents(bundleFor(status))[0];
+      expect(staged.status).toBe('needs-review');
+      expect(staged.defaultSelected).toBe(false);
+    },
+  );
+
+  it('status=not-done (absence) is excluded and counted in a warning', () => {
+    const bundle = bundleFor('not-done');
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently', () => {
+    const bundle = bundleFor('entered-in-error');
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it('a SNOMED-coded procedure lands its code in coding[]', () => {
+    const staged = stagedEvents(bundleFor('completed'))[0];
+    expect(staged.coding).toEqual([SNOMED_APPENDECTOMY]);
+  });
+
+  it('a CPT-only procedure excludes the code from coding[]; display routes to narrative', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      procedureResource({
+        id: 'proc1',
+        status: 'completed',
+        performedDateTime: '2018-09-01',
+        codings: [{ system: SYS.cpt, code: '44950', display: 'Appendectomy (CPT)' }],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.coding).toEqual([]);
+    expect(`${staged.title} ${staged.detail}`).toMatch(/appendectomy \(cpt\)/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Encounter — always needs-review
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — Encounter, always needs-review regardless of status', () => {
+  it.each(['finished', 'in-progress', 'planned', 'unknown'] as const)(
+    'status=%s is staged as a visit, ALWAYS needs-review (default-OFF), never defaulted ON',
+    (status) => {
+      const bundle = fhirBundle([
+        patientResource(),
+        encounterResource({
+          id: 'enc1',
+          status,
+          periodStart: '2019-11-01',
+          classCode: 'AMB',
+          classDisplay: 'ambulatory',
+        }),
+      ]);
+      const staged = stagedEvents(bundle)[0];
+      expect(staged.type).toBe('visit');
+      expect(staged.status).toBe('needs-review');
+      expect(staged.defaultSelected).toBe(false);
+    },
+  );
+
+  it('status=cancelled (absence) is excluded and counted in a warning', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      encounterResource({ id: 'enc1', status: 'cancelled', periodStart: '2019-11-01' }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('status=entered-in-error is excluded silently', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      encounterResource({ id: 'enc1', status: 'entered-in-error', periodStart: '2019-11-01' }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings).toHaveLength(0);
+  });
+
+  it('title comes from type/class when present', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      encounterResource({
+        id: 'enc1',
+        status: 'finished',
+        periodStart: '2019-11-01',
+        typeText: 'Annual physical',
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].title).toMatch(/annual physical/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No-date resources are dropped + counted, across resource types
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — explicit-date-only: a resource with no usable date is dropped + counted', () => {
+  it('an Observation/laboratory with no effectiveDateTime/effectivePeriod/issued is dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+    expect(parseFhirImport(bundle).warnings.length).toBeGreaterThan(0);
+  });
+
+  it('a Procedure with no performedDateTime/performedPeriod is dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      procedureResource({ id: 'proc1', status: 'completed', codings: [SNOMED_APPENDECTOMY] }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+  });
+
+  it('an Encounter with no period.start is dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      encounterResource({ id: 'enc1', status: 'finished' }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+  });
+
+  it('an Immunization with no occurrenceDateTime is dropped', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({ id: 'imm1', status: 'completed', vaccineCodings: [CVX_FLU] }),
+    ]);
+    expect(parsedEvents(bundle)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missing identifier vs missing usable date — two DISTINCT drop buckets/warnings
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — a resource missing `id` is a DISTINCT drop reason from "no usable date"', () => {
+  it('a resource with a valid date but NO `id` is dropped and produces the "missing an identifier" warning — never the "missing a usable date" one', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      // Deliberately built without `id` (the fixture builders all require one) — the raw shape a
+      // hostile or malformed server entry could still take.
+      {
+        resourceType: 'Procedure',
+        status: 'completed',
+        subject: { reference: 'Patient/pat-1' },
+        code: { text: 'Appendectomy' },
+        performedDateTime: '2020-06-01',
+      },
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0); // never fabricates a dedup identity
+    expect(parsed.warnings.some((w) => /missing an identifier/i.test(w))).toBe(true);
+    expect(parsed.warnings.some((w) => /missing a usable date/i.test(w))).toBe(false);
+  });
+
+  it('a resource with an `id` but no usable date is dropped and produces the "missing a usable date" warning — never the "missing an identifier" one', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      procedureResource({ id: 'proc-nodate', status: 'completed', codings: [SNOMED_APPENDECTOMY] }),
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0);
+    expect(parsed.warnings.some((w) => /missing a usable date/i.test(w))).toBe(true);
+    expect(parsed.warnings.some((w) => /missing an identifier/i.test(w))).toBe(false);
+  });
+
+  it('one of each in the same bundle produces two SEPARATE warning strings, each singular — not merged into one bucket', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      {
+        resourceType: 'Procedure',
+        status: 'completed',
+        subject: { reference: 'Patient/pat-1' },
+        code: { text: 'Appendectomy (no id)' },
+        performedDateTime: '2020-06-01',
+      },
+      procedureResource({ id: 'proc-nodate', status: 'completed', codings: [SNOMED_APPENDECTOMY] }),
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.proband.events).toHaveLength(0);
+
+    const idWarning = parsed.warnings.find((w) => /missing an identifier/i.test(w));
+    const dateWarning = parsed.warnings.find((w) => /missing a usable date/i.test(w));
+    expect(idWarning).toBeDefined();
+    expect(dateWarning).toBeDefined();
+    expect(idWarning).not.toBe(dateWarning);
+    // Singular wording ("1 ... was", not "2 ... were") proves each bucket counted only its own
+    // resource — a pre-fix implementation that lumped both into `incomplete` would report
+    // "2 timeline events were ... missing a usable date" and no identifier warning at all.
+    expect(idWarning).toMatch(/^1 timeline event was .* missing an identifier\.$/);
+    expect(dateWarning).toMatch(/^1 timeline event was .* missing a usable date\.$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Date precision preservation
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — event date precision is preserved exactly (year always matches date)', () => {
+  it.each([
+    ['2020', 2020, '2020'],
+    ['2020-06', 2020, '2020-06'],
+    ['2020-06-15T10:30:00Z', 2020, '2020-06-15'],
+  ] as const)('effectiveDateTime=%s -> year=%d, date=%s', (raw, year, date) => {
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'final',
+        codings: [LOINC_A1C],
+        effectiveDateTime: raw,
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.year).toBe(year);
+    expect(staged.date).toBe(date);
+  });
+
+  it("every staged event's date, when present, has a year component equal to its year field", () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-06-15',
+      }),
+      immunizationResource({
+        id: 'imm1',
+        status: 'completed',
+        occurrenceDateTime: '2019',
+        vaccineCodings: [CVX_FLU],
+      }),
+    ]);
+    for (const ev of stagedEvents(bundle)) {
+      if (ev.date) expect(ev.date.slice(0, 4)).toBe(String(ev.year));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codings — verified-only systems land in coding[]
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport — event codings: only verified systems land in coding[]', () => {
+  it.each([
+    ['RxNorm', RXNORM_METFORMIN],
+    ['LOINC', LOINC_A1C],
+    ['SNOMED', SNOMED_APPENDECTOMY],
+  ] as const)('%s codings are preserved verbatim in coding[]', (_label, coding) => {
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [coding],
+        effectiveDateTime: '2020-01-01',
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].coding).toEqual([coding]);
+  });
+
+  it('a CVX-coded Immunization preserves its coding verbatim', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      immunizationResource({
+        id: 'imm1',
+        status: 'completed',
+        occurrenceDateTime: '2022-10-15',
+        vaccineCodings: [CVX_FLU],
+      }),
+    ]);
+    expect(stagedEvents(bundle)[0].coding).toEqual([CVX_FLU]);
+  });
+
+  it.each([
+    ['HCPCS', { system: SYS.hcpcs, code: 'J1100', display: 'Injection, dexamethasone' }],
+    ['NDC', { system: SYS.ndc, code: '0069-3150-83', display: 'Some drug product' }],
+  ] as const)(
+    '%s codings are excluded from coding[]; display routes to narrative',
+    (_label, coding) => {
+      const bundle = fhirBundle([
+        patientResource(),
+        medicationStatementResource({
+          id: 'ms1',
+          status: 'active',
+          medicationCodings: [coding],
+          effectiveDateTime: '2020-01-01',
+        }),
+      ]);
+      const staged = stagedEvents(bundle)[0];
+      expect(staged.coding).toEqual([]);
+      expect(`${staged.title} ${staged.detail}`).toMatch(new RegExp(coding.display!, 'i'));
+    },
+  );
+
+  it('an unrecognized/proprietary system is excluded from coding[]; display routes to narrative', () => {
+    const bundle = fhirBundle([
+      patientResource(),
+      procedureResource({
+        id: 'proc1',
+        status: 'completed',
+        performedDateTime: '2018-09-01',
+        codings: [{ system: SYS.proprietary, code: 'LOCAL-1', display: 'Local vendor procedure' }],
+      }),
+    ]);
+    const staged = stagedEvents(bundle)[0];
+    expect(staged.coding).toEqual([]);
+    expect(`${staged.title} ${staged.detail}`).toMatch(/local vendor procedure/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Combined pipeline — events flow into staged + applied timeline
+// ---------------------------------------------------------------------------
+
+describe('parseFhirImport → stageHealthRecordImport → applyHealthRecordImport — events', () => {
+  it('a mixed bundle (settled + interim + absence + eie across several resource types) applies exactly the expected events', () => {
+    const bundle = fhirBundle([
+      patientResource({ birthDate: '1988-01-01' }),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-01-01',
+      }),
+      medicationStatementResource({
+        id: 'ms-absent',
+        status: 'not-taken',
+        medicationCodings: [RXNORM_METFORMIN],
+        effectiveDateTime: '2020-01-01',
+      }),
+      observationResource({
+        id: 'obs1',
+        category: 'laboratory',
+        status: 'preliminary', // interim -> needs-review, defaulted off
+        codings: [LOINC_A1C],
+        effectiveDateTime: '2021-03-01',
+        valueQuantity: { value: 5.4, unit: '%' },
+      }),
+      immunizationResource({
+        id: 'imm-eie',
+        status: 'entered-in-error',
+        occurrenceDateTime: '2022-01-01',
+        vaccineCodings: [CVX_FLU],
+      }),
+      encounterResource({ id: 'enc1', status: 'finished', periodStart: '2019-11-01' }),
+    ]);
+    const record = emptyRecord();
+    const parsed = parseFhirImport(bundle);
+    // absence + eie never reach the parsed events list at all.
+    expect(parsed.proband.events).toHaveLength(3); // ms1, obs1, enc1
+
+    const staged = stageHealthRecordImport(parsed, record, catalog);
+    const selectedIds = staged.events.map((e) => e.parseId); // select everything staged
+    const { record: applied } = applyHealthRecordImport(
+      record,
+      staged,
+      { selectedParseIds: new Set(selectedIds) },
+      catalog,
+    );
+    expect(isValidRecord(applied)).toBe(true);
+    // Every applied event belongs to the proband and is attributed to the record.
+    const applied3 = applied.timeline.filter((e) => e.person === record.probandId);
+    expect(applied3).toHaveLength(3);
+    expect(applied3.every((e) => e.prov === 'record')).toBe(true);
+    expect(applied3.some((e) => e.type === 'medication')).toBe(true);
+    expect(applied3.some((e) => e.type === 'lab')).toBe(true);
+    expect(applied3.some((e) => e.type === 'visit')).toBe(true);
   });
 });

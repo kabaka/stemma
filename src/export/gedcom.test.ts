@@ -113,3 +113,60 @@ describe('buildGedcom (edge cases)', () => {
     expect(gedcom).toContain('1 SEX U');
   });
 });
+
+describe('buildGedcom (precise dates — W7)', () => {
+  it('emits a full BIRT date as GEDCOM "DD MON YYYY" when a precise birthDate is present', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1988, birthDate: '1988-04-02' })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const gedcom = buildGedcom(record);
+    expect(gedcom).toContain('1 BIRT');
+    expect(gedcom).toContain('2 DATE 2 APR 1988');
+    expect(gedcom).not.toContain('2 DATE 1988\n');
+  });
+
+  it('emits a year-month BIRT date as "MON YYYY" (no fabricated day)', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1988, birthDate: '1988-04' })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    expect(buildGedcom(record)).toContain('2 DATE APR 1988');
+  });
+
+  it('emits a full DEAT date as "DD MON YYYY" when a precise deathDate is present', () => {
+    const record: FamilyRecord = {
+      people: [
+        mkPerson('p1', {
+          isProband: true,
+          birth: 1950,
+          dead: true,
+          death: 2020,
+          deathDate: '2020-11-30',
+        }),
+      ],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const gedcom = buildGedcom(record);
+    expect(gedcom).toContain('1 DEAT');
+    expect(gedcom).toContain('2 DATE 30 NOV 2020');
+  });
+
+  it('falls back to the bare year for BIRT/DEAT when no precise date is present — unchanged', () => {
+    const record: FamilyRecord = {
+      people: [mkPerson('p1', { isProband: true, birth: 1950, dead: true, death: 2020 })],
+      unions: [],
+      timeline: [],
+      probandId: 'p1',
+    };
+    const gedcom = buildGedcom(record);
+    expect(gedcom).toContain('2 DATE 1950');
+    expect(gedcom).toContain('2 DATE 2020');
+  });
+});

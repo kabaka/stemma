@@ -13,6 +13,7 @@
  * Layering: `src/integrations/smart-fhir/` — imports only sibling modules (`discovery`) and
  * `@/domain` types; never `store`, `ui`, `import`, or `export`.
  */
+import { OBS_CATEGORY } from '@/data/fhir-codes';
 import {
   metadataUrl,
   parseCapabilityStatementOAuth,
@@ -39,6 +40,14 @@ export interface TokenResponse {
 export interface FhirImportBundle {
   resourceType: 'Bundle';
   entry?: { resource?: unknown }[];
+  /**
+   * Per-search retrieval failures, one human-readable line each ("Couldn't retrieve <label> from
+   * this provider (<message>)."). A single search failing degrades to a warning rather than aborting
+   * the whole sync (the mandatory Patient read still rejects). SECURITY (DR-0020 / contract §W4):
+   * each string carries only the label + the error's `message` — never a URL with a token, a header,
+   * or a response body. The parser merges these verbatim into `ParsedHealthRecord.warnings`.
+   */
+  fetchWarnings?: string[];
 }
 
 export interface SmartFhirGateway {
@@ -172,22 +181,62 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
     const baseOrigin = originOf(base);
     const entries: { resource?: unknown }[] = [];
 
-    // Patient read (single resource, not a searchset).
+    // Patient read (single resource, not a searchset). This is MANDATORY: a failure rejects the
+    // whole sync (never degraded into a warning) — without the proband there is nothing to import.
     const patient = await this.getJson(`${base}/Patient/${id}`, accessToken);
     entries.push({ resource: patient });
 
-    // Condition + FamilyMemberHistory searches, each paged to exhaustion.
-    for (const resource of ['Condition', 'FamilyMemberHistory']) {
-      entries.push(
-        ...(await this.fetchSearchEntries(
-          `${base}/${resource}?patient=${id}`,
-          accessToken,
-          baseOrigin,
-        )),
-      );
-    }
+    // The full-timeline search set (DR-0023/DR-0024). Each entry is a first-page query URL plus a
+    // human `label` used ONLY in a failure warning. The two medication searches request the
+    // referenced Medication resources via `_include`; the two Observation searches carry their
+    // `category` token (genomic Observations arrive via the laboratory search and are classified by
+    // the parser — no separate genomic search). Every URL is same-origin with the discovered base,
+    // so `fetchSearchEntries`' pagination + off-origin token guard applies to each unchanged.
+    const searches: { query: string; label: string }[] = [
+      { query: `${base}/Condition?patient=${id}`, label: 'conditions' },
+      { query: `${base}/FamilyMemberHistory?patient=${id}`, label: 'family history' },
+      {
+        query: `${base}/MedicationStatement?patient=${id}&_include=MedicationStatement:medication`,
+        label: 'medication statements',
+      },
+      {
+        query: `${base}/MedicationRequest?patient=${id}&_include=MedicationRequest:medication`,
+        label: 'medication requests',
+      },
+      {
+        query: `${base}/Observation?patient=${id}&category=${OBS_CATEGORY.LAB}`,
+        label: 'lab results',
+      },
+      {
+        query: `${base}/Observation?patient=${id}&category=${OBS_CATEGORY.VITAL}`,
+        label: 'vital signs',
+      },
+      { query: `${base}/Immunization?patient=${id}`, label: 'immunizations' },
+      { query: `${base}/AllergyIntolerance?patient=${id}`, label: 'allergies' },
+      { query: `${base}/Procedure?patient=${id}`, label: 'procedures' },
+      { query: `${base}/Encounter?patient=${id}`, label: 'encounters' },
+    ];
 
-    return { resourceType: 'Bundle', entry: entries };
+    // Run every search concurrently. Each is isolated: a failing search contributes no entries and a
+    // single warning line instead of aborting the others. The warning carries ONLY the label and the
+    // error `message` — never a URL (which would embed the patient id), a header, or a response body.
+    const fetchWarnings: string[] = [];
+    const results = await Promise.all(
+      searches.map(async ({ query, label }) => {
+        try {
+          return await this.fetchSearchEntries(query, accessToken, baseOrigin);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fetchWarnings.push(`Couldn't retrieve ${label} from this provider (${message}).`);
+          return [] as { resource?: unknown }[];
+        }
+      }),
+    );
+    for (const searchEntries of results) entries.push(...searchEntries);
+
+    const bundle: FhirImportBundle = { resourceType: 'Bundle', entry: entries };
+    if (fetchWarnings.length > 0) bundle.fetchWarnings = fetchWarnings;
+    return bundle;
   }
 
   /**
@@ -238,7 +287,10 @@ export class FetchSmartFhirGateway implements SmartFhirGateway {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: FHIR_ACCEPT },
     });
     if (!res.ok) {
-      throw new Error(`FHIR read failed: ${res.status} ${res.statusText} for ${url}`);
+      // SECURITY (DR-0020 / contract §W4): do NOT interpolate `url` — it embeds `?patient=<id>`.
+      // This message flows into `fetchWarnings` (shown in the review UI) and into `friendlyError`
+      // for the mandatory Patient read, so it must carry no patient-scoped URL, token, or header.
+      throw new Error(`FHIR read failed: ${res.status} ${res.statusText}`);
     }
     return res.json();
   }

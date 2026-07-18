@@ -18,7 +18,13 @@ import { SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord } from '@/data/seed';
-import { conditionResource, fhirBundle, patientResource, SYS } from '@/import/fixtures/fhir';
+import {
+  conditionResource,
+  fhirBundle,
+  medicationStatementResource,
+  patientResource,
+  SYS,
+} from '@/import/fixtures/fhir';
 
 const catalog = buildCatalog([]);
 const record = emptyRecord();
@@ -254,6 +260,37 @@ describe('SmartFhirConnect — connected', () => {
     // 'E11.9' (ICD-10-CM) resolves to the curated catalog's own slug id for Type 2 diabetes
     // ('t2d', see src/data/conditions.ts) — the merge attaches the curated id, not the raw code.
     expect(mergedRecord.people[0].conds.some((c: { id: string }) => c.id === 't2d')).toBe(true);
+  });
+
+  // Regression for Wave 2/3 (full-timeline import): the "nothing found" short-circuit used to
+  // gate on conditions + family history only, so a patient with ONLY health events (meds, labs,
+  // etc. — no Condition/FamilyMemberHistory resources at all) was wrongly rejected as empty.
+  it('does not reject a sync that found only health events (no conditions, no family history)', async () => {
+    const user = userEvent.setup();
+    const bundle = fhirBundle([
+      patientResource({ id: 'pat-1' }),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [{ system: SYS.rxnorm, code: '860975', display: 'Metformin' }],
+        effectiveDateTime: '2020-05-01',
+      }),
+    ]);
+    useSmartConnectionStore.setState({ syncNow: vi.fn().mockResolvedValue(bundle) });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+
+    // Must land on the review step (not the "nothing found" sync error) and surface the
+    // health event for review.
+    expect(await screen.findByRole('heading', { name: 'Health events' })).toBeInTheDocument();
+    expect(screen.getByText('Metformin')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Synced 0 conditions, 0 family members, and 1 health event/),
+    ).toBeInTheDocument();
   });
 
   // Regression for the reviewer-identified BLOCKER: `useDisclosureFocus` only fires on

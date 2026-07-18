@@ -31,8 +31,18 @@
  * `@/domain`, `@/data`, and the sibling `health-record` engine — never `store`, `ui`,
  * `integrations`, or `export`.
  */
-import type { Sab } from '@/domain/types';
-import type { ProblemEntry, RelativeEntry, ParsedHealthRecord } from './health-record';
+import type {
+  AllergyInfo,
+  Coding,
+  ImmunizationInfo,
+  Measurement,
+  MedicationInfo,
+  PartialDate,
+  Sab,
+} from '@/domain/types';
+import { isPartialDate, yearOfPartialDate } from '@/domain/dates';
+import { GENETIC_LOINC, OBS_CATEGORY, SYS, VERIFIED_CODE_SYSTEMS } from '@/data/fhir-codes';
+import type { ParsedEvent, ProblemEntry, RelativeEntry, ParsedHealthRecord } from './health-record';
 import {
   ABSENCE_SNOMED,
   CODE_SAB,
@@ -41,10 +51,16 @@ import {
   yearFromTs,
 } from './health-record';
 
-/** The minimal Bundle shape this parser consumes — mirrors the gateway's `FhirImportBundle`. */
+/**
+ * The minimal Bundle shape this parser consumes — mirrors the gateway's `FhirImportBundle`.
+ * `fetchWarnings` (added by the W4 gateway) carries per-search retrieval failures ("Couldn't
+ * retrieve labs …"); the parser merges them verbatim into {@link ParsedHealthRecord.warnings}. The
+ * field may be absent on bundles assembled before W4, so every read guards with `?? []`.
+ */
 export interface FhirImportBundle {
   resourceType: 'Bundle';
-  entry?: { resource?: unknown }[];
+  entry?: { fullUrl?: string; resource?: unknown }[];
+  fetchWarnings?: string[];
 }
 
 /** Options for {@link parseFhirImport}: the proband's `Patient.id`, else the sole Patient is used. */
@@ -56,8 +72,9 @@ export interface ParseFhirOptions {
 // System URIs (the real ones a conformant SMART server emits — never invented).
 // ---------------------------------------------------------------------------
 
-const SYS_SNOMED = 'http://snomed.info/sct';
-const SYS_ICD10CM = 'http://hl7.org/fhir/sid/icd-10-cm';
+// SNOMED / ICD-10-CM system URIs now come from the shared data-layer `fhir-codes.ts` (DR-0024) so
+// the parser and gateway read one definition. `v3-RoleCode` is a relationship vocabulary (not a
+// clinical code system) and stays local to this importer.
 const SYS_V3_ROLECODE = 'http://terminology.hl7.org/CodeSystem/v3-RoleCode';
 
 /** FHIR twin RoleCodes → the generic full-sibling code the placement engine recognizes (a twin is
@@ -104,8 +121,8 @@ type SystemLabel = 'ICD-10-CM' | 'SNOMED-CT' | null;
 /** Map a coding system URI to the canonical catalog label; anything else (ICD-9-CM, proprietary)
  * is unrecognized → `null` (surfaced narrative-only, never crosswalked). */
 function systemLabel(system: string | undefined): SystemLabel {
-  if (system === SYS_ICD10CM) return 'ICD-10-CM';
-  if (system === SYS_SNOMED) return 'SNOMED-CT';
+  if (system === SYS.ICD10CM) return 'ICD-10-CM';
+  if (system === SYS.SNOMED) return 'SNOMED-CT';
   return null;
 }
 
@@ -186,6 +203,493 @@ function probandOnset(resource: Record<string, unknown>, birthYear: number | nul
 }
 
 // ---------------------------------------------------------------------------
+// Wave 2/3 — full-timeline events (medications, labs, vitals, genomic, immunizations,
+// allergies, procedures, encounters). Each mapper is pure and produces 0-or-1 ParsedEvent.
+// ---------------------------------------------------------------------------
+
+/** Best human-readable label for a CodeableConcept — `text`, else the first coding `display`, else
+ * the first `code` (across ALL systems, so a display-only CPT/HCPCS/NDC term still reaches narrative). */
+function conceptDisplay(cc: Record<string, unknown> | undefined): string {
+  const text = str(cc?.text);
+  if (text) return text.trim();
+  const codings = codingsOf(cc);
+  const firstDisplay = codings.find((c) => c.display)?.display;
+  if (firstDisplay) return firstDisplay.trim();
+  const firstCode = codings.find((c) => c.code)?.code;
+  return firstCode?.trim() ?? '';
+}
+
+/** Codings whose system is a VERIFIED code system, preserved verbatim as {@link Coding}. Anything
+ * else (CPT / HCPCS / NDC / ICD-9-CM / proprietary) is excluded — routed to narrative, never
+ * crosswalked (guardrail #1). */
+function extractCodings(cc: Record<string, unknown> | undefined): Coding[] {
+  const out: Coding[] = [];
+  for (const c of codingsOf(cc)) {
+    if (!c.system || !c.code || !VERIFIED_CODE_SYSTEMS.has(c.system)) continue;
+    const coding: Coding = { system: c.system, code: c.code };
+    if (c.display != null) coding.display = c.display;
+    out.push(coding);
+  }
+  return out;
+}
+
+/**
+ * Parse the leading ISO date of a FHIR `dateTime`/`date` (stripping any time component), preserving
+ * exactly the source precision: `"2020"`→`{2020,"2020"}`, `"2020-06"`→`{2020,"2020-06"}`,
+ * `"2020-06-15T10:30:00Z"`→`{2020,"2020-06-15"}`. Validated through {@link isPartialDate} (so a real
+ * calendar date only); anything malformed → `null`. Never fabricates a day/month the source omitted.
+ */
+function partialDateFromTs(value: string): { year: number; date: PartialDate } | null {
+  const m = /^(\d{4}(?:-\d{2}(?:-\d{2})?)?)/.exec(value.trim());
+  if (!m) return null;
+  const date = m[1];
+  if (!isPartialDate(date)) return null;
+  return { year: yearOfPartialDate(date), date };
+}
+
+/** First non-empty ISO date among the given raw candidate strings → `{year, date}`, else `null`. */
+function firstPartialDate(
+  ...candidates: (string | undefined)[]
+): { year: number; date: PartialDate } | null {
+  for (const c of candidates) {
+    if (c) {
+      const parsed = partialDateFromTs(c);
+      if (parsed) return parsed;
+    }
+  }
+  return null;
+}
+
+/** The disposition of a status value against a resource's status buckets. `entered-in-error` is
+ * always a silent drop; an unrecognized status defaults to `interim` (conservative needs-review). */
+type StatusDisposition = 'settled' | 'interim' | 'absence' | 'drop-silent';
+function classifyStatus(
+  status: string | undefined,
+  buckets: { settled: readonly string[]; interim: readonly string[]; absence: readonly string[] },
+): StatusDisposition {
+  if (status === 'entered-in-error') return 'drop-silent';
+  if (status && buckets.settled.includes(status)) return 'settled';
+  if (status && buckets.absence.includes(status)) return 'absence';
+  if (status && buckets.interim.includes(status)) return 'interim';
+  return 'interim';
+}
+
+/** Accumulator the event mappers report drops into (never a positive event for a dropped resource). */
+interface EventSink {
+  events: ParsedEvent[];
+  /** Absence-status resources (not-taken/not-done/refuted/cancelled) — counted in a warning. */
+  absence: number;
+  /** Resources dropped for no usable date — counted in a "missing a usable date" warning. */
+  incomplete: number;
+  /** Resources dropped for a missing `id` (no dedup identity) — counted in a distinct warning. */
+  missingId: number;
+}
+
+/** Resolve a medication's coded concept from `medicationCodeableConcept`, an `_include`d bundle
+ * `Medication`, or a `contained` Medication (`#<id>`). The `_include`d lookup is DUAL (defensive re
+ * Epic): a `medicationReference` is matched verbatim against each included Medication's `entry.fullUrl`
+ * (a common Epic pattern is `reference: "urn:uuid:<guid>"` with the Medication at that `fullUrl` and a
+ * DIFFERENT `.id`), then against its `Medication/<id>` / bare `<id>` forms, then a trailing-segment
+ * fallback for absolute-URL references. Returns the concept + whether it resolved; an unresolvable
+ * reference is surfaced needs-review, never dropped. */
+function resolveMedicationConcept(
+  resource: Record<string, unknown>,
+  medicationByKey: Map<string, Record<string, unknown>>,
+): { cc: Record<string, unknown> | undefined; resolved: boolean } {
+  const inline = asObj(resource.medicationCodeableConcept);
+  if (inline) return { cc: inline, resolved: true };
+
+  const ref = str(asObj(resource.medicationReference)?.reference);
+  if (!ref) return { cc: undefined, resolved: false };
+
+  if (ref.startsWith('#')) {
+    const id = ref.slice(1);
+    const contained = (Array.isArray(resource.contained) ? resource.contained : [])
+      .map(asObj)
+      .find((m) => m && str(m.id) === id);
+    const cc = asObj(contained?.code);
+    return cc ? { cc, resolved: true } : { cc: undefined, resolved: false };
+  }
+
+  // Exact match (fullUrl verbatim, or `Medication/<id>` / bare `<id>`) first; then a trailing-segment
+  // fallback so an absolute-URL reference (`http://host/Medication/<id>`) still resolves by its id.
+  const trailingId = ref.includes('/') ? ref.slice(ref.lastIndexOf('/') + 1) : ref;
+  const med = medicationByKey.get(ref) ?? medicationByKey.get(trailingId);
+  const cc = asObj(med?.code);
+  return cc ? { cc, resolved: true } : { cc: undefined, resolved: false };
+}
+
+const MED_STATEMENT_BUCKETS = {
+  settled: ['active', 'completed', 'stopped'],
+  interim: ['intended', 'on-hold', 'unknown'],
+  absence: ['not-taken'],
+} as const;
+const MED_REQUEST_BUCKETS = {
+  settled: ['active', 'completed', 'stopped'],
+  interim: ['on-hold', 'draft', 'unknown'],
+  absence: ['cancelled'],
+} as const;
+const OBSERVATION_BUCKETS = {
+  settled: ['final', 'amended', 'corrected'],
+  interim: ['registered', 'preliminary', 'unknown'],
+  absence: ['cancelled'],
+} as const;
+const IMMUNIZATION_BUCKETS = {
+  settled: ['completed'],
+  interim: [] as const,
+  absence: ['not-done'],
+} as const;
+const ALLERGY_BUCKETS = {
+  settled: ['confirmed'],
+  interim: ['unconfirmed'],
+  absence: ['refuted'],
+} as const;
+const PROCEDURE_BUCKETS = {
+  settled: ['completed', 'stopped'],
+  interim: ['preparation', 'in-progress', 'on-hold', 'unknown'],
+  absence: ['not-done'],
+} as const;
+const ENCOUNTER_BUCKETS = {
+  settled: ['finished'],
+  interim: [] as const, // every non-cancelled/eie status → interim (still surfaced needs-review)
+  absence: ['cancelled'],
+} as const;
+
+/** Map one MedicationStatement/MedicationRequest → a `medication` event (or a drop). */
+function mapMedication(
+  resource: Record<string, unknown>,
+  parseId: string,
+  medicationByKey: Map<string, Record<string, unknown>>,
+  sink: EventSink,
+  kind: 'statement' | 'request',
+): void {
+  const status = str(resource.status);
+  const disp = classifyStatus(
+    status,
+    kind === 'statement' ? MED_STATEMENT_BUCKETS : MED_REQUEST_BUCKETS,
+  );
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+
+  const parsedDate =
+    kind === 'statement'
+      ? firstPartialDate(
+          str(resource.effectiveDateTime),
+          str(asObj(resource.effectivePeriod)?.start),
+        )
+      : firstPartialDate(str(resource.authoredOn));
+  if (!parsedDate) {
+    sink.incomplete++;
+    return;
+  }
+
+  const { cc, resolved } = resolveMedicationConcept(resource, medicationByKey);
+  const coding = extractCodings(cc);
+  const title = conceptDisplay(cc) || 'Medication';
+  const dose =
+    kind === 'statement'
+      ? str(asObj(firstOf(resource.dosage))?.text)
+      : str(asObj(firstOf(resource.dosageInstruction))?.text);
+  const med: MedicationInfo = { ongoing: status === 'active' };
+  if (dose) med.dose = dose;
+
+  sink.events.push({
+    parseId,
+    type: 'medication',
+    year: parsedDate.year,
+    date: parsedDate.date,
+    title,
+    detail: dose ?? '',
+    coding,
+    med,
+    // An unresolvable medicationReference is surfaced needs-review (never silently dropped).
+    needsReview: disp === 'interim' || !resolved,
+  });
+}
+
+/** Map one Observation → a `lab` / `vital` / `genetic` event (or a drop). */
+function mapObservation(resource: Record<string, unknown>, parseId: string, sink: EventSink): void {
+  const disp = classifyStatus(str(resource.status), OBSERVATION_BUCKETS);
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+
+  const code = asObj(resource.code);
+  const categoryCodings = (Array.isArray(resource.category) ? resource.category : []).flatMap((c) =>
+    codingsOf(asObj(c)),
+  );
+  const isGenomicCategory = categoryCodings.some(
+    (c) => c.system === SYS.V2_0074 && (c.code === 'GE' || c.code === 'CG'),
+  );
+  const componentCodeCodings = (
+    Array.isArray(resource.component) ? resource.component : []
+  ).flatMap((comp) => codingsOf(asObj(asObj(comp)?.code)));
+  const hasGeneticLoinc = [...codingsOf(code), ...componentCodeCodings].some(
+    (c) => c.system === SYS.LOINC && c.code != null && GENETIC_LOINC.has(c.code),
+  );
+  const isGenetic = isGenomicCategory || hasGeneticLoinc;
+
+  // Genomic date source is effectiveDateTime ONLY (fact-of-test); lab/vital also accept period/issued.
+  const parsedDate = isGenetic
+    ? firstPartialDate(str(resource.effectiveDateTime))
+    : firstPartialDate(
+        str(resource.effectiveDateTime),
+        str(asObj(resource.effectivePeriod)?.start),
+        str(resource.issued),
+      );
+  if (!parsedDate) {
+    sink.incomplete++;
+    return;
+  }
+
+  const title = conceptDisplay(code) || (isGenetic ? 'Genetic test' : 'Observation');
+  const coding = extractCodings(code);
+
+  if (isGenetic) {
+    // Fact-of-test ONLY — never read value[x] / interpretation / component values, and ALWAYS
+    // surface needs-review regardless of status (DR-0024 default-OFF; guardrail #1).
+    sink.events.push({
+      parseId,
+      type: 'genetic',
+      year: parsedDate.year,
+      date: parsedDate.date,
+      title,
+      detail: '',
+      coding,
+      needsReview: true,
+    });
+    return;
+  }
+
+  const isVital = categoryCodings.some((c) => c.code === OBS_CATEGORY.VITAL);
+  const type = isVital ? 'vital' : 'lab';
+  const measurement = measurementOf(resource);
+  const valueString = str(resource.valueString);
+
+  const event: ParsedEvent = {
+    parseId,
+    type,
+    year: parsedDate.year,
+    date: parsedDate.date,
+    title,
+    detail: valueString ?? '',
+    coding,
+    needsReview: disp === 'interim',
+  };
+  if (measurement) {
+    if (isVital) event.vital = measurement;
+    else event.lab = measurement;
+  }
+  sink.events.push(event);
+}
+
+/** A {@link Measurement} from `valueQuantity` ONLY (never `valueString`), with a reference range
+ * taken verbatim only when exactly one `referenceRange` applies and its bound unit matches the
+ * value unit. NEVER an in/out-of-range interpretation flag (guardrail #1). */
+function measurementOf(resource: Record<string, unknown>): Measurement | undefined {
+  const vq = asObj(resource.valueQuantity);
+  const value = vq && typeof vq.value === 'number' ? vq.value : undefined;
+  // Prefer the human `unit` (display); fall back to the UCUM `Quantity.code` when a conformant server
+  // sends only the coded unit — so a legitimate value isn't silently dropped. Never convert or
+  // re-derive: just use whichever unit string the server actually provided.
+  const unit = str(vq?.unit) ?? str(vq?.code);
+  if (value === undefined || unit === undefined) return undefined;
+
+  const measurement: Measurement = { value, unit };
+  const ranges = Array.isArray(resource.referenceRange) ? resource.referenceRange : [];
+  if (ranges.length === 1) {
+    const r = asObj(ranges[0]);
+    const low = asObj(r?.low);
+    const high = asObj(r?.high);
+    const lowVal = low && typeof low.value === 'number' ? low.value : undefined;
+    const highVal = high && typeof high.value === 'number' ? high.value : undefined;
+    // Compare each bound's unit by the same unit-then-code fallback used for the value, so a range
+    // whose bounds carry only a UCUM `code` still matches a value that used its `code`. Equality is
+    // still required — a mismatched (or absent) bound unit drops the range, never converts it.
+    const lowUnit = str(low?.unit) ?? str(low?.code);
+    const highUnit = str(high?.unit) ?? str(high?.code);
+    const unitOk =
+      (lowVal === undefined || lowUnit === unit) && (highVal === undefined || highUnit === unit);
+    if (unitOk) {
+      if (lowVal !== undefined) measurement.refLow = lowVal;
+      if (highVal !== undefined) measurement.refHigh = highVal;
+    }
+  }
+  return measurement;
+}
+
+/** Map one Immunization → an `immunization` event (or a drop). */
+function mapImmunization(
+  resource: Record<string, unknown>,
+  parseId: string,
+  sink: EventSink,
+): void {
+  const disp = classifyStatus(str(resource.status), IMMUNIZATION_BUCKETS);
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+  const parsedDate = firstPartialDate(str(resource.occurrenceDateTime));
+  if (!parsedDate) {
+    sink.incomplete++;
+    return;
+  }
+
+  const vaccineCode = asObj(resource.vaccineCode);
+  const immunization: ImmunizationInfo = {};
+  const vaccine = conceptDisplay(vaccineCode);
+  if (vaccine) immunization.vaccine = vaccine;
+  const protocol = asObj(firstOf(resource.protocolApplied));
+  const doseNum =
+    protocol && typeof protocol.doseNumberPositiveInt === 'number'
+      ? protocol.doseNumberPositiveInt
+      : str(protocol?.doseNumberString);
+  if (doseNum != null) immunization.doseLabel = `Dose ${doseNum}`;
+
+  sink.events.push({
+    parseId,
+    type: 'immunization',
+    year: parsedDate.year,
+    date: parsedDate.date,
+    title: vaccine || 'Immunization',
+    detail: '',
+    coding: extractCodings(vaccineCode),
+    immunization,
+    needsReview: disp === 'interim',
+  });
+}
+
+/** Map one AllergyIntolerance → an `allergy` event (or a drop). Gated on verificationStatus;
+ * clinicalStatus NEVER excludes. Onset order: onsetDateTime → onsetPeriod.start → onsetAge (never
+ * recordedDate, never onsetString). */
+function mapAllergy(
+  resource: Record<string, unknown>,
+  parseId: string,
+  birthYear: number | null,
+  sink: EventSink,
+): void {
+  const verStatus = codingsOf(asObj(resource.verificationStatus))[0]?.code;
+  const disp = classifyStatus(verStatus, ALLERGY_BUCKETS);
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+
+  const parsedDate = firstPartialDate(
+    str(resource.onsetDateTime),
+    str(asObj(resource.onsetPeriod)?.start),
+  );
+  let year: number;
+  let date: PartialDate | undefined;
+  if (parsedDate) {
+    year = parsedDate.year;
+    date = parsedDate.date;
+  } else {
+    // onsetAge → a calendar year via Patient.birthDate (never recordedDate / onsetString).
+    const age = ageFromOnsetAge(resource.onsetAge);
+    if (age == null || birthYear == null) {
+      sink.incomplete++;
+      return;
+    }
+    year = birthYear + age;
+    date = undefined;
+  }
+
+  const code = asObj(resource.code);
+  const firstReaction = asObj(firstOf(resource.reaction));
+  const reactionText = firstReaction
+    ? conceptDisplay(asObj(firstOf(firstReaction.manifestation))) || str(firstReaction.description)
+    : undefined;
+  const severity = str(firstReaction?.severity);
+  const allergy: AllergyInfo = { substance: conceptDisplay(code) || 'Allergy' };
+  if (reactionText) allergy.reaction = reactionText;
+  if (severity === 'mild' || severity === 'moderate' || severity === 'severe') {
+    allergy.severity = severity;
+  }
+
+  sink.events.push({
+    parseId,
+    type: 'allergy',
+    year,
+    date,
+    title: allergy.substance,
+    detail: reactionText ?? '',
+    coding: extractCodings(code),
+    allergy,
+    needsReview: disp === 'interim',
+  });
+}
+
+/** Map one Procedure → a `procedure` event (or a drop). */
+function mapProcedure(resource: Record<string, unknown>, parseId: string, sink: EventSink): void {
+  const disp = classifyStatus(str(resource.status), PROCEDURE_BUCKETS);
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+  const parsedDate = firstPartialDate(
+    str(resource.performedDateTime),
+    str(asObj(resource.performedPeriod)?.start),
+  );
+  if (!parsedDate) {
+    sink.incomplete++;
+    return;
+  }
+  const code = asObj(resource.code);
+  sink.events.push({
+    parseId,
+    type: 'procedure',
+    year: parsedDate.year,
+    date: parsedDate.date,
+    title: conceptDisplay(code) || 'Procedure',
+    detail: '',
+    coding: extractCodings(code),
+    needsReview: disp === 'interim',
+  });
+}
+
+/** Map one Encounter → a `visit` event (or a drop). ALWAYS needs-review (DR-0024 default-OFF). */
+function mapEncounter(resource: Record<string, unknown>, parseId: string, sink: EventSink): void {
+  const disp = classifyStatus(str(resource.status), ENCOUNTER_BUCKETS);
+  if (disp === 'drop-silent') return;
+  if (disp === 'absence') {
+    sink.absence++;
+    return;
+  }
+  const parsedDate = firstPartialDate(str(asObj(resource.period)?.start));
+  if (!parsedDate) {
+    sink.incomplete++;
+    return;
+  }
+  const typeConcept = asObj(firstOf(resource.type));
+  const cls = asObj(resource.class);
+  const title = conceptDisplay(typeConcept) || str(cls?.display) || str(cls?.code) || 'Visit';
+  sink.events.push({
+    parseId,
+    type: 'visit',
+    year: parsedDate.year,
+    date: parsedDate.date,
+    title,
+    detail: '',
+    coding: extractCodings(typeConcept),
+    needsReview: true,
+  });
+}
+
+/** First element of an unknown value when it is a non-empty array, else `undefined`. */
+function firstOf(v: unknown): unknown {
+  return Array.isArray(v) && v.length > 0 ? v[0] : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // parseFhirImport
 // ---------------------------------------------------------------------------
 
@@ -200,9 +704,25 @@ export function parseFhirImport(
 ): ParsedHealthRecord {
   const warnings: string[] = [];
   const resources: Record<string, unknown>[] = [];
+  // `_include`d Medication resources, indexed for `medicationReference` resolution by EVERY form a
+  // server may use to point at them: the entry's `fullUrl` verbatim (Epic emits `urn:uuid:<guid>`
+  // references whose target Medication carries a DIFFERENT `.id`), plus `Medication/<id>` and the
+  // bare `<id>`. `contained` (`#<id>`) Medications are resolved from the referencing resource itself.
+  const medicationByKey = new Map<string, Record<string, unknown>>();
   for (const entry of bundle?.entry ?? []) {
     const resource = asObj(entry?.resource);
-    if (resource) resources.push(resource);
+    if (!resource) continue;
+    resources.push(resource);
+    if (resource.resourceType === 'Medication') {
+      const id = str(resource.id);
+      if (id) {
+        medicationByKey.set(`Medication/${id}`, resource);
+        medicationByKey.set(id, resource);
+      }
+      // fullUrl set last so it wins any pathological key collision (contract: fullUrl matched first).
+      const fullUrl = str(entry?.fullUrl);
+      if (fullUrl) medicationByKey.set(fullUrl, resource);
+    }
   }
 
   const byType = (type: string): Record<string, unknown>[] =>
@@ -330,8 +850,84 @@ export function parseFhirImport(
     );
   }
 
-  return { proband: { problems: probandProblems }, familyMembers, warnings };
+  // --- Full-timeline events (Wave 2/3): dispatch each event resource to its pure mapper. ---
+  const sink: EventSink = { events: [], absence: 0, incomplete: 0, missingId: 0 };
+  for (const resource of resources) {
+    const type = str(resource.resourceType);
+    if (!type || !EVENT_RESOURCE_TYPES.has(type)) continue;
+    const id = str(resource.id);
+    if (!id) {
+      // No id ⇒ no deterministic dedup identity; never fabricate one — drop + count in its OWN
+      // (identifier) bucket, distinct from the no-usable-date bucket.
+      sink.missingId++;
+      continue;
+    }
+    const parseId = `fhir:${type}:${id}`;
+    switch (type) {
+      case 'MedicationStatement':
+        mapMedication(resource, parseId, medicationByKey, sink, 'statement');
+        break;
+      case 'MedicationRequest':
+        mapMedication(resource, parseId, medicationByKey, sink, 'request');
+        break;
+      case 'Observation':
+        mapObservation(resource, parseId, sink);
+        break;
+      case 'Immunization':
+        mapImmunization(resource, parseId, sink);
+        break;
+      case 'AllergyIntolerance':
+        mapAllergy(resource, parseId, probandBirthYear, sink);
+        break;
+      case 'Procedure':
+        mapProcedure(resource, parseId, sink);
+        break;
+      case 'Encounter':
+        mapEncounter(resource, parseId, sink);
+        break;
+    }
+  }
+  if (sink.absence) {
+    warnings.push(
+      `${sink.absence} record ${sink.absence === 1 ? 'entry was' : 'entries were'} not imported because ${
+        sink.absence === 1 ? 'it was' : 'they were'
+      } recorded as not taken, not done, or ruled out.`,
+    );
+  }
+  if (sink.incomplete) {
+    warnings.push(
+      `${sink.incomplete} timeline ${sink.incomplete === 1 ? 'event was' : 'events were'} not imported because ${
+        sink.incomplete === 1 ? 'it was' : 'they were'
+      } missing a usable date.`,
+    );
+  }
+  if (sink.missingId) {
+    warnings.push(
+      `${sink.missingId} timeline ${sink.missingId === 1 ? 'event was' : 'events were'} not imported because ${
+        sink.missingId === 1 ? 'it was' : 'they were'
+      } missing an identifier.`,
+    );
+  }
+
+  // Merge the gateway's per-search retrieval warnings verbatim (W4; absent on pre-W4 bundles).
+  for (const w of bundle?.fetchWarnings ?? []) {
+    if (typeof w === 'string') warnings.push(w);
+  }
+
+  return { proband: { problems: probandProblems, events: sink.events }, familyMembers, warnings };
 }
+
+/** Resource types the Wave 2/3 event pipeline maps (Condition / FamilyMemberHistory are handled by
+ * the problem/relative parsers above; Medication resources are referenced, never events themselves). */
+const EVENT_RESOURCE_TYPES: ReadonlySet<string> = new Set([
+  'MedicationStatement',
+  'MedicationRequest',
+  'Observation',
+  'Immunization',
+  'AllergyIntolerance',
+  'Procedure',
+  'Encounter',
+]);
 
 // ---------------------------------------------------------------------------
 // FamilyMemberHistory field parsers

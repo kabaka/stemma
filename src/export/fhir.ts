@@ -59,6 +59,13 @@ export interface FhirCondition {
   code: FhirCodeableConcept;
   subject: FhirReference;
   onsetAge?: FhirAge;
+  /**
+   * Precise onset as a FHIR `dateTime` — a {@link import('@/domain/types').PartialDate}
+   * (`"YYYY"` | `"YYYY-MM"` | `"YYYY-MM-DD"`) is a valid FHIR dateTime. Emitted in place of
+   * {@link onsetAge} when the source gave a precise onset date; FHIR permits exactly one
+   * `onset[x]`, so the two are mutually exclusive.
+   */
+  onsetDateTime?: string;
 }
 export interface FhirFamilyMemberCondition {
   code: FhirCodeableConcept;
@@ -193,7 +200,11 @@ export function buildFhirBundle(
     name: [{ text: proband.name, given: [proband.name] }],
     gender: fhirGender(genderOf(proband)),
   };
-  if (proband.birth != null) patient.birthDate = String(proband.birth);
+  // Prefer the precise birth date when the source gave one (a PartialDate is a valid FHIR
+  // date, at whatever precision it carries); otherwise fall back to the coarse year exactly
+  // as before. Additive: records without `birthDate` are byte-identical to today's output.
+  if (proband.birthDate) patient.birthDate = proband.birthDate;
+  else if (proband.birth != null) patient.birthDate = String(proband.birth);
   entry.push({ resource: patient });
 
   condIds(proband).forEach((cid, i) => {
@@ -205,8 +216,16 @@ export function buildFhirBundle(
       code: fhirCode(cid, catalog),
       subject: patientRef,
     };
-    const age = onsetAge(e?.onset);
-    if (age) condition.onsetAge = age;
+    // Prefer a precise onset date (emitted as `onsetDateTime`, a valid FHIR dateTime at
+    // whatever precision the PartialDate carries) when the source gave one; otherwise fall
+    // back to the coarse onset age. FHIR permits exactly one `onset[x]`, so these are
+    // mutually exclusive — never both. Additive: entries without `onsetDate` are unchanged.
+    if (e?.onsetDate) {
+      condition.onsetDateTime = e.onsetDate;
+    } else {
+      const age = onsetAge(e?.onset);
+      if (age) condition.onsetAge = age;
+    }
     entry.push({ resource: condition });
   });
 

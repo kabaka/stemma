@@ -7,6 +7,7 @@
  * All functions return a NEW record (immutable) and never read a clock or generate ids —
  * callers supply the person (id included), keeping these deterministic.
  */
+import { isPartialDate, yearOfPartialDate } from './dates';
 import type { FamilyRecord, Person, Union } from './types';
 
 const X_STEP = 120;
@@ -289,6 +290,44 @@ function isValidImmunization(v: unknown): boolean {
   return isStrOrAbsent(i.vaccine) && isStrOrAbsent(i.doseLabel);
 }
 
+/**
+ * Optional-safe shape check for a {@link import('./types').Coding} array. `undefined`
+ * passes (a legacy event has none) and an empty array is valid. If present, every entry
+ * must carry a string `system` and a string `code`, with `display` a string or absent.
+ */
+function isValidCodingArray(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!Array.isArray(v)) return false;
+  return v.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const c = item as Record<string, unknown>;
+    return typeof c.system === 'string' && typeof c.code === 'string' && isStrOrAbsent(c.display);
+  });
+}
+
+/**
+ * Validate an optional {@link import('./types').PartialDate} that must be an additive
+ * higher-precision echo of a coarse year (an event's `year`, a person's `birth`/`death`).
+ * `undefined` passes. If present, the string must be a well-formed PartialDate whose year
+ * component equals `coarseYear` — and if `coarseYear` is `null` (no coarse value recorded),
+ * a present date is a contradiction and is rejected.
+ */
+function isValidPartialDateFor(v: unknown, coarseYear: number | null): boolean {
+  if (v === undefined) return true;
+  if (coarseYear === null) return false;
+  return isPartialDate(v) && yearOfPartialDate(v) === coarseYear;
+}
+
+/**
+ * Validate an optional {@link import('./types').PartialDate} with no coarse year to match
+ * against (a condition's `onsetDate` — `onset` is an age, not a year). `undefined` passes;
+ * if present it need only be a well-formed PartialDate.
+ */
+function isValidOptionalPartialDate(v: unknown): boolean {
+  if (v === undefined) return true;
+  return isPartialDate(v);
+}
+
 /** Optional-safe shape check for an {@link import('./types').AttachmentRef} array. */
 function isValidAttachments(v: unknown): boolean {
   if (v === undefined) return true;
@@ -333,13 +372,20 @@ function isValidPerson(p: unknown): p is Person {
     if (!Array.isArray(person.organs) || !person.organs.every((o) => ORGAN_VALUES.has(o as string)))
       return false;
   }
+  // W1 full-timeline import: precise birth/death dates, each a higher-precision echo of the
+  // coarse `birth`/`death` year (rejected when the coarse value is null).
+  if (!isValidPartialDateFor(person.birthDate, person.birth as number | null)) return false;
+  if (!isValidPartialDateFor(person.deathDate, person.death as number | null)) return false;
   return person.conds.every(
     (c) =>
       c != null &&
       typeof c === 'object' &&
       typeof (c as Record<string, unknown>).id === 'string' &&
       isNumOrNull((c as Record<string, unknown>).onset) &&
-      PROV_VALUES.has((c as Record<string, unknown>).prov as string),
+      PROV_VALUES.has((c as Record<string, unknown>).prov as string) &&
+      // onsetDate is shape-only: `onset` is an age, not a year, so there's no coarse year
+      // to cross-check against.
+      isValidOptionalPartialDate((c as Record<string, unknown>).onsetDate),
   );
 }
 
@@ -408,7 +454,12 @@ function isValidEvent(e: unknown): boolean {
     isValidMeasurement(ev.vital) &&
     isValidAllergy(ev.allergy) &&
     isValidImmunization(ev.immunization) &&
-    isValidAttachments(ev.attachments)
+    isValidAttachments(ev.attachments) &&
+    // W1 full-timeline import fields: optional provenance (defaults to 'self'), verified
+    // codings, and a precise date that must echo the event's own `year`.
+    (ev.prov === undefined || PROV_VALUES.has(ev.prov as string)) &&
+    isValidCodingArray(ev.coding) &&
+    isValidPartialDateFor(ev.date, ev.year)
   );
 }
 

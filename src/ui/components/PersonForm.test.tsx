@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useStore } from '@/store/useStore';
 import { PersonForm, type PersonFormState } from './PersonForm';
@@ -463,5 +463,117 @@ describe('PersonForm — adding a relative', () => {
     expect(
       state.record.unions.some((u) => u.parents.includes('walter') && u.parents.includes(added.id)),
     ).toBe(true);
+  });
+});
+
+describe('PersonForm — exact birth/death date entry (W6)', () => {
+  it('leaves birthDate/deathDate undefined for year-only entry', async () => {
+    const user = userEvent.setup();
+    // George is deceased in the seed, so both Birth year and Death year are on screen.
+    render(<PersonForm state={{ mode: 'edit', id: 'george' }} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: /add exact birth date/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add exact death date/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const george = useStore.getState().record.people.find((p) => p.id === 'george')!;
+    expect(george.birth).toBe(1938);
+    expect(george.birthDate).toBeUndefined();
+    expect(george.death).toBe(2015);
+    expect(george.deathDate).toBeUndefined();
+  });
+
+  it('writes birthDate and deathDate when both exact-date refinements are filled in', async () => {
+    const user = userEvent.setup();
+    render(<PersonForm state={{ mode: 'edit', id: 'george' }} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /add exact birth date/i }));
+    const birthGroup = screen.getByText('Exact birth date (optional)').closest('fieldset')!;
+    await user.selectOptions(within(birthGroup).getByRole('combobox', { name: /^month$/i }), '04');
+    await user.selectOptions(within(birthGroup).getByRole('combobox', { name: /^day$/i }), '02');
+
+    await user.click(screen.getByRole('button', { name: /add exact death date/i }));
+    const deathGroup = screen.getByText('Exact death date (optional)').closest('fieldset')!;
+    await user.selectOptions(within(deathGroup).getByRole('combobox', { name: /^month$/i }), '11');
+    await user.selectOptions(within(deathGroup).getByRole('combobox', { name: /^day$/i }), '20');
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const george = useStore.getState().record.people.find((p) => p.id === 'george')!;
+    expect(george.birthDate).toBe('1938-04-02');
+    expect(george.deathDate).toBe('2015-11-20');
+    // The coarse years are unchanged — pedigree layout/generation logic still reads these.
+    expect(george.birth).toBe(1938);
+    expect(george.death).toBe(2015);
+  });
+
+  it('clears a set birthDate when the birth year is changed (never silently rewrites the day)', async () => {
+    const user = userEvent.setup();
+    render(<PersonForm state={{ mode: 'edit', id: 'george' }} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /add exact birth date/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^month$/i }), '04');
+    expect(screen.getByText(/recorded as: april 1938/i)).toBeInTheDocument();
+
+    const birthField = screen.getByRole('spinbutton', { name: /birth year/i });
+    await user.clear(birthField);
+    await user.type(birthField, '1940');
+
+    // The refinement collapses back to its unset state rather than keeping April 1938
+    // under a birth year that no longer matches it.
+    expect(screen.getByRole('button', { name: /add exact birth date/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    const george = useStore.getState().record.people.find((p) => p.id === 'george')!;
+    expect(george.birth).toBe(1940);
+    expect(george.birthDate).toBeUndefined();
+  });
+
+  it('drops deathDate/death when Status is switched back to Living', async () => {
+    const user = userEvent.setup();
+    render(<PersonForm state={{ mode: 'edit', id: 'george' }} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /add exact death date/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /^month$/i }), '11');
+
+    await user.click(screen.getByRole('button', { name: 'Living' }));
+    // The Death year field (and its exact-date control) disappear once Status is Living.
+    expect(screen.queryByRole('button', { name: /add exact death date/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    const george = useStore.getState().record.people.find((p) => p.id === 'george')!;
+    expect(george.dead).toBe(false);
+    expect(george.death).toBeNull();
+    expect(george.deathDate).toBeUndefined();
+  });
+
+  it('shows an existing precise birth date already expanded when editing', () => {
+    // Give George a precise birthDate directly via the store (simulating an import),
+    // then confirm the form surfaces it immediately without an extra disclosure click.
+    act(() => {
+      const record = useStore.getState().record;
+      useStore.getState().updatePerson('george', {
+        name: 'George',
+        sab: 'm',
+        gender: 'man',
+        pronouns: '',
+        organs: record.people.find((p) => p.id === 'george')?.organs,
+        dead: true,
+        birth: 1938,
+        birthDate: '1938-04-02',
+        death: 2015,
+        condIds: record.people.find((p) => p.id === 'george')!.conds.map((c) => c.id),
+      });
+    });
+
+    render(<PersonForm state={{ mode: 'edit', id: 'george' }} onClose={vi.fn()} />);
+
+    expect(
+      screen.queryByRole('button', { name: /^\+ add exact birth date$/i }),
+    ).not.toBeInTheDocument();
+    const birthGroup = screen.getByText('Exact birth date (optional)').closest('fieldset')!;
+    expect(within(birthGroup).getByRole('combobox', { name: /^month$/i })).toHaveValue('04');
+    expect(within(birthGroup).getByRole('combobox', { name: /^day$/i })).toHaveValue('02');
+    expect(screen.getByText(/recorded as: april 2, 1938/i)).toBeInTheDocument();
   });
 });

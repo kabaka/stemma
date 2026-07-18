@@ -39,8 +39,9 @@ browser.
   proximity, and a limited-history caveat), each stating the exact criterion met and an
   advisory next step — never a fabricated risk multiplier.
 - **Personal + per-relative timelines** — every person carries their own dated events
-  (diagnoses, medications, labs, screenings, immunizations, procedures, genetics), not just the
-  proband.
+  (diagnoses, medications, labs, vitals, screenings, immunizations, allergies, procedures,
+  visits, genetics), not just the proband, at whatever date precision you know (a bare year, or
+  an exact date).
 - **Organ-inventory screening** — screening recommendations keyed off the organ inventory
   rather than gender (a trans man may still need cervical screening), escalated by family
   history, with pointers to validated external calculators (CanRisk, PREMM5, ASCVD).
@@ -49,10 +50,12 @@ browser.
   outlives the app. Import works three ways, all parsed entirely in your browser: **GEDCOM**
   seeds a pedigree from a family tree you already have (structural only — a genealogy file
   carries no health data, so conditions are still added in Stemma); **C-CDA** reads a downloaded
-  patient-portal record for both conditions and family history; and **SMART on FHIR** does the
-  same live, connecting directly to your patient portal with your explicit consent (see
-  [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)). The latter two merge into your record with a
-  per-item review — nothing is written silently.
+  patient-portal record for both conditions and family history; and **SMART on FHIR** connects
+  directly to your patient portal with your explicit consent to pull the same, **plus your full
+  clinical timeline** — medications, labs, vitals, immunizations, allergies, procedures, visits,
+  and the fact that a genetic test was performed (never its result) — at whatever date precision
+  the record has (see [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)). The latter two merge into
+  your record with a per-item review — nothing is written silently.
 - **Local-first & private** — the entire record lives in your browser's `localStorage`. Nothing
   is uploaded automatically. Every network call Stemma makes is opt-in and user-triggered: the
   optional ICD-10 vocabulary lookup (below), and, only if you connect one, a SMART-on-FHIR sync to
@@ -98,6 +101,7 @@ npm run check    # format:check + lint + typecheck + test:run
 src/
 ├── domain/            # Pure, typed, unit-tested engine — no React, no I/O
 │   ├── types.ts           # Core model: Person, Union, Condition, TimelineEvent, FamilyRecord
+│   ├── dates.ts           # PartialDate parse/format — TZ-independent, no `new Date(str)`
 │   ├── person.ts          # Identity (sab/gender), organ inventory, condition access
 │   ├── graph.ts           # Kinship math (coefficient of relatedness) + pedigree layout
 │   ├── patterns.ts        # Hereditary red-flag detector (the core value)
@@ -109,6 +113,7 @@ src/
 │   ├── categories.ts      # Clinical categories + default/colorblind palettes
 │   ├── recommendations.ts # Curated per-condition advisory prompts
 │   ├── events.ts          # Timeline event-type metadata
+│   ├── fhir-codes.ts      # FHIR code-system URIs, category tokens, genetic LOINC set
 │   └── seed.ts            # Illustrative fictional 3-generation family (also used in tests)
 ├── integrations/      # Ports to external services
 │   ├── vocabulary.ts      # VocabularyProvider port + NLM Clinical Tables default
@@ -119,9 +124,11 @@ src/
 │   ├── gedcom.ts          # GEDCOM 5.5.1
 │   └── pedigree-svg.ts    # 2022-nomenclature pedigree SVG
 ├── import/            # Standards parsers — the inverse of export/ (client-side, with tests)
+│   ├── health-record.ts   # Source-agnostic merge/reconciliation engine shared by C-CDA + FHIR
 │   ├── gedcom.ts          # GEDCOM 5.5.1 → structural people + family graph (no conditions)
 │   ├── ccda.ts            # C-CDA (CCD) patient-portal download → merge-with-review import
-│   ├── fhir.ts            # FHIR R4 Bundle (from a SMART-on-FHIR sync) → merge-with-review import
+│   ├── fhir.ts            # FHIR R4 Bundle (from a SMART-on-FHIR sync) → merge-with-review import,
+│   │                       #   full clinical timeline (conditions, meds, labs, vitals, etc.)
 │   └── native.ts          # Stemma's own lossless backup format → restore
 ├── store/             # Application state
 │   └── useStore.ts        # Zustand store + localStorage persistence + catalog builder
@@ -196,8 +203,11 @@ browser — to:
   not a wholesale replace). Parsed 100% client-side.
 - **SMART on FHIR import** — connects live to your patient portal's FHIR server (Epic MyChart,
   Cerner, and most US portals support this) using the same merge-with-review pipeline as C-CDA,
-  over a public-client OAuth2 + PKCE flow with no backend and no client secret. Opt-in and
-  user-initiated; talks only to the provider endpoint you name. See
+  over a public-client OAuth2 + PKCE flow with no backend and no client secret. Pulls your full
+  clinical timeline — conditions, family history, medications, labs, vitals, immunizations,
+  allergies, procedures, visits (off by default), and genetic test-of-record (fact of the test
+  only, never an interpretation) — preserving the source's own date precision and reference
+  ranges verbatim. Opt-in and user-initiated; talks only to the provider endpoint you name. See
   [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md) for setup.
 - **Pedigree SVG** in correct 2022 NSGC nomenclature — the three-generation chart a counselor
   draws at intake.

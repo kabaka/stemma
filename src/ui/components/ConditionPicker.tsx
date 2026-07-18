@@ -4,6 +4,7 @@ import { useCatalog } from '../hooks';
 import { condEntry, condIds } from '@/domain/person';
 import { CATEGORIES, categoryColor } from '@/data/categories';
 import { PROV_LABEL } from '@/data/provenance';
+import { PartialDateFields } from './PartialDateFields';
 import type { Provenance } from '@/domain/types';
 import {
   defaultVocabularyProvider,
@@ -148,6 +149,17 @@ export function ConditionPicker({ personId }: { personId: string }) {
                     </option>
                   ))}
                 </select>
+              </div>
+              {/* onsetDate is a free-standing PartialDate — onset (above) is an age, not
+                  a year, so there's no coarse year to lock this to (isValidOptionalPartialDate). */}
+              <div style={{ marginTop: 8 }}>
+                <PartialDateFields
+                  mode="free"
+                  idBase={`${baseId}-onsetdate-${id}`}
+                  legend="Exact onset date (optional)"
+                  initialValue={entry?.onsetDate}
+                  onChange={(next) => setConditionField(personId, id, 'onsetDate', next ?? '')}
+                />
               </div>
             </div>
           );
