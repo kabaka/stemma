@@ -169,6 +169,11 @@ export interface FixtureFmhOpts {
   deceasedBoolean?: boolean;
   deceasedAgeYears?: number;
   deceasedDate?: string;
+  /** Renders `deceasedRange: { low: { value, unit: 'years' } }` — asserts death without a
+   * calendar year, like `deceasedAge`. */
+  deceasedRangeLowYears?: number;
+  /** Renders `deceasedString` verbatim — a free-text death description, no calendar year. */
+  deceasedString?: string;
   dataAbsentReason?: 'subject-unknown' | 'withheld' | 'unable-to-obtain' | 'deferred';
   conditions?: FixtureFmhConditionOpts[];
 }
@@ -205,6 +210,9 @@ export function familyMemberHistoryResource(opts: FixtureFmhOpts): FhirBundleRes
   else if (opts.deceasedAgeYears != null) {
     resource.deceasedAge = { value: opts.deceasedAgeYears, unit: 'years' };
   } else if (opts.deceasedDate) resource.deceasedDate = opts.deceasedDate;
+  else if (opts.deceasedRangeLowYears != null) {
+    resource.deceasedRange = { low: { value: opts.deceasedRangeLowYears, unit: 'years' } };
+  } else if (opts.deceasedString) resource.deceasedString = opts.deceasedString;
 
   if (opts.dataAbsentReason) {
     resource.dataAbsentReason = {

@@ -680,6 +680,30 @@ describe('parseFhirImport — FamilyMemberHistory.dataAbsentReason', () => {
     expect(member.matchStatus).toBe('ambiguous');
     expect(member.defaultSelected).toBe(false);
   });
+
+  it('dataAbsentReason=subject-unknown still retains sab from a sex-specific relationship code (MTH→f) even though placement is forced ambiguous', () => {
+    // The relationship code itself (MTH) is a genuine, known fact even when the FHIR server can't
+    // identify WHICH person this is (subject-unknown) — sab must not be downgraded to 'u' just
+    // because placement had to be blanked for safety (guardrail #4: sab is never conflated with
+    // "we don't know who to attach this to").
+    const bundle = fhirBundle([
+      patientResource(),
+      familyMemberHistoryResource({
+        id: 'fmh-1',
+        status: 'completed',
+        relationshipCode: 'MTH',
+        // deliberately NO sexCode — sab must fall back to the relationship-implied value, not 'u'.
+        name: 'Mystery Mother',
+        dataAbsentReason: 'subject-unknown',
+      }),
+    ]);
+    const parsed = parseFhirImport(bundle);
+    expect(parsed.familyMembers[0].sab).toBe('f');
+
+    const staged = stage(bundle, emptyRecord()).familyMembers[0];
+    expect(staged.placement).toBeNull();
+    expect(staged.matchStatus).toBe('ambiguous');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -904,6 +928,17 @@ describe('parseFhirImport — FamilyMemberHistory.deceased[x], explicit-presence
 
   it('deceasedAge alone marks dead with no year known (an age at death, not a calendar year, was recorded)', () => {
     expect(deathOf({ deceasedAgeYears: 80 })).toEqual({ year: null, dead: true });
+  });
+
+  it('deceasedRange alone marks dead with no year known (a range asserts death without a calendar year)', () => {
+    expect(deathOf({ deceasedRangeLowYears: 70 })).toEqual({ year: null, dead: true });
+  });
+
+  it('deceasedString alone marks dead with no year known (free text asserts death, never a fabricated year)', () => {
+    expect(deathOf({ deceasedString: 'sometime in her later years' })).toEqual({
+      year: null,
+      dead: true,
+    });
   });
 });
 

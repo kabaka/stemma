@@ -266,4 +266,45 @@ describe('FetchSmartFhirGateway.fetchPatientData', () => {
       expect(call.headers['accept']).toMatch(/application\/fhir\+json/);
     }
   });
+
+  it('stops pagination and NEVER sends the bearer token to a "next" link whose origin differs from the FHIR base (token-leak hardening)', async () => {
+    // A malformed or compromised server naming an off-origin "next" link must not be able to
+    // harvest the live access token by having the client blindly follow it.
+    const crossOriginNext = 'https://evil.example.net/Condition?patient=pat-1&page=2';
+    const { fetchStub, calls } = makeFetchStub([
+      {
+        match: (u) => u.includes('/Condition') && u.includes(`patient=${patientId}`),
+        response: () =>
+          jsonResponse({
+            resourceType: 'Bundle',
+            type: 'searchset',
+            entry: [{ resource: conditionA }],
+            link: [{ relation: 'next', url: crossOriginNext }],
+          }),
+      },
+      {
+        match: (u) => u.includes('/FamilyMemberHistory') && u.includes(`patient=${patientId}`),
+        response: () =>
+          jsonResponse({ resourceType: 'Bundle', type: 'searchset', entry: [{ resource: fmhA }] }),
+      },
+      {
+        match: (u) => u.endsWith(`/Patient/${patientId}`),
+        response: () => jsonResponse(patientResource),
+      },
+      // Deliberately NO route for the cross-origin URL: if the implementation ever calls fetch
+      // with it, the stub throws "Unexpected fetch" and this test fails loudly.
+    ]);
+    const gateway = new FetchSmartFhirGateway(fetchStub as unknown as typeof fetch);
+
+    const bundle = await gateway.fetchPatientData(fhirBaseUrl, patientId, accessToken);
+
+    expect(calls.some((c) => c.url === crossOriginNext)).toBe(false);
+    expect(calls.some((c) => c.url.startsWith('https://evil.example.net'))).toBe(false);
+    // Pagination stopped at the cross-origin hop — only the first Condition page's entry made it
+    // through, never a fabricated second page.
+    const conditionEntries = (bundle.entry ?? [])
+      .map((e) => e.resource as { resourceType: string })
+      .filter((r) => r.resourceType === 'Condition');
+    expect(conditionEntries).toHaveLength(1);
+  });
 });
