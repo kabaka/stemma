@@ -16,6 +16,7 @@ import { CATEGORIES, categoryColor, legendCategories } from '@/data/categories';
 import { PersonDrawer } from '../components/PersonDrawer';
 import { GedcomImport } from '../components/GedcomImport';
 import { CcdaImport } from '../components/CcdaImport';
+import { SmartFhirConnect } from '../components/SmartFhirConnect';
 import { PersonForm, type PersonFormState } from '../components/PersonForm';
 import { HighlightBar, type HlMode } from '../components/PedigreeHighlight';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
@@ -140,6 +141,11 @@ const CONFIRM_IMPORT = 'Import this family tree? This replaces your current reco
 // person or condition, so the risk being confirmed here is "adds data", not "loses data".
 const CONFIRM_CCDA =
   'Import the selected items from this health record? This adds people and conditions to your current record — nothing already recorded is removed.';
+// Same merge semantics and wording as CONFIRM_CCDA — the SMART-on-FHIR sync goes through the
+// same staged-review merge engine (applyHealthRecordImport), it's just sourced from a live FHIR
+// server instead of a downloaded C-CDA file.
+const CONFIRM_SMART =
+  'Import the selected items from this health record? This adds people and conditions to your current record — nothing already recorded is removed.';
 
 /** True only for the record's untouched default shape — a single proband still named
  * "You", with no birth year and no conditions recorded. The one case where swapping it
@@ -240,6 +246,7 @@ export function PedigreeView() {
 
   const [importing, setImporting] = useState(false);
   const [importingCcda, setImportingCcda] = useState(false);
+  const [importingSmart, setImportingSmart] = useState(false);
   const [formState, setFormState] = useState<PersonFormState | null>(null);
   const [hlMode, setHlModeRaw] = useState<HlMode>('cond');
   // The active condition id (mode 'cond') or category key (mode 'cat'). The prototype
@@ -254,9 +261,9 @@ export function PedigreeView() {
 
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIsEmpty = useRef(isEmpty);
-  // Either import panel counts as "the import panel" for this focus-return purpose — only
-  // one is ever open at a time (see openImporting/openImportingCcda below).
-  const anyImporting = importing || importingCcda;
+  // Any import panel counts as "the import panel" for this focus-return purpose — only
+  // one is ever open at a time (see openImporting/openImportingCcda/openImportingSmart below).
+  const anyImporting = importing || importingCcda || importingSmart;
   const prevImporting = useRef(anyImporting);
   // loadSample()/resetRecord()/import swap the record without unmounting this view, so
   // whatever was focused — the header's own "Reset to empty"/"Load example family", or
@@ -579,19 +586,27 @@ export function PedigreeView() {
     setFormState(null);
     setImporting(false);
     setImportingCcda(false);
+    setImportingSmart(false);
     needsViewReset.current = true;
   };
 
   // Toggle the import panel. Add/edit is a blocking modal (not a header panel), so there's
-  // no sibling panel to close here. The two importers are mutually exclusive — opening one
-  // closes the other, so only one panel is ever visible in the header at a time.
+  // no sibling panel to close here. The three importers are mutually exclusive — opening one
+  // closes the other two, so only one panel is ever visible in the header at a time.
   const openImporting = (): void => {
     setImporting((v) => !v);
     setImportingCcda(false);
+    setImportingSmart(false);
   };
   const openImportingCcda = (): void => {
     setImportingCcda((v) => !v);
     setImporting(false);
+    setImportingSmart(false);
+  };
+  const openImportingSmart = (): void => {
+    setImportingSmart((v) => !v);
+    setImporting(false);
+    setImportingCcda(false);
   };
 
   const handleLoadSample = (): void => {
@@ -628,6 +643,20 @@ export function PedigreeView() {
           merged,
           [...extensions, ...newExtensions],
           'Imported from health record (C-CDA)',
+        ),
+      );
+    }
+  };
+  // SMART-on-FHIR sync goes through the same source-agnostic merge engine as C-CDA (see
+  // SmartFhirConnect's own doc comment) — same MERGE semantics, same extensions-folding
+  // reasoning as handleCcdaImport above, just a different provenance label.
+  const handleSmartImport = (merged: FamilyRecord, newExtensions: Condition[]): void => {
+    if (window.confirm(CONFIRM_SMART)) {
+      swapRecord(() =>
+        replaceRecord(
+          merged,
+          [...extensions, ...newExtensions],
+          'Imported from health record (SMART on FHIR)',
         ),
       );
     }
@@ -687,6 +716,8 @@ export function PedigreeView() {
                 onToggleImport={openImporting}
                 importingCcda={importingCcda}
                 onToggleImportCcda={openImportingCcda}
+                importingSmart={importingSmart}
+                onToggleImportSmart={openImportingSmart}
                 onLoadSample={handleLoadSample}
                 onResetToEmpty={handleResetToEmpty}
               />
@@ -714,6 +745,14 @@ export function PedigreeView() {
             catalog={catalog}
             onImport={handleCcdaImport}
             onCancel={() => setImportingCcda(false)}
+          />
+        )}
+        {importingSmart && (
+          <SmartFhirConnect
+            record={record}
+            catalog={catalog}
+            onImport={handleSmartImport}
+            onCancel={() => setImportingSmart(false)}
           />
         )}
 
@@ -763,6 +802,7 @@ export function PedigreeView() {
             onEditSelf={() => setFormState({ mode: 'edit', id: record.probandId })}
             onImport={openImporting}
             onImportCcda={openImportingCcda}
+            onImportSmart={openImportingSmart}
             onLoadSample={handleEmptyLoadSample}
           />
         ) : (
@@ -971,12 +1011,14 @@ function EmptyState({
   onEditSelf,
   onImport,
   onImportCcda,
+  onImportSmart,
   onLoadSample,
 }: {
   onAdd: () => void;
   onEditSelf: () => void;
   onImport: () => void;
   onImportCcda: () => void;
+  onImportSmart: () => void;
   onLoadSample: () => void;
 }) {
   return (
@@ -984,9 +1026,10 @@ function EmptyState({
       <h2 style={{ fontSize: 17, fontWeight: 600 }}>Start your family history</h2>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 380, lineHeight: 1.5 }}>
         Add relatives one at a time — parents, siblings, children — fill in your own details first,
-        import a family tree you already have (GEDCOM, e.g. from Ancestry), or bring in your own
-        conditions and family history from a health record (C-CDA, from your patient portal). Stemma
-        looks for hereditary patterns as the tree grows.
+        import a family tree you already have (GEDCOM, e.g. from Ancestry), bring in your own
+        conditions and family history from a health record (C-CDA, from your patient portal), or
+        connect directly to your patient portal (SMART on FHIR). Stemma looks for hereditary
+        patterns as the tree grows.
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 6 }}>
         <button type="button" className="btn btn--primary" aria-haspopup="dialog" onClick={onAdd}>
@@ -1000,6 +1043,9 @@ function EmptyState({
         </button>
         <button type="button" className="btn" onClick={onImportCcda}>
           Import health record
+        </button>
+        <button type="button" className="btn" onClick={onImportSmart}>
+          Connect a health record (SMART on FHIR)
         </button>
         <button type="button" className="btn" onClick={onLoadSample}>
           Load example family
@@ -1023,6 +1069,8 @@ function RecordActionsMenu({
   onToggleImport,
   importingCcda,
   onToggleImportCcda,
+  importingSmart,
+  onToggleImportSmart,
   onLoadSample,
   onResetToEmpty,
 }: {
@@ -1030,6 +1078,8 @@ function RecordActionsMenu({
   onToggleImport: () => void;
   importingCcda: boolean;
   onToggleImportCcda: () => void;
+  importingSmart: boolean;
+  onToggleImportSmart: () => void;
   onLoadSample: () => void;
   onResetToEmpty: () => void;
 }) {
@@ -1111,6 +1161,15 @@ function RecordActionsMenu({
             onClick={() => runAndClose(onToggleImportCcda)}
           >
             {importingCcda ? '✕ close import' : 'Import health record'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm"
+            style={{ justifyContent: 'flex-start' }}
+            aria-expanded={importingSmart}
+            onClick={() => runAndClose(onToggleImportSmart)}
+          >
+            {importingSmart ? '✕ close connect' : 'Connect health record (FHIR)'}
           </button>
           <button
             type="button"
