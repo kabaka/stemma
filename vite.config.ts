@@ -9,14 +9,20 @@ import { fileURLToPath, URL } from 'node:url';
 const base = process.env.GITHUB_PAGES === 'true' ? '/stemma/' : '/';
 
 // Content-Security-Policy — local-first hardening (docs/AUDIT.md, security lens).
-// The app's only runtime network egress is the user-triggered NLM vocabulary lookup,
-// so connect-src is restricted to self + that one host. script-src is 'self' only
-// (no inline, no eval — verified against the built bundle). style-src keeps
-// 'unsafe-inline' because the exported pedigree SVG carries an inline
-// style="max-height:…" attribute rendered via dangerouslySetInnerHTML, so its style
-// is parsed from markup and subject to this policy.
+// Runtime network egress is user-triggered only: the NLM vocabulary lookup and the
+// opt-in SMART-on-FHIR import (DR-0019/DR-0020). Because a SMART client must reach
+// whichever provider FHIR/token endpoint the user names, connect-src cannot be a
+// static per-host allowlist and a build-time <meta> CSP cannot be widened at runtime;
+// connect-src is therefore 'self' https: — the narrowest workable relaxation, which
+// still blocks http:/data:/blob:/ws: egress. script-src stays 'self' only (no inline,
+// no eval — verified against the built bundle); form-action 'none', object-src 'none',
+// and base-uri 'self' are unchanged (the OAuth authorize step is a top-level
+// navigation CSP fetch-directives do not govern). style-src keeps 'unsafe-inline'
+// because the exported pedigree SVG carries an inline style="max-height:…" attribute
+// rendered via dangerouslySetInnerHTML, so its style is parsed from markup and subject
+// to this policy.
 const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; connect-src 'self' https://clinicaltables.nlm.nih.gov; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
+  "default-src 'self'; connect-src 'self' https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 
 // Inject the CSP as a <meta http-equiv> into the built HTML only. `apply: 'build'`
 // keeps it out of `vite dev`, whose HMR/React-refresh preamble is an inline script
