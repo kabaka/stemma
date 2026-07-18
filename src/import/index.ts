@@ -27,3 +27,16 @@ export type {
   CcdaSelections,
   CcdaMemberOverride,
 } from './ccda';
+
+// The source-agnostic reconciliation & merge engine (hoisted from `ccda.ts`), for the forthcoming
+// FHIR importer to reuse without the C-CDA-named surface. `ccda.ts` re-exports the same functions
+// and types under their established C-CDA names — these are the source-neutral spellings.
+export { stageHealthRecordImport, applyHealthRecordImport } from './health-record';
+export type {
+  ParsedHealthRecord,
+  ProblemEntry,
+  RelativeEntry,
+  StagedHealthRecordImport,
+  HealthRecordSelections,
+  MemberOverride,
+} from './health-record';
