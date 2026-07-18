@@ -48,6 +48,10 @@ export interface FixtureProblem {
    * pointing at the section's own narrative table row (given via `narrativeId` + `narrativeText`). */
   narrativeRefId?: string;
   narrativeText?: string;
+  /** Renders a `<translation>` child under the primary `<value>` carrying this SNOMED code —
+   * used to build a fixture whose PRIMARY coding is a normal positive diagnosis but which also
+   * carries an absence concept (e.g. `160266009`) only in a translation, never the primary code. */
+  translationAbsentCode?: string;
 }
 
 function systemOid(system: FixtureProblem['system']): string {
@@ -60,6 +64,9 @@ function valueXml(p: FixtureProblem): string {
   }
   if (p.narrativeRefId) {
     return `<value nullFlavor="OTH"><originalText><reference value="#${p.narrativeRefId}"/></originalText></value>`;
+  }
+  if (p.translationAbsentCode) {
+    return `<value code="${p.code}" codeSystem="${systemOid(p.system)}" displayName="${p.displayName ?? ''}"><translation code="${p.translationAbsentCode}" codeSystem="${OID.snomed}" displayName="No known family history"/></value>`;
   }
   return `<value code="${p.code}" codeSystem="${systemOid(p.system)}" displayName="${p.displayName ?? ''}"/>`;
 }

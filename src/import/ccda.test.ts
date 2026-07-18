@@ -6,6 +6,7 @@ import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord, seedRecord } from '@/data/seed';
 import { indexPeople, parentsOf, personById, relationInfo } from '@/domain/graph';
 import { isValidRecord } from '@/domain/record';
+import type { FamilyRecord, Person } from '@/domain/types';
 
 const catalog = buildCatalog([]);
 
@@ -97,6 +98,25 @@ describe('parseCcda — Problem Section (proband)', () => {
           code: 'C50.919',
           displayName: 'Malignant neoplasm of breast',
           negated: true,
+        },
+      ],
+    });
+    const parsed = parseCcda(xml);
+    expect(parsed.proband.problems).toHaveLength(0);
+    expect(parsed.warnings.some((w) => /1 negated.*not imported/i.test(w))).toBe(true);
+  });
+
+  it('treats an absence concept carried only in value/translation as an absence assertion, not a positive condition (Problem list)', () => {
+    // Same fix as Family History: the primary coding is a genuine positive diagnosis, and the
+    // "no known history" SNOMED concept rides along only as a translation.
+    const xml = ccdaDoc({
+      patientBirthTime: '19800101',
+      problems: [
+        {
+          system: 'ICD-10-CM',
+          code: 'C50.919',
+          displayName: 'Malignant neoplasm of breast',
+          translationAbsentCode: '160245001',
         },
       ],
     });
@@ -206,12 +226,47 @@ describe('parseCcda — Family History Section', () => {
     expect(parsed.familyMembers[0].problems).toHaveLength(0);
     expect(parsed.warnings.some((w) => /1 negated.*not imported/i.test(w))).toBe(true);
   });
+
+  it('treats an absence concept carried only in value/translation as an absence assertion, not a positive condition (Family History)', () => {
+    // Primary coding is a genuine positive diagnosis (breast cancer); the "no known family
+    // history" SNOMED concept rides along only as a translation — isNegatedOrAbsent must check
+    // every translation, not just the primary code, or this would wrongly import as a real dx.
+    const xml = ccdaDoc({
+      familyMembers: [
+        {
+          relationshipCode: 'MTH',
+          genderCode: 'F',
+          name: 'Jane',
+          conditions: [
+            {
+              system: 'ICD-10-CM',
+              code: 'C50.919',
+              displayName: 'Malignant neoplasm of breast',
+              translationAbsentCode: '160266009',
+            },
+          ],
+        },
+      ],
+    });
+    const parsed = parseCcda(xml);
+    expect(parsed.familyMembers[0].problems).toHaveLength(0);
+    expect(parsed.warnings.some((w) => /1 negated.*not imported/i.test(w))).toBe(true);
+  });
 });
 
 describe('parseCcda — security & leniency (never throws)', () => {
   it('rejects a document declaring a DOCTYPE, with a structured warning and no crash', () => {
     const xxe =
       '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><ClinicalDocument/>';
+    const parsed = parseCcda(xxe);
+    expect(parsed.proband.problems).toEqual([]);
+    expect(parsed.familyMembers).toEqual([]);
+    expect(parsed.warnings.some((w) => /DOCTYPE/i.test(w))).toBe(true);
+  });
+
+  it('rejects a mixed-case <!DoCtYpE ...> declaration exactly like a lowercase one (case-insensitive reject)', () => {
+    const xxe =
+      '<?xml version="1.0"?><!DoCtYpE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><ClinicalDocument/>';
     const parsed = parseCcda(xxe);
     expect(parsed.proband.problems).toEqual([]);
     expect(parsed.familyMembers).toEqual([]);
@@ -241,6 +296,36 @@ describe('parseCcda — security & leniency (never throws)', () => {
       expect(() => parseCcda(bad)).not.toThrow();
     }
     expect(parseCcda('').warnings[0]).toMatch(/empty/i);
+  });
+});
+
+describe('parseCcda — item-count caps (bounded staging structure, never silent)', () => {
+  // The caps are exercised through the `limits` test affordance with tiny fixtures — the same
+  // truncation code path runs, but we avoid parsing thousands of jsdom nodes (which the browser's
+  // native DOMParser handles quickly but jsdom does not). Production defaults are 5000 / 2000.
+  it('truncates the problem budget at the configured cap and warns exactly what was dropped', () => {
+    const xml = ccdaDoc({
+      patientBirthTime: '19900101',
+      problems: Array.from({ length: 6 }, () => ({
+        system: 'ICD-10-CM' as const,
+        code: 'R51',
+        displayName: 'Headache',
+      })),
+    });
+    const parsed = parseCcda(xml, { maxProblems: 4 });
+    expect(parsed.proband.problems).toHaveLength(4);
+    expect(parsed.warnings.some((w) => /more than 4 conditions.*not imported/i.test(w))).toBe(true);
+  });
+
+  it('truncates the family history section at the configured cap and warns exactly what was dropped', () => {
+    const xml = ccdaDoc({
+      familyMembers: Array.from({ length: 5 }, () => ({ relationshipCode: 'COUSN' })),
+    });
+    const parsed = parseCcda(xml, { maxFamilyMembers: 3 });
+    expect(parsed.familyMembers).toHaveLength(3);
+    expect(parsed.warnings.some((w) => /more than 3 family members.*not imported/i.test(w))).toBe(
+      true,
+    );
   });
 });
 
@@ -420,6 +505,35 @@ describe('stageCcdaImport — relationship placement (safety-critical)', () => {
     });
   });
 
+  it("still auto-places biological SON/DAU/NCHILD as the proband's child (genetic offspring geometry)", () => {
+    // Staged against a record with no existing children, so the placement is unambiguously a new
+    // genetic child. (Against a record that already has a child, a differently-named biological
+    // child is correctly surfaced `ambiguous` — see the parent/child same-position cases above.)
+    const stageChild = (member: Partial<CcdaFamilyMember>) =>
+      stageCcdaImport(
+        { proband: { problems: [] }, familyMembers: [fam(member)], warnings: [] },
+        emptyRecord(),
+        catalog,
+      ).familyMembers[0];
+    for (const relationshipCode of ['SON', 'DAU', 'NCHILD']) {
+      expect(stageChild({ relationshipCode, name: 'New Kid' })).toMatchObject({
+        placement: { anchorId: 'you', relation: 'child' },
+        matchStatus: 'new-person',
+      });
+    }
+  });
+
+  it('never auto-places the generic (non-biological) child RoleCodes CHILD/SONC/DAUC — surfaced ambiguous instead', () => {
+    // CHILD/SONC/DAUC subsume adopted/foster/step children — auto-placing them into genetic
+    // parentage could corrupt the inheritance geometry, unlike biological SON/DAU/NCHILD above.
+    for (const code of ['CHILD', 'SONC', 'DAUC']) {
+      const staged = stageOne({ relationshipCode: code, name: 'Someone' });
+      expect(staged.placement).toBeNull();
+      expect(staged.matchStatus).toBe('ambiguous');
+      expect(staged.defaultSelected).toBe(false);
+    }
+  });
+
   it('adds a genuinely new sibling with no ambiguity when the record has no existing siblings to conflict with', () => {
     const parsed = {
       proband: { problems: [] },
@@ -507,6 +621,80 @@ describe('stageCcdaImport — relationship placement (safety-critical)', () => {
       true,
     ); // new-person
     expect(stageOne({ relationshipCode: 'COUSN', name: 'Someone' }).defaultSelected).toBe(false); // ambiguous
+  });
+});
+
+describe('stageCcdaImport — same-position name collisions (never a silent first-in-traversal match)', () => {
+  // A minimal person, for building custom collision records without dragging in seedRecord's
+  // unrelated fixture data.
+  function person(overrides: Partial<Person> & { id: string; name: string }): Person {
+    return {
+      sab: 'u',
+      gender: 'nb',
+      gen: 0,
+      x: 0,
+      dead: false,
+      birth: null,
+      death: null,
+      conds: [],
+      ...overrides,
+    };
+  }
+
+  /** A proband with `count` siblings who ALL share the identical normalized name "Jordan
+   * Smith" — the same-position-name-collision scenario. */
+  function siblingCollisionRecord(count: 1 | 2): FamilyRecord {
+    const you = person({ id: 'you', name: 'You', isProband: true });
+    const mom = person({ id: 'mom', name: 'Mom', sab: 'f', gender: 'woman' });
+    const sibs = Array.from({ length: count }, (_, i) =>
+      person({ id: `sib${i + 1}`, name: 'Jordan Smith' }),
+    );
+    return {
+      people: [you, mom, ...sibs],
+      unions: [{ parents: ['mom'], children: ['you', ...sibs.map((s) => s.id)] }],
+      timeline: [],
+      probandId: 'you',
+    };
+  }
+
+  function memberNamed(name: string | null): CcdaFamilyMember {
+    return {
+      parseId: 'fh-collision',
+      name,
+      sab: 'u',
+      relationshipCode: 'SIB',
+      relationshipDisplay: 'Sibling',
+      birthYear: null,
+      death: { year: null, dead: null },
+      problems: [],
+    };
+  }
+
+  it('surfaces ambiguous with BOTH same-position, same-name people as candidates when two exist — never a silent first match', () => {
+    const record = siblingCollisionRecord(2);
+    const parsed = {
+      proband: { problems: [] },
+      familyMembers: [memberNamed('Jordan Smith')],
+      warnings: [],
+    };
+    const staged = stageCcdaImport(parsed, record, catalog).familyMembers[0];
+    expect(staged.matchStatus).toBe('ambiguous');
+    expect(staged.matchedPersonId).toBeNull();
+    expect(staged.candidates.map((c) => c.personId).sort()).toEqual(['sib1', 'sib2']);
+    expect(staged.defaultSelected).toBe(false);
+  });
+
+  it('still matches unambiguously when exactly one same-position person shares that name (regression guard)', () => {
+    const record = siblingCollisionRecord(1);
+    const parsed = {
+      proband: { problems: [] },
+      familyMembers: [memberNamed('Jordan Smith')],
+      warnings: [],
+    };
+    const staged = stageCcdaImport(parsed, record, catalog).familyMembers[0];
+    expect(staged.matchStatus).toBe('matched-existing');
+    expect(staged.matchedPersonId).toBe('sib1');
+    expect(staged.defaultSelected).toBe(true);
   });
 });
 
@@ -708,9 +896,13 @@ describe('applyCcdaImport', () => {
 
   it('defaults display gender from sab (never invented independently) for a newly-added relative', () => {
     const record = emptyRecord();
-    const xml = ccdaDoc({ familyMembers: [{ relationshipCode: 'CHILD', name: 'Kid' }] }); // sex-neutral, no gender code
+    // NCHILD (natural child) is sex-neutral (no CODE_SAB entry, so sab falls through to 'u'
+    // absent a gender code) but — unlike the generic CHILD/SONC/DAUC codes — still carries
+    // genetic offspring geometry, so it auto-places (see CHILD_CODES).
+    const xml = ccdaDoc({ familyMembers: [{ relationshipCode: 'NCHILD', name: 'Kid' }] });
     const staged = stageCcdaImport(parseCcda(xml), record, catalog);
     const member = staged.familyMembers[0];
+    expect(member.matchStatus).toBe('new-person'); // NCHILD auto-places; no existing child to conflict with
     const { record: applied } = applyCcdaImport(
       record,
       staged,

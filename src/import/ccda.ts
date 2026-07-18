@@ -401,7 +401,18 @@ function ageToYears(value: string, unit: string): number | null {
  * document's own `recordTarget` birth date — and only when both are present and the result is
  * ≥ 0; otherwise `null`. Never defaulted to 0.
  */
-export function parseCcda(xmlText: string): ParsedCcda {
+/**
+ * Parse a C-CDA (CCD) document. The optional `limits` only lower the item-count caps for tests —
+ * production callers omit it and get the generous {@link MAX_PARSED_PROBLEMS} /
+ * {@link MAX_PARSED_FAMILY_MEMBERS} defaults. (Exercising the caps with tiny fixtures keeps the
+ * suite fast; the real defaults are far beyond any genuine record.)
+ */
+export function parseCcda(
+  xmlText: string,
+  limits?: { maxProblems?: number; maxFamilyMembers?: number },
+): ParsedCcda {
+  const maxProblems = limits?.maxProblems ?? MAX_PARSED_PROBLEMS;
+  const maxFamilyMembers = limits?.maxFamilyMembers ?? MAX_PARSED_FAMILY_MEMBERS;
   const emptyWith = (warning: string): ParsedCcda => ({
     proband: { problems: [] },
     familyMembers: [],
@@ -474,7 +485,7 @@ export function parseCcda(xmlText: string): ParsedCcda {
       }
       const coded = extractCoded(valueEl, obs, idMap);
       if (coded.system === null && !coded.displayName) continue; // nothing to show
-      if (problemCount >= MAX_PARSED_PROBLEMS) {
+      if (problemCount >= maxProblems) {
         problemsTruncated = true;
         break;
       }
@@ -496,7 +507,7 @@ export function parseCcda(xmlText: string): ParsedCcda {
       if (!hasTemplateId(organizer, FH_ORGANIZER_ROOT)) continue;
       const relatedSubject = firstChild(firstChild(organizer, 'subject'), 'relatedSubject');
       if (!relatedSubject) continue;
-      if (familyMembers.length >= MAX_PARSED_FAMILY_MEMBERS) {
+      if (familyMembers.length >= maxFamilyMembers) {
         familyTruncated = true;
         break;
       }
@@ -536,7 +547,7 @@ export function parseCcda(xmlText: string): ParsedCcda {
         }
         const coded = extractCoded(valueEl, obs, idMap);
         if (coded.system === null && !coded.displayName) continue;
-        if (problemCount >= MAX_PARSED_PROBLEMS) {
+        if (problemCount >= maxProblems) {
           problemsTruncated = true;
           break;
         }
@@ -573,12 +584,12 @@ export function parseCcda(xmlText: string): ParsedCcda {
   }
   if (problemsTruncated) {
     warnings.push(
-      `This document listed more than ${MAX_PARSED_PROBLEMS} conditions; the additional conditions beyond that limit were not imported.`,
+      `This document listed more than ${maxProblems} conditions; the additional conditions beyond that limit were not imported.`,
     );
   }
   if (familyTruncated) {
     warnings.push(
-      `This document listed more than ${MAX_PARSED_FAMILY_MEMBERS} family members; the additional relatives beyond that limit were not imported.`,
+      `This document listed more than ${maxFamilyMembers} family members; the additional relatives beyond that limit were not imported.`,
     );
   }
 

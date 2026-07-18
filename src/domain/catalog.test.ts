@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONDITIONS, COMMON_CONDITIONS } from '@/data/conditions';
 import { CATEGORY_LABELS } from '@/data/categories';
-import { createCatalog, fallbackCondition, sanitizeExtensions } from './catalog';
+import { conditionFromCode, createCatalog, fallbackCondition, sanitizeExtensions } from './catalog';
 import type { Condition } from './types';
 
 const catalog = createCatalog([...CONDITIONS], [...COMMON_CONDITIONS], CATEGORY_LABELS);
@@ -92,6 +92,70 @@ describe('catalog search', () => {
     );
     const hits = tiered.search('cat').map((h) => h.id);
     expect(hits).toEqual(['c-exact', 'c-prefix', 'c-wordb', 'c-synsub']);
+  });
+});
+
+describe('catalog byCode', () => {
+  // 'brca' is curated with icd10: 'C50.919', snomed: '254837009' (src/data/conditions.ts).
+  it('resolves an exact ICD-10-CM code to its curated condition', () => {
+    const hit = catalog.byCode('ICD-10-CM', 'C50.919');
+    expect(hit?.id).toBe('brca');
+  });
+
+  it('falls back to the 3-character ICD-10-CM category when there is no exact curated code', () => {
+    // No curated condition carries C50.911 exactly; 'brca' (C50.919) is the curated condition
+    // for the C50 category, so a full code in that family should still resolve to it.
+    const hit = catalog.byCode('ICD-10-CM', 'C50.911');
+    expect(hit?.id).toBe('brca');
+  });
+
+  it('is case-insensitive on the ICD-10-CM code', () => {
+    expect(catalog.byCode('ICD-10-CM', 'c50.919')?.id).toBe('brca');
+  });
+
+  it('returns undefined for an ICD-10-CM code with no exact or category match', () => {
+    expect(catalog.byCode('ICD-10-CM', 'Z99.999')).toBeUndefined();
+  });
+
+  it('resolves an exact SNOMED-CT code to its curated condition', () => {
+    expect(catalog.byCode('SNOMED-CT', '254837009')?.id).toBe('brca');
+  });
+
+  it('returns undefined for a SNOMED-CT code with no curated match (no category fallback for SNOMED)', () => {
+    expect(catalog.byCode('SNOMED-CT', '000000000')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty or whitespace-only code', () => {
+    expect(catalog.byCode('ICD-10-CM', '')).toBeUndefined();
+    expect(catalog.byCode('ICD-10-CM', '   ')).toBeUndefined();
+  });
+});
+
+describe('conditionFromCode', () => {
+  it('produces the long-tail shape for an ICD-10-CM code: id===code, cat "other", base 0, icd10 set', () => {
+    const cond = conditionFromCode('ICD-10-CM', 'S72.001A', 'Fracture of neck of right femur');
+    expect(cond).toEqual({
+      id: 'S72.001A',
+      name: 'Fracture of neck of right femur',
+      cat: 'other',
+      base: 0,
+      pattern: '—',
+      icd10: 'S72.001A',
+    });
+    expect(cond.snomed).toBeUndefined();
+  });
+
+  it('produces the long-tail shape for a SNOMED-CT code: id===code, cat "other", base 0, snomed set', () => {
+    const cond = conditionFromCode('SNOMED-CT', '444814009', 'Rare inherited metabolic disorder');
+    expect(cond).toEqual({
+      id: '444814009',
+      name: 'Rare inherited metabolic disorder',
+      cat: 'other',
+      base: 0,
+      pattern: '—',
+      snomed: '444814009',
+    });
+    expect(cond.icd10).toBeUndefined();
   });
 });
 
