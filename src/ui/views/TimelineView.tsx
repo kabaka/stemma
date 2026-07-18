@@ -7,6 +7,8 @@ import { labTitles } from '@/domain/timeline';
 import { CurrentMedications } from '../components/CurrentMedications';
 import { LabTrend } from '../components/LabTrend';
 import { ClinicalBoundary } from '../components/ClinicalBoundary';
+import { PartialDateFields } from '../components/PartialDateFields';
+import { yearOfPartialDate } from '@/domain/dates';
 import type {
   AllergyInfo,
   AttachmentRef,
@@ -14,6 +16,7 @@ import type {
   ImmunizationInfo,
   Measurement,
   MedicationInfo,
+  PartialDate,
   TimelineEvent,
 } from '@/domain/types';
 
@@ -280,6 +283,10 @@ function EventForm({
     initial?.person ?? defaultPersonId ?? people[0]?.id ?? '',
   );
   const [year, setYear] = useState(String(initial?.year ?? new Date().getFullYear()));
+  // Optional precise refinement of `year` (W6 date-entry UI) — see PartialDateFields.
+  // Cleared whenever `year` itself changes to a different value (handleYearChange below),
+  // per the domain invariant that a set `date`'s year component must equal `year`.
+  const [date, setDate] = useState<PartialDate | undefined>(initial?.date);
   const [type, setType] = useState<EventType>(initial?.type ?? 'diagnosis');
   const [title, setTitle] = useState(initial?.title ?? '');
   const [detail, setDetail] = useState(initial?.detail ?? '');
@@ -359,6 +366,7 @@ function EventForm({
 
   const personId_ = useId();
   const yearId = useId();
+  const eventDateBaseId = useId();
   const typeId = useId();
   const titleId = useId();
   const detailId = useId();
@@ -383,6 +391,16 @@ function EventForm({
   const attachmentsBaseId = useId();
   // Move focus into the form on open (first field), back to the trigger on close.
   const firstFieldRef = useDisclosureFocus<HTMLSelectElement>();
+
+  // Changing the coarse year invalidates any precise refinement whose year no longer
+  // matches it — clear rather than silently rewrite the day/month the user set.
+  const handleYearChange = (raw: string): void => {
+    setYear(raw);
+    if (date !== undefined) {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isNaN(n) || n !== yearOfPartialDate(date)) setDate(undefined);
+    }
+  };
 
   const submit = () => {
     if (!title.trim()) return;
@@ -463,6 +481,9 @@ function EventForm({
       // when the user picks "— none —" or switches the type away. `undefined`
       // overwrites via the spread (see the store's `updateEvent`).
       screeningId: type === 'screening' && screeningId ? screeningId : undefined,
+      // Explicit, like the fields above, so a cleared refinement actually clears on save
+      // (updateEvent partial-merges — an omitted key would leave a stale value).
+      date,
       med,
       lab,
       vital,
@@ -502,7 +523,7 @@ function EventForm({
             className="field"
             type="number"
             value={year}
-            onChange={(e) => setYear(e.target.value)}
+            onChange={(e) => handleYearChange(e.target.value)}
           />
         </div>
         <div style={{ flex: 1 }}>
@@ -522,6 +543,24 @@ function EventForm({
             ))}
           </select>
         </div>
+      </div>
+      <div>
+        <PartialDateFields
+          // Remounts (and so fully resets its own month/day UI) whenever the coarse year
+          // text changes — paired with handleYearChange's `setDate(undefined)` above so
+          // the fresh mount's `initialValue` is already cleared, not stale.
+          key={year}
+          mode="locked"
+          lockedYear={
+            year.trim() === '' || Number.isNaN(Number.parseInt(year, 10))
+              ? null
+              : Number.parseInt(year, 10)
+          }
+          idBase={eventDateBaseId}
+          legend="Exact date (optional)"
+          initialValue={date}
+          onChange={setDate}
+        />
       </div>
       {type === 'screening' && (
         <div>

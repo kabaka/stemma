@@ -14,6 +14,7 @@ import type {
   EventType,
   FamilyRecord,
   Organ,
+  PartialDate,
   Person,
   Provenance,
   TimelineEvent,
@@ -43,7 +44,13 @@ export interface PersonInput {
   organs?: Organ[];
   dead: boolean;
   birth: number | null;
+  /** Precise birth date (W6 date-entry UI) — the caller is responsible for keeping its
+   * year component equal to `birth` (undefined whenever `birth` is null); the form-level
+   * `PartialDateFields` control enforces this by construction. */
+  birthDate?: PartialDate;
   death: number | null;
+  /** Precise death date, same contract as `birthDate` but against `death`/`dead`. */
+  deathDate?: PartialDate;
   /** Condition ids to record (onset/provenance preserved on edit where possible). */
   condIds: string[];
 }
@@ -84,7 +91,10 @@ interface Actions {
   setConditionField: (
     personId: string,
     condId: string,
-    field: 'onset' | 'prov',
+    /** `'onsetDate'` takes a PartialDate string, or `''` to clear it — onset (the age
+     * field) has no coarse year to lock it to, so it's freely editable independent of
+     * `onset`/`prov` (see `isValidOptionalPartialDate`). */
+    field: 'onset' | 'prov' | 'onsetDate',
     value: string,
   ) => void;
   toggleOrgan: (personId: string, organ: Organ) => void;
@@ -223,7 +233,11 @@ export const useStore = create<Store>()(
           x: 0,
           dead: input.dead,
           birth: input.birth,
+          // Direct assignment (not `??`), same rationale as `updatePerson` below: a
+          // `null`/absent coarse value must be able to leave the precise echo unset too.
+          birthDate: input.birthDate,
           death: input.dead ? input.death : null,
+          deathDate: input.dead ? input.deathDate : undefined,
           conds: input.condIds.map((cid) => ({ id: cid, onset: null, prov: 'self' })),
         };
         const record = get().record;
@@ -249,9 +263,13 @@ export const useStore = create<Store>()(
         person.organs = input.organs;
         person.dead = input.dead;
         // Direct assignment so an explicit null can clear a birth year to "unknown"
-        // (a `?? person.birth` would make the field impossible to blank).
+        // (a `?? person.birth` would make the field impossible to blank). Same for the
+        // precise echoes: an `undefined` input must be able to clear a previously-set
+        // birthDate/deathDate, not be skipped by a nullish-coalescing fallback.
         person.birth = input.birth;
+        person.birthDate = input.birthDate;
         person.death = input.dead ? input.death : null;
+        person.deathDate = input.dead ? input.deathDate : undefined;
         person.conds = input.condIds.map(
           (cid): ConditionEntry => prevById.get(cid) ?? { id: cid, onset: null, prov: 'self' },
         );
@@ -307,8 +325,13 @@ export const useStore = create<Store>()(
           // Preserve a genuine onset of 0 (congenital / at-birth); only '' or a
           // non-numeric value clears it. A plain `|| null` would drop age 0.
           entry.onset = value.trim() === '' || Number.isNaN(n) ? null : n;
-        } else {
+        } else if (field === 'prov') {
           entry.prov = value as Provenance;
+        } else {
+          // onsetDate: a free-standing PartialDate with no coarse year to match (onset is
+          // an age, not a year) — '' clears it, matching the onset/prov field's own
+          // empty-string-clears convention.
+          entry.onsetDate = value.trim() === '' ? undefined : value;
         }
         commit(set, record, `Edited condition on ${person.name}`);
       },

@@ -13,8 +13,10 @@ import {
   sabOf,
 } from '@/domain/person';
 import { MAX_PARENTS } from '@/domain/record';
+import { yearOfPartialDate } from '@/domain/dates';
 import { categoryColor } from '@/data/categories';
-import type { Gender, Organ, Sab } from '@/domain/types';
+import { PartialDateFields } from './PartialDateFields';
+import type { Gender, Organ, PartialDate, Sab } from '@/domain/types';
 
 /** What opened the form: a fresh relative anchored to (and related to) an existing
  * person, or an edit of an existing person. Both the anchor and the relation are
@@ -114,6 +116,11 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const [death, setDeath] = useState(() =>
     editTarget?.death != null ? String(editTarget.death) : '',
   );
+  // Optional precise refinements of birth/death (W6 date-entry UI) — see
+  // PartialDateFields. Each is cleared whenever its own coarse year field changes to a
+  // different value (handleBirthChange/handleDeathChange below).
+  const [birthDate, setBirthDate] = useState<PartialDate | undefined>(editTarget?.birthDate);
+  const [deathDate, setDeathDate] = useState<PartialDate | undefined>(editTarget?.deathDate);
   const [selectedCondIds, setSelectedCondIds] = useState<string[]>(
     () => editTarget?.conds.map((c) => c.id) ?? [],
   );
@@ -130,6 +137,8 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const pronounsId = useId();
   const birthId = useId();
   const deathId = useId();
+  const birthDateBaseId = useId();
+  const deathDateBaseId = useId();
   const searchId = useId();
 
   // Move focus into the dialog on open, capture+hide `.app` behind it, and reverse both
@@ -249,10 +258,29 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
   const addCond = (id: string): void => setSelectedCondIds((cur) => [...cur, id]);
   const removeCond = (id: string): void => setSelectedCondIds((cur) => cur.filter((c) => c !== id));
 
+  // Changing a coarse year invalidates any precise refinement whose year no longer
+  // matches it — clear rather than silently rewrite the day/month the user set.
+  const handleBirthChange = (raw: string): void => {
+    setBirth(raw);
+    if (birthDate !== undefined) {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isNaN(n) || n !== yearOfPartialDate(birthDate)) setBirthDate(undefined);
+    }
+  };
+  const handleDeathChange = (raw: string): void => {
+    setDeath(raw);
+    if (deathDate !== undefined) {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isNaN(n) || n !== yearOfPartialDate(deathDate)) setDeathDate(undefined);
+    }
+  };
+
   const results = catalog.search(query, new Set(selectedCondIds), 40);
 
   const submit = (): void => {
     if (!canSubmit) return;
+    const parsedBirth = parseYear(birth);
+    const parsedDeath = dead ? parseYear(death) : null;
     const input = {
       name,
       sab,
@@ -260,8 +288,12 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
       pronouns: pronouns.trim(),
       organs,
       dead,
-      birth: parseYear(birth),
-      death: dead ? parseYear(death) : null,
+      birth: parsedBirth,
+      // Belt-and-braces alongside handleBirthChange/handleDeathChange's live clearing:
+      // never let a precise date reach the store if its coarse sibling ended up unset.
+      birthDate: parsedBirth !== null ? birthDate : undefined,
+      death: parsedDeath,
+      deathDate: parsedDeath !== null ? deathDate : undefined,
       condIds: selectedCondIds,
     };
     if (state.mode === 'edit') {
@@ -451,7 +483,7 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
             drawer's read-only view of these same two fields) with Gender/Kinship, not
             with the organ inventory. */}
         <div className="row wrap" style={{ gap: 14, marginBottom: 20 }}>
-          <div style={{ flex: 1, minWidth: 120 }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
             <label className="lbl" htmlFor={birthId}>
               Birth year
             </label>
@@ -460,11 +492,28 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
               className="field"
               type="number"
               value={birth}
-              onChange={(e) => setBirth(e.target.value)}
+              onChange={(e) => handleBirthChange(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
+            <PartialDateFields
+              // Remounts (and so fully resets its own month/day UI) whenever the coarse
+              // year text changes — paired with handleBirthChange's `setBirthDate(undefined)`
+              // above so the fresh mount's `initialValue` is already cleared, not stale.
+              key={birth}
+              mode="locked"
+              lockedYear={
+                birth.trim() === '' || Number.isNaN(Number.parseInt(birth, 10))
+                  ? null
+                  : Number.parseInt(birth, 10)
+              }
+              idBase={birthDateBaseId}
+              legend="Exact birth date (optional)"
+              initialValue={birthDate}
+              onChange={setBirthDate}
             />
           </div>
           {dead && (
-            <div style={{ flex: 1, minWidth: 120 }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
               <label className="lbl" htmlFor={deathId}>
                 Death year
               </label>
@@ -473,7 +522,21 @@ export function PersonForm({ state, onClose }: { state: PersonFormState; onClose
                 className="field"
                 type="number"
                 value={death}
-                onChange={(e) => setDeath(e.target.value)}
+                onChange={(e) => handleDeathChange(e.target.value)}
+                style={{ marginBottom: 8 }}
+              />
+              <PartialDateFields
+                key={death}
+                mode="locked"
+                lockedYear={
+                  death.trim() === '' || Number.isNaN(Number.parseInt(death, 10))
+                    ? null
+                    : Number.parseInt(death, 10)
+                }
+                idBase={deathDateBaseId}
+                legend="Exact death date (optional)"
+                initialValue={deathDate}
+                onChange={setDeathDate}
               />
             </div>
           )}
