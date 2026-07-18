@@ -385,7 +385,10 @@ export function CcdaReview({
   ).length;
 
   const handleConfirmClick = (): void => {
-    if (selected.size === 0) return;
+    // Gate on top-level selections (proband conditions + selected relatives), not the raw set:
+    // a condition pre-checked under an unselected/ambiguous relative sits in `selected` but is
+    // skipped by applyCcdaImport, so it must not make the button read as "something to import".
+    if (selectedTopLevel === 0) return;
     onConfirm({ selectedParseIds: selected, overrides });
   };
 
@@ -488,7 +491,7 @@ export function CcdaReview({
           type="button"
           className="btn btn--primary btn--sm"
           onClick={handleConfirmClick}
-          aria-disabled={selected.size === 0}
+          aria-disabled={selectedTopLevel === 0}
         >
           Import selected items
         </button>
