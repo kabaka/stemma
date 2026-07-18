@@ -1,19 +1,24 @@
 # Connecting a health record with SMART on FHIR
 
-Stemma can pull your problem list and family-history data directly from your patient portal's
-FHIR server, instead of you retyping it or downloading a C-CDA file first. It uses
-**SMART App Launch** (the OAuth2 + PKCE standard most US EHR portals — Epic MyChart, Cerner/Oracle
-Health Code, and others — already support for patient-facing apps), runs **entirely in your
-browser**, and never touches a Stemma server, because there isn't one.
+Stemma can pull your **full clinical timeline** — problem list, family history, medications,
+labs, vitals, immunizations, allergies, procedures, visits, and the fact that a genetic test was
+performed — directly from your patient portal's FHIR server, instead of you retyping it or
+downloading a C-CDA file first. It uses **SMART App Launch** (the OAuth2 + PKCE standard most US
+EHR portals — Epic MyChart, Cerner/Oracle Health Code, and others — already support for
+patient-facing apps), runs **entirely in your browser**, and never touches a Stemma server,
+because there isn't one.
 
-This guide covers: the privacy model, how to register Stemma as an app with your provider, the
-exact values to enter, connecting and syncing, and what to do when something doesn't work.
+This guide covers: the privacy model, exactly what gets imported, how to register Stemma as an
+app with your provider, the exact values to enter, connecting and syncing, and what to do when
+something doesn't work.
 
 > [!NOTE]
 > This is one of three ways to bring existing data into Stemma. **GEDCOM** import seeds the family
 > tree (structural only, no conditions); **C-CDA** import reads a downloaded patient-record file
-> for conditions and family history; **SMART on FHIR** (this guide) does the same as C-CDA but
-> live, without you having to find and download the file first. See
+> for conditions and family history only; **SMART on FHIR** (this guide) reads the same live from
+> your portal's FHIR server, **plus the rest of your clinical timeline** (medications, labs,
+> vitals, immunizations, allergies, procedures, visits, genetic-test records) that a C-CDA
+> download doesn't carry — without you having to find and download a file first. See
 > [`README.md`](../README.md#standards--interoperability) for all three.
 
 ## Privacy model
@@ -45,19 +50,103 @@ exact values to enter, connecting and syncing, and what to do when something doe
 
 ## What gets imported — and what doesn't
 
-| Imported | Not imported (yet) |
-| --- | --- |
-| Proband's problem list (`Condition`) | Observations, labs, vitals |
-| Relatives + their conditions (`FamilyMemberHistory`) | Medications |
-| — | Immunizations, procedures, documents |
+A sync reads your **full clinical timeline**, not just the problem list:
 
-Everything imported is treated exactly like a C-CDA import: coded facts (ICD-10-CM/SNOMED CT)
-resolve to a catalog entry where possible, uncoded facts are surfaced narrative-only, a "no known
-history" assertion is never turned into a positive condition, and an accepted item is recorded
-with provenance `record` (records-confirmed, not self-reported). **Real-world `FamilyMemberHistory`
-data is often sparse** — many EHRs record little more than "mother: none noted" — so don't expect
-a sync to fully populate your pedigree; treat it as a starting draft to check and extend, the same
+| FHIR resource | Imported as | Notes |
+| --- | --- | --- |
+| `Condition` | Proband's problem list | Unchanged since the original release. |
+| `FamilyMemberHistory` | Relatives + their conditions | Unchanged since the original release. |
+| `MedicationStatement`, `MedicationRequest` | `medication` timeline events | Dose (free text) + whether it's ongoing, from the resource's own `status`. A medication referenced rather than inlined (`medicationReference`) is resolved from the same fetch (see below); only a reference that can't be resolved at all is held for manual review. |
+| `Observation` (`category=laboratory`) | `lab` timeline events | Numeric value + unit, plus a reference range under the conditions below. |
+| `Observation` (`category=vital-signs`) | `vital` timeline events | Same shape as labs. |
+| `Observation`, identified as genomic | `genetic` timeline events | **Fact-of-test only** — see the callout below. Always held for review. |
+| `Immunization` | `immunization` timeline events | Vaccine + dose number. |
+| `AllergyIntolerance` | `allergy` timeline events | Substance, reaction, severity — all recorded facts, never a computed risk. |
+| `Procedure` | `procedure` timeline events | |
+| `Encounter` | `visit` timeline events | **Off by default** — see below. |
+| — | Attachment *bytes*, clinical documents, `Observation` social-history | No domain field to hold them yet (documents are metadata-only references today; see the [roadmap](./ROADMAP.md)). |
+
+Everything imported is treated exactly like a C-CDA import: coded facts (ICD-10-CM/SNOMED CT for
+conditions; RxNorm/CVX/LOINC/SNOMED CT for the rest) resolve to a catalog entry or are preserved
+verbatim where possible, uncoded facts are surfaced narrative-only, a "no known history" assertion
+is never turned into a positive condition, and an accepted item is recorded with provenance
+`record` (records-confirmed, not self-reported). **Real-world `FamilyMemberHistory` data is often
+sparse** — many EHRs record little more than "mother: none noted" — so don't expect a sync to
+fully populate your pedigree; treat it as a starting draft to check and extend, the same
 expectation the C-CDA importer sets.
+
+> [!IMPORTANT]
+> **Genetic test results are recorded as fact-of-test only.** When a sync finds a genomic
+> `Observation` (identified by its `category` or a known genetic LOINC code), Stemma records only
+> that the test happened, on that date, with that name — it deliberately **never reads the
+> result**: no variant call, no interpretation, no pathogenicity classification, and no
+> risk. That is guardrail #1 (never manufacture a risk number) applied to genetics specifically —
+> a genetic result is exactly the kind of fact a clinician or genetic counselor should interpret,
+> not a heuristic. Every genetic event is held for your review before it's added.
+
+### Visits are off by default
+
+`Encounter` resources (every office visit, not just clinically meaningful ones) are the noisiest
+resource type a portal exposes — importing all of them by default would bury the useful signal.
+Stemma still fetches and stages them (nothing your record model can hold is silently skipped), but
+every `visit` event starts **unchecked** in the review screen regardless of its status, the same
+way an uncertain/needs-review item does for every other resource type. You opt in per visit, or
+skip the whole "Visits" group.
+
+### How statuses and absences are handled
+
+Every resource type carries its own status field (`Condition.verificationStatus`,
+`MedicationRequest.status`, `Observation.status`, and so on), and Stemma reads it the same way
+across all of them:
+
+- A **settled, confirmed** status (e.g. `final`, `completed`, `confirmed`) imports normally.
+- An **interim/uncertain** status (e.g. `preliminary`, `unconfirmed`, `draft`, `on-hold`, or a
+  missing status) is still staged, but held for review and **not pre-selected** — you decide
+  whether to bring it in.
+- `entered-in-error` is **dropped silently** — it was never a real fact, so it isn't counted or
+  surfaced at all.
+- An explicit **absence** — `not-done`, `not-taken`, `cancelled`, or (for allergies) `refuted` — is
+  **never imported as a positive event**. It's dropped and counted in a single warning ("N record
+  entries were not imported because they were recorded as not taken, not done, or ruled out.")
+  rather than silently disappearing.
+
+`AllergyIntolerance` is gated on its `verificationStatus` (confirmed/unconfirmed/refuted) exactly
+like `Condition`; its separate `clinicalStatus` (active/inactive/resolved) never excludes an entry
+— an allergy you've since outgrown is still worth knowing about.
+
+A resource with **no usable date at all** is dropped and counted in its own warning ("N timeline
+events were not imported because they were missing a usable date.") — `TimelineEvent.year` is a
+required field, and Stemma will not invent one. A resource with **no id** is dropped and counted
+separately ("N timeline events were not imported because they were missing an identifier.") —
+Stemma dedupes a re-sync by each resource's own id, and will not invent one to force a fit.
+
+### Reference ranges are always the source's own numbers
+
+When a lab or vital carries exactly one `referenceRange` and its units match the measured value,
+Stemma imports that range verbatim and labels it **"Reference range (from this record): …"** in
+the review screen and on your timeline. It is never Stemma's own idea of "normal," never
+unit-converted, and never rendered as an in-range/out-of-range flag or color — interpreting a
+number against a range is a clinician's job (guardrail #1). A range that's ambiguous (more than
+one `referenceRange` entry, or a unit that doesn't match) is left out rather than guessed at.
+
+### Exact dates, when your provider has them
+
+Stemma has always stored a coarse year for every timeline event, condition onset, and birth/death.
+A sync now also imports the **exact date** when the source resource has one — a full
+year-month-day, or just a year-month if that's all the resource carries — and shows it at that
+same precision (e.g. "March 15, 2019" instead of "2019"). Stemma never fabricates a day or month
+the source didn't provide, and the coarse year always stays available as a fallback for anything
+imported before this existed. You can also enter or edit a precise date by hand once an item is in
+your record.
+
+### When one part of your record can't be fetched
+
+A sync makes one search per resource type. If your provider's server doesn't support a particular
+search (or rejects it), **that one resource type is skipped — the rest of the sync still
+completes.** You'll see a line like "Couldn't retrieve medication requests from this provider
+(…)." in the review screen's warnings instead of the whole sync failing. The one exception is your
+own identity (`Patient`): that read is mandatory, and its failure does abort the sync, since there
+is nothing to import without it.
 
 ## Registering Stemma as an app with your provider
 
@@ -93,11 +182,22 @@ Registration is per-provider; you'll do this once for each portal you want to co
    | `patient/Patient.read` | Read the proband's identity + birth date (for onset-age math only — Stemma never imports or overwrites your name/demographics from this). |
    | `patient/Condition.read` | Read the proband's problem list. |
    | `patient/FamilyMemberHistory.read` | Read relatives and their conditions. |
+   | `patient/MedicationRequest.read`, `patient/MedicationStatement.read` | Read medications (both how a prescriber ordered it and how the patient reports taking it). |
+   | `patient/Observation.read` | Read labs, vitals, and genomic test-of-record observations. |
+   | `patient/Immunization.read` | Read the immunization record. |
+   | `patient/AllergyIntolerance.read` | Read allergies and intolerances. |
+   | `patient/Procedure.read` | Read procedures. |
+   | `patient/Encounter.read` | Read visits (imported, but staged off by default — see below). |
    | `offline_access` (optional) | Requested only if you check "Stay connected on this device" — lets Stemma refresh its access token later without asking you to sign in again, **when the server grants it** (see below). |
 
    These are the standard SMART v1 read-scope names; a SMART v2 server that only recognizes the
    newer granular (`.rs`) scope syntax should still honor the equivalent `.read` request, but
-   confirm against your provider's own scope documentation if registration rejects them.
+   confirm against your provider's own scope documentation if registration rejects them. This list
+   is intentionally in lockstep with every resource type a sync fetches (see
+   [What gets imported](#what-gets-imported--and-what-doesnt) above) — a provider that enforces
+   per-resource scopes strictly (Epic among them) only returns data for a resource type whose scope
+   was actually granted, so a registration that grants fewer than these will show up as "Couldn't
+   retrieve …" warnings for the missing ones on every sync.
 5. Save the registration and copy the **client ID** it issues — you'll paste this into Stemma's
    connect panel along with your provider's FHIR base URL. Stemma doesn't ship a client ID of its
    own; every install is a separate registration you control.
@@ -148,8 +248,8 @@ SMART apps for their organization).
    You're redirected to Epic's sandbox sign-in — sign in with the test-patient credentials from
    step 6 and approve the requested scopes.
 8. Epic redirects back to Stemma, which completes the token exchange automatically and shows a
-   connection card. Click **Sync now** to fetch and stage the sandbox patient's conditions and
-   family history for review.
+   connection card. Click **Sync now** to fetch and stage the sandbox patient's conditions,
+   family history, and timeline data (medications, labs, etc.) for review.
 
 **For a real Epic organization** (not the sandbox): each health system runs its own FHIR endpoint,
 and patients typically locate theirs through Epic's organization/endpoint directory rather than a
@@ -168,10 +268,15 @@ than assuming the sandbox steps transfer unchanged.
 3. Sign in and approve the requested scopes. You're redirected back to Stemma, which completes the
    exchange and shows a connection card (provider, patient, last-synced time, whether unattended
    sync is available).
-4. Click **Sync now**. Stemma fetches your `Condition` and `FamilyMemberHistory` data (paging
-   through the server's own result pages automatically) and opens the same staged-review screen
-   the C-CDA importer uses — check the items you want, leave unchecked anything you don't, and
-   confirm. This **merges** into your existing record; nothing already there is removed.
+4. Click **Sync now**. Stemma searches your `Condition`, `FamilyMemberHistory`, and the full
+   timeline resource set (medications, labs, vitals, immunizations, allergies, procedures,
+   encounters — see [What gets imported](#what-gets-imported--and-what-doesnt) above), paging
+   through the server's own result pages automatically for each, and opens the same staged-review
+   screen the C-CDA importer uses — grouped into "Your conditions," "Family members," and (new)
+   "Health events" sections, the latter broken out by type (Medications, Labs, Vitals,
+   Immunizations, Allergies, Procedures, Visits, Genetic). Check the items you want, leave
+   unchecked anything you don't, and confirm. This **merges** into your existing record; nothing
+   already there is removed.
 5. You can connect more than one provider — click **+ Connect another provider** — and sync each
    independently.
 6. **Disconnect** on a connection card forgets it and wipes its tokens immediately (both the
@@ -209,7 +314,8 @@ providers grant real refresh tokens, but that requires a backend Stemma doesn't 
 | "Sign-in with this provider failed…" | The token exchange was rejected. | Confirm the redirect URI registered with your provider is *exactly* the one Stemma showed you, including the trailing slash, and that the client ID is correct. |
 | "The server rejected the data request…" | A FHIR read failed, most often an expired access token. | Try **Sync now** again; if it keeps failing, disconnect and reconnect. |
 | "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or disconnect and reconnect — this is the expected shape for a provider (like Epic) that doesn't grant public-client refresh tokens. |
-| "No conditions or family history were found for this patient." | The sync succeeded but the server returned nothing for either resource. | Real EHR `FamilyMemberHistory` is often empty or thin — this can be a genuinely empty record, not an error. |
+| "No conditions, family history, or health events were found for this patient." | The sync succeeded but the server returned nothing across every resource type it searched. | Real EHR `FamilyMemberHistory` is often empty or thin — this can be a genuinely empty record, not an error. |
+| "Couldn't retrieve *&lt;labs / medication requests / immunizations / …&gt;* from this provider (…)." (in the review screen's warnings, not a failed sync) | That one resource type's search failed — an unsupported search, an expired token mid-sync, or (see the scope note above) a resource your app registration wasn't granted read access to — but every other resource type still synced normally. | Try **Sync now** again later; if it's consistently one resource type, check whether your provider grants that resource's read scope to your registration. |
 
 ## The clinical boundary
 

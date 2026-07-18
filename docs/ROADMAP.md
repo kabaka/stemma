@@ -160,15 +160,31 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
   revisited and found a narrower subset that avoids that: a **public (secret-less) OAuth2 + PKCE**
   browser client, standalone launch, talking only to the FHIR endpoint the user names, with no
   backend. Shipped as `src/integrations/smart-fhir/` (discovery, PKCE, token exchange/refresh,
-  paginated `Condition`/`FamilyMemberHistory` fetch) + `src/import/fhir.ts`
-  (`parseFhirImport`) feeding the same merge-with-review pipeline C-CDA uses. See
-  [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
+  paginated fetch) + `src/import/fhir.ts` (`parseFhirImport`) feeding the same merge-with-review
+  pipeline C-CDA uses. See [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-the-import-layer) and
   [ADR-010](./ARCHITECTURE.md#adr-010--client-side-smart-on-fhir-import-supersedes-adr-009s-live-pull-deferral),
   and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for setup. Honest limit: not every server grants a
   public client a refresh token (Epic ties refresh tokens to a confidential secret), so some
   connections need a quick re-login on each sync rather than truly unattended background sync. A
   **server-side broker** for providers that never grant a secretless client a refresh token
   remains deferred to Phase 5, unchanged from DR-0016's original reasoning for that path.
+  - ✅ **Full-timeline expansion** (DR-0023/DR-0024). The original release only pulled
+    `Condition`/`FamilyMemberHistory`; a sync now also imports `MedicationStatement`/
+    `MedicationRequest`, `Observation` (labs, vitals, and — fact-of-test only, never an
+    interpretation — genomic), `Immunization`, `AllergyIntolerance`, `Procedure`, and `Encounter`
+    (supported but staged off-by-default; a full visit history is high-noise). Additive domain
+    uplift: `TimelineEvent` gains `date?`/`prov?`/`coding?`, `ConditionEntry` gains `onsetDate?`,
+    `Person` gains `birthDate?`/`deathDate?` — a `PartialDate` (year, year-month, or full date,
+    exactly the source's precision) alongside every existing coarse year field, plus a verbatim
+    `Coding` carrier for RxNorm/CVX/LOINC/SNOMED CT/ICD-10-CM. Exact-date entry now exists in the
+    person/condition/event forms, and the FHIR/GEDCOM/ICS exporters emit the precise date when one
+    is present. One failing per-resource search now degrades to a warning instead of aborting the
+    whole sync (this also fixed the pre-existing Condition/FamilyMemberHistory behavior). The
+    requested OAuth scope list was broadened in lockstep with the resource set — a
+    `patient/<Resource>.read` scope for each — so a provider that enforces scopes strictly grants
+    access to everything a sync fetches. See
+    [ADR-011](./ARCHITECTURE.md#adr-011--full-timeline-smart-on-fhir-import-and-the-partialdate--coding--event-provenance-uplift)
+    and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#registering-stemma-as-an-app-with-your-provider).
 - **Record OCR/parse** for uploaded documents (ideation §6).
 - **Consumer DNA raw-file parse**, heavily caveated (ideation §3).
 
@@ -195,7 +211,7 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
 | ICD-10-CM / SNOMED CT | Coded catalog | Baked in at authoring time | **Live (subset)** |
 | HPO / Orphanet / OMIM | Genetics vocabulary | Baked in | **Live (HPO)** — Orphanet/OMIM deferred |
 | IHME GBD / CDC | Prevalence & heritability | Baked in | **Live (high-signal subset)** |
-| FHIR (portals, Apple Health) | Export; live pull (SMART on FHIR) | ✅ export; ✅ client-side public-client (PKCE) live pull, opt-in (`src/integrations/smart-fhir/`) | **Live** (client-side subset); server-side broker for non-refresh-granting servers → Phase 5 |
+| FHIR (portals, Apple Health) | Export; live pull (SMART on FHIR) | ✅ export; ✅ client-side public-client (PKCE) live pull, opt-in (`src/integrations/smart-fhir/`) | **Live** (client-side subset, full clinical timeline — conditions, family history, medications, labs, vitals, immunizations, allergies, procedures, encounters, genetic test-of-record); server-side broker for non-refresh-granting servers → Phase 5 |
 | C-CDA (CCD, patient portal download) | Import | ✅ client-side file-drop, no auth (`src/import/ccda.ts`) | **Live** (merge-with-review) |
 | GA4GH Phenopacket / Pedigree | Genetics export | ✅ client-side | **Live** |
 | GEDCOM / GEDCOM X | Genealogy interchange | Export ✅; import ✅ (GEDCOM 5.5.1, client-side) | **Live** |
