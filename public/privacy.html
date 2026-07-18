@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Privacy Policy — Stemma</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #2a313c;
+        --text: #e6edf3;
+        --dim: #9aa4b2;
+        --accent: #6cb6d9;
+        --notice-bg: rgba(108, 182, 217, 0.1);
+        --notice-border: rgba(108, 182, 217, 0.4);
+        --notice-text: #a9d8ec;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        font-size: 1.75rem;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 2rem 0 0.5rem;
+      }
+      a {
+        color: var(--accent);
+      }
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin: 0 0 0.75rem;
+      }
+      .updated {
+        color: var(--dim);
+        font-size: 0.9rem;
+        margin: 0 0 1.5rem;
+      }
+      .lead {
+        background: var(--notice-bg);
+        border: 1px solid var(--notice-border);
+        color: var(--notice-text);
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem;
+        margin: 1.5rem 0;
+      }
+      ul {
+        padding-left: 1.25rem;
+      }
+      li {
+        margin: 0.35rem 0;
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+        color: var(--dim);
+        font-size: 0.9rem;
+      }
+      footer a {
+        margin-right: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Stemma</p>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: July 18, 2026</p>
+
+      <div class="lead">
+        Stemma has no backend and no accounts. It does not collect, transmit, sell, or share your
+        personal or health information with us or anyone else. There is no Stemma server that could
+        receive your data, and there is no advertising or analytics.
+      </div>
+
+      <h2>Where your data lives</h2>
+      <p>
+        Everything you enter or import is stored locally in your own browser (in
+        <code>localStorage</code>) on your device. You control it: you can view, edit, export it to
+        open standards, or delete it at any time. Clearing your browser's site data for Stemma
+        removes it.
+      </p>
+
+      <h2>Network connections Stemma makes</h2>
+      <p>
+        Stemma runs in your browser and only ever makes two kinds of outbound request, both under
+        your control:
+      </p>
+      <ul>
+        <li>
+          <strong>Optional terminology lookup.</strong> When you search for a medical condition, the
+          search term you type may be sent to the U.S. National Library of Medicine's public
+          clinical-terminology service to fetch matching codes. No personal or health data is sent —
+          only the term you type.
+        </li>
+        <li>
+          <strong>Optional health-record import (SMART on FHIR).</strong> If you choose to connect
+          to a healthcare provider, your data flows only between your browser and the provider's own
+          FHIR server that you selected. It does not pass through any Stemma server or third party.
+          You authenticate directly with your provider, and access is read-only.
+        </li>
+      </ul>
+
+      <h2>Access tokens</h2>
+      <p>
+        When you connect to a provider, the temporary access token is held in your browser's session
+        storage and is discarded when you close the tab. A longer-lived refresh token is stored only
+        if you explicitly choose "stay connected on this device," and disconnecting wipes all stored
+        tokens and the connection immediately. Tokens are never sent anywhere except back to your
+        chosen provider.
+      </p>
+
+      <h2>Storage is not encrypted at rest</h2>
+      <p>
+        Because your data is stored in your browser profile, it is kept in plain text on your device
+        and could be read by someone with access to that device or profile (or by a malicious
+        browser extension). Treat the device you use Stemma on as trusted, and use your operating
+        system's account and disk protections.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Stemma is a general-purpose tool intended for use by adults managing their own and their
+        family's health information. It does not knowingly collect information from anyone, since it
+        collects nothing at all.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        This policy may be updated from time to time; the "last updated" date above reflects the
+        current version.
+      </p>
+
+      <footer>
+        <a href="./">← Back to Stemma</a>
+        <a href="terms.html">Terms of Use</a>
+        <a href="https://github.com/kabaka/stemma" rel="noopener">Source code</a>
+      </footer>
+    </main>
+  </body>
+</html>
