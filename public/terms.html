@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Terms of Use — Stemma</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #2a313c;
+        --text: #e6edf3;
+        --dim: #9aa4b2;
+        --accent: #6cb6d9;
+        --notice-bg: rgba(255, 176, 67, 0.1);
+        --notice-border: rgba(255, 176, 67, 0.4);
+        --notice-text: #ffce8a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.65 system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        font-size: 1.75rem;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 2rem 0 0.5rem;
+      }
+      p,
+      li {
+        color: var(--text);
+      }
+      a {
+        color: var(--accent);
+      }
+      .eyebrow {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin: 0 0 0.75rem;
+      }
+      .updated {
+        color: var(--dim);
+        font-size: 0.9rem;
+        margin: 0 0 1.5rem;
+      }
+      .notice {
+        background: var(--notice-bg);
+        border: 1px solid var(--notice-border);
+        color: var(--notice-text);
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem;
+        margin: 1.5rem 0;
+      }
+      .notice strong {
+        color: var(--notice-text);
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+        color: var(--dim);
+        font-size: 0.9rem;
+      }
+      footer a {
+        margin-right: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Stemma</p>
+      <h1>Terms of Use</h1>
+      <p class="updated">Last updated: July 18, 2026</p>
+
+      <p>
+        Stemma is free, open-source software that runs entirely in your web browser. It has no
+        server, no user accounts, and no data collection. By using Stemma you agree to these terms.
+      </p>
+
+      <div class="notice">
+        <strong>Not medical advice, and not a medical device.</strong> Stemma is a decision-support
+        tool to help you organize your family health information and discuss it with a qualified
+        clinician. It does not diagnose, treat, or provide medical advice, and it is not a
+        substitute for professional care. Never disregard or delay professional medical advice
+        because of something you saw in Stemma. In an emergency, call 911 or your local emergency
+        number.
+      </div>
+
+      <h2>What Stemma does</h2>
+      <p>
+        Stemma helps you build a family health history and pedigree and surface hereditary-risk
+        <em>patterns</em> worth raising with a clinician. With your explicit authorization, it can
+        read a copy of your own health record from a provider you choose (via the SMART on FHIR
+        standard). This access is <strong>read-only</strong> — Stemma never writes to, changes, or
+        deletes anything in your provider's record — and you can disconnect at any time, which
+        removes the stored connection and any tokens from your browser.
+      </p>
+
+      <h2>Your data and your responsibility</h2>
+      <p>
+        Your information is stored only in your own browser, on your own device, and is yours to
+        safeguard, verify, export, and back up. You are responsible for the accuracy of what you
+        enter or import and for keeping your device secure. Always verify anything important against
+        your official medical record and your clinician's guidance. See our
+        <a href="privacy.html">Privacy Policy</a> for how data is handled.
+      </p>
+
+      <h2>No warranty</h2>
+      <p>
+        Stemma is provided "as is," without warranty of any kind, express or implied, including
+        merchantability, fitness for a particular purpose, and non-infringement. To the maximum
+        extent permitted by law, the authors and contributors are not liable for any claim, damages,
+        or other liability arising from your use of the software. Stemma is distributed under the
+        <a href="https://github.com/kabaka/stemma/blob/main/LICENSE" rel="noopener">MIT License</a>.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        These terms may be updated from time to time; the "last updated" date above reflects the
+        current version. Continued use after a change constitutes acceptance of the revised terms.
+      </p>
+
+      <footer>
+        <a href="./">← Back to Stemma</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/kabaka/stemma" rel="noopener">Source code</a>
+      </footer>
+    </main>
+  </body>
+</html>
