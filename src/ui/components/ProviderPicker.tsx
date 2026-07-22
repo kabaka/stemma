@@ -274,8 +274,15 @@ export function ProviderPicker({ onSelect }: ProviderPickerProps) {
               {/* Per-result system tag — a dim, subordinate label reusing the same `.mono-dim`
                   treatment as the city/state span above (never a colour-alone cue: it's real
                   text, also folded into the option's `aria-label` so assistive tech announces
-                  it). */}
-              <span className="mono-dim"> · {VENDOR_LABEL[p.source]}</span>
+                  it). Colour is overridden to the safer `--text-dim` token (~5.66:1) rather
+                  than `.mono-dim`'s own `--text-faint` (~4.59:1 against this active/hover
+                  option background — right at the WCAG AA floor) — an inline override, same
+                  idiom as FlagCard's own `.mono-dim` + colour-override pairing, so the rest of
+                  the row's `.mono-dim` styling (font, size) is untouched. */}
+              <span className="mono-dim" style={{ color: 'var(--text-dim)' }}>
+                {' '}
+                · {VENDOR_LABEL[p.source]}
+              </span>
             </li>
           ))}
         </ul>

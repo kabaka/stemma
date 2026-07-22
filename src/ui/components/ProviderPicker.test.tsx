@@ -123,4 +123,26 @@ describe('ProviderPicker', () => {
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
+
+  // Regression for the a11y contrast finding: the vendor system label reused `.mono-dim`
+  // wholesale, whose `--text-faint` color sits right at the WCAG AA floor (~4.59:1) against
+  // the active/hover option background. It must override to the safer `--text-dim` token
+  // (~5.66:1) specifically for this label, without losing the rest of `.mono-dim`'s styling
+  // (font family/size) or the row's own hover/active option treatment.
+  it('renders the vendor system label with the safer --text-dim contrast override, not the bare .mono-dim faint tone', async () => {
+    const user = userEvent.setup();
+    render(<ProviderPicker onSelect={vi.fn()} />);
+
+    await user.type(screen.getByRole('combobox', { name: 'Find your provider' }), 'health');
+
+    const options = await screen.findAllByRole('option');
+    const epicOption = options.find((o) => o.textContent?.includes('Epic'));
+    expect(epicOption).toBeDefined();
+    const vendorLabel = Array.from(epicOption!.querySelectorAll('span')).find((s) =>
+      s.textContent?.includes('Epic'),
+    );
+    expect(vendorLabel).toBeDefined();
+    expect(vendorLabel).toHaveClass('mono-dim');
+    expect(vendorLabel!.style.color).toBe('var(--text-dim)');
+  });
 });

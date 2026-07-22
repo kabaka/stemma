@@ -41,6 +41,17 @@ describe('buildTimeClientId', () => {
       vi.stubEnv('VITE_SMART_CLIENT_ID', undefined);
       expect(buildTimeClientId('epic')).toBeNull();
     });
+
+    // Regression: GitHub Actions evaluates an UNSET repo Variable to the EMPTY STRING, not
+    // `undefined` (`VITE_EPIC_CLIENT_ID: ${{ vars.EPIC_CLIENT_ID }}` in deploy.yml is
+    // unconditional), so this is the real unset-GH-Variable shape — not a hypothetical. A
+    // deploy that only ever set the legacy VITE_SMART_CLIENT_ID must still resolve Epic's id;
+    // `??` alone does not fall through on `''`, which is exactly the bug this guards against.
+    it('falls back to VITE_SMART_CLIENT_ID when VITE_EPIC_CLIENT_ID is the empty string (unset GH Actions Variable shape)', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', '');
+      vi.stubEnv('VITE_SMART_CLIENT_ID', 'legacy-client-id');
+      expect(buildTimeClientId('epic')).toBe('legacy-client-id');
+    });
   });
 
   describe('cerner', () => {
@@ -56,6 +67,14 @@ describe('buildTimeClientId', () => {
 
     it('returns null for an empty or whitespace-only value', () => {
       vi.stubEnv('VITE_CERNER_CLIENT_ID', '   ');
+      expect(buildTimeClientId('cerner')).toBeNull();
+    });
+
+    // Regression: same unset-GH-Variable-is-'' shape as the Epic case above, applied to
+    // Cerner — an empty string must resolve to null (Cerner has no back-compat alias to
+    // fall through to), not be treated as a set-but-blank client id.
+    it('returns null for the empty string (unset GH Actions Variable shape)', () => {
+      vi.stubEnv('VITE_CERNER_CLIENT_ID', '');
       expect(buildTimeClientId('cerner')).toBeNull();
     });
 

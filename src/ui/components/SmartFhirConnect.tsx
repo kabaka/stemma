@@ -15,6 +15,16 @@ import type { Catalog } from '@/domain/catalog';
 import type { Condition, FamilyRecord } from '@/domain/types';
 import type { SmartProvider, SmartVendor } from '@/data/smart-endpoints';
 
+/** Patient-facing vendor label, reused in the manual Client ID hint (FIX 6) below — a small
+ * local duplicate of `ProviderPicker`'s own `VENDOR_LABEL`, not a shared import:
+ * `ProviderPicker.tsx` (and the ~292 KB provider table its module scope loads at import time)
+ * is intentionally lazy-loaded off this component's critical path (see the `lazy()` call
+ * below); a static import from it here would pull that weight straight back in. */
+const VENDOR_LABEL: Record<SmartVendor, string> = {
+  epic: 'Epic',
+  cerner: 'Oracle Health',
+};
+
 // Lazy-loaded so neither this component nor the ~292 KB bundled provider directory
 // (`src/data/smart-endpoints.ts`) touch the app's critical-path bundle — only paid for
 // once someone actually opens this panel (DR-0016). Verify with `npm run build` that it
@@ -23,20 +33,24 @@ const ProviderPicker = lazy(() =>
   import('./ProviderPicker').then((m) => ({ default: m.ProviderPicker })),
 );
 
-/** Cerner/Oracle Health FHIR base URLs are always hosted under a `cerner.com` origin (e.g.
- * `https://fhir-myrecord.cerner.com/r4/<tenant>/`) — used to infer the vendor for a
- * manually-typed URL, since it carries no explicit `source` the way a picked `SmartProvider`
- * does. `(^|[./])` requires `cerner.com` to start the string or follow a `.`/`/`, so it
- * matches the host (or a subdomain of it) and not an unrelated path/query substring. */
-const CERNER_HOST_RE = /(^|[./])cerner\.com/i;
-
 /** The active vendor drives which build-time client id (see `src/ui/config.ts`) applies. A
  * picked directory provider is authoritative (`selectedSource`); for a manually-typed FHIR
- * base URL there is no such tag, so it's inferred from the host, defaulting to `epic` — Epic
- * is Stemma's original, still-most-common path, so an unrecognized host degrading to it is
- * the least surprising fallback. */
-function inferVendor(selectedSource: SmartVendor | null, fhirBaseUrl: string): SmartVendor {
-  return selectedSource ?? (CERNER_HOST_RE.test(fhirBaseUrl) ? 'cerner' : 'epic');
+ * base URL there is no such tag, so it's inferred from the URL's actual hostname — never a
+ * substring match against the raw URL string, which a crafted host (e.g.
+ * `cerner.com.evil.example`, or `evil.example/path/cerner.com`) could spoof to misattach the
+ * Cerner client id to an attacker-controlled origin and suppress the manual-entry prompt.
+ * Defaults to `epic` on a host that isn't `cerner.com` or a subdomain of it — Epic is
+ * Stemma's original, still-most-common path, so an unrecognized (or not-yet-parseable, e.g.
+ * the user is still typing) host degrading to it is the least surprising fallback. */
+export function inferVendor(selectedSource: SmartVendor | null, fhirBaseUrl: string): SmartVendor {
+  if (selectedSource) return selectedSource;
+  try {
+    const host = new URL(fhirBaseUrl).hostname.toLowerCase();
+    if (host === 'cerner.com' || host.endsWith('.cerner.com')) return 'cerner';
+  } catch {
+    // Not a parseable URL yet (e.g. the user is mid-typing) — fall through to the epic default.
+  }
+  return 'epic';
 }
 
 interface SmartFhirConnectProps {
@@ -572,30 +586,39 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               client id on this build — each vendor issues one client id across every org/tenant
               it hosts, so a deployed build with that vendor's Variable set ships it once and
               skips asking; a build with only one vendor's Variable set still asks the moment
-              the user picks (or types a URL inferred as) the other vendor. */}
-          {!resolvedClientId && (
-            <div>
-              <label className="lbl" htmlFor={clientIdId}>
-                Client ID
-              </label>
-              <input
-                id={clientIdId}
-                className="field"
-                type="text"
-                autoComplete="off"
-                aria-describedby={
-                  connectError ? `${clientIdHintId} ${connectErrorId}` : clientIdHintId
-                }
-                aria-invalid={Boolean(connectError)}
-                value={manualClientId}
-                onChange={(e) => setManualClientId(e.target.value)}
-              />
-              <p id={clientIdHintId} className="mono-dim" style={{ marginTop: 6 }}>
-                Issued when you register Stemma with your provider — Stemma has no client ID of its
-                own since every install is a separate registration you control.
-              </p>
-            </div>
-          )}
+              the user picks (or types a URL inferred as) the other vendor.
+
+              This wrapping `role="status"` div is ALWAYS in the DOM (unlike the field it
+              holds) so a screen reader picks up the insertion as a live-region content change
+              (WCAG 4.1.3) rather than possibly missing an already-populated region that
+              appeared out of nowhere — focus stays in the picker/URL field the user was just
+              in, so this is the only way the new required field gets announced. */}
+          <div role="status">
+            {!resolvedClientId && (
+              <div>
+                <label className="lbl" htmlFor={clientIdId}>
+                  Client ID
+                </label>
+                <input
+                  id={clientIdId}
+                  className="field"
+                  type="text"
+                  autoComplete="off"
+                  aria-describedby={
+                    connectError ? `${clientIdHintId} ${connectErrorId}` : clientIdHintId
+                  }
+                  aria-invalid={Boolean(connectError)}
+                  value={manualClientId}
+                  onChange={(e) => setManualClientId(e.target.value)}
+                />
+                <p id={clientIdHintId} className="mono-dim" style={{ marginTop: 6 }}>
+                  This provider needs a Client ID you register yourself — issued when you register
+                  Stemma with {VENDOR_LABEL[activeVendor]}. Stemma has no client ID of its own since
+                  every install is a separate registration you control.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Fallback for a provider not in the picker above (a brand the directory snapshot
               doesn't carry) — collapsed by default so it doesn't compete with the picker as

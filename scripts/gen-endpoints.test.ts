@@ -265,6 +265,51 @@ describe('mergeProviders', () => {
   });
 });
 
+describe('dedupeAndSort — dedup key includes source', () => {
+  // Regression: the dedup key used to be `name.toLowerCase() + '|' + fhirBaseUrl` alone, so a
+  // hypothetical cross-vendor collision on the SAME name+URL would silently collapse to one
+  // entry, discarding whichever vendor lost the collision — flipping that provider's client
+  // id. `source` must be part of the key so both entries survive distinctly.
+  it('keeps both entries distinct when the same name+URL is tagged with two different vendors', () => {
+    const result = mergeProviders(
+      [{ name: 'Shared Name', fhirBaseUrl: 'https://shared.example.org/fhir/r4', source: 'epic' }],
+      [
+        {
+          name: 'Shared Name',
+          fhirBaseUrl: 'https://shared.example.org/fhir/r4',
+          source: 'cerner',
+        },
+      ],
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result.map((p) => p.source).sort()).toEqual(['cerner', 'epic']);
+  });
+
+  it('still dedups a true same-vendor collision down to one entry, preferring the location-bearing one', () => {
+    const result = mergeProviders([
+      { name: 'Dup Health', fhirBaseUrl: 'https://dup.example.org/fhir/r4', source: 'epic' },
+      {
+        name: 'Dup Health',
+        fhirBaseUrl: 'https://dup.example.org/fhir/r4',
+        source: 'epic',
+        city: 'Springfield',
+        state: 'IL',
+      },
+    ]);
+
+    expect(result).toEqual([
+      {
+        name: 'Dup Health',
+        fhirBaseUrl: 'https://dup.example.org/fhir/r4',
+        source: 'epic',
+        city: 'Springfield',
+        state: 'IL',
+      },
+    ]);
+  });
+});
+
 describe('encodeProviders / decodeProviders', () => {
   const providers = slimBrandsBundle(bundle);
 

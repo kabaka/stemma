@@ -68,11 +68,14 @@ function refToEndpointId(ref) {
  * providers. Shared by both slim transforms and the cross-source merge so the dedup and
  * sort rules are identical everywhere.
  *
- * Dedup key is `name.toLowerCase() + '|' + fhirBaseUrl`; on collision the location-bearing
- * entry wins over one with no city/state (cross-source collisions are essentially
- * impossible, but the rule is applied uniformly). Sort is a plain `<`/`>` string comparison
- * on lowercased name then URL (NOT localeCompare — ICU-dependent), so the committed file is
- * byte-stable across environments and Epic + Cerner entries interleave by name.
+ * Dedup key is `name.toLowerCase() + '|' + fhirBaseUrl + '|' + source`; on collision the
+ * location-bearing entry wins over one with no city/state (cross-source collisions are
+ * essentially impossible, but the rule is applied uniformly). `source` is part of the key so
+ * a hypothetical cross-vendor name+URL collision can never silently collapse into (and flip
+ * the vendor of) a single entry — both survive as distinct rows instead. Sort is a plain
+ * `<`/`>` string comparison on lowercased name then URL (NOT localeCompare — ICU-dependent),
+ * so the committed file is byte-stable across environments and Epic + Cerner entries
+ * interleave by name.
  *
  * @param {SlimProvider[]} collected
  * @returns {SlimProvider[]}
@@ -84,7 +87,7 @@ export function dedupeAndSort(collected) {
   // Deduplicate, preferring the location-bearing entry on collision.
   const byKey = new Map();
   for (const provider of filtered) {
-    const key = `${provider.name.toLowerCase()}|${provider.fhirBaseUrl}`;
+    const key = `${provider.name.toLowerCase()}|${provider.fhirBaseUrl}|${provider.source}`;
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, provider);

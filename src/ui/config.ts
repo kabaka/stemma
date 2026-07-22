@@ -29,12 +29,23 @@ import type { SmartVendor } from '@/data/smart-endpoints';
  * When this returns `null` (a fork, or any build without the relevant variable set for the
  * active vendor), `SmartFhirConnect` falls back to its manual "Client ID" field unchanged —
  * the fork/local-dev path is preserved.
+ *
+ * GitHub Actions evaluates an unset repository Variable to the EMPTY STRING, not `undefined`
+ * — `deploy.yml` sets `VITE_EPIC_CLIENT_ID: ${{ vars.EPIC_CLIENT_ID }}` unconditionally, so a
+ * deploy that only ever configured the legacy `SMART_CLIENT_ID` Variable still bakes
+ * `VITE_EPIC_CLIENT_ID=''` into the build. `??` does not fall through on `''`, so the
+ * fallback chain below is walked value-by-value, treating an empty/whitespace-only value the
+ * same as absent, rather than a single `??`/`||` expression.
  */
 export function buildTimeClientId(vendor: SmartVendor): string | null {
-  const raw =
-    vendor === 'cerner'
-      ? import.meta.env.VITE_CERNER_CLIENT_ID
-      : (import.meta.env.VITE_EPIC_CLIENT_ID ?? import.meta.env.VITE_SMART_CLIENT_ID);
-  const v = raw?.trim();
-  return v ? v : null;
+  const firstNonEmpty = (...vals: (string | undefined)[]): string | null => {
+    for (const val of vals) {
+      const v = val?.trim();
+      if (v) return v;
+    }
+    return null;
+  };
+  return vendor === 'cerner'
+    ? firstNonEmpty(import.meta.env.VITE_CERNER_CLIENT_ID)
+    : firstNonEmpty(import.meta.env.VITE_EPIC_CLIENT_ID, import.meta.env.VITE_SMART_CLIENT_ID);
 }

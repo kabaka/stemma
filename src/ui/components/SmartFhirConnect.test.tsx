@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SmartFhirConnect } from './SmartFhirConnect';
+import { inferVendor, SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord } from '@/data/seed';
@@ -66,6 +66,41 @@ const CONNECTION: SmartConnection = {
   lastSyncAt: null,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
+
+// Regression for the security-hardening finding: `inferVendor` used to test the whole URL
+// STRING against a `cerner.com` substring, so a crafted host could spoof the Cerner vendor
+// (attaching the Cerner client id to an attacker-controlled origin and suppressing the
+// manual-entry prompt for a build that only has Epic's Variable set). It must parse the real
+// hostname instead.
+describe('inferVendor', () => {
+  it('infers cerner for a real Cerner/Oracle Health host', () => {
+    expect(inferVendor(null, 'https://fhir-myrecord.cerner.com/r4/some-tenant/')).toBe('cerner');
+  });
+
+  it('does NOT infer cerner for a look-alike host with cerner.com as a subdomain prefix', () => {
+    expect(inferVendor(null, 'https://cerner.com.evil.example/fhir')).toBe('epic');
+  });
+
+  it('does NOT infer cerner for cerner.com appearing only in the path', () => {
+    expect(inferVendor(null, 'https://evil.example/path/cerner.com')).toBe('epic');
+  });
+
+  it('infers epic for a real Epic-style host', () => {
+    expect(inferVendor(null, 'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4')).toBe(
+      'epic',
+    );
+  });
+
+  it('defaults to epic for a non-URL (not-yet-parseable) string', () => {
+    expect(inferVendor(null, 'not a url')).toBe('epic');
+    expect(inferVendor(null, '')).toBe('epic');
+  });
+
+  it('a picked selectedSource is authoritative over whatever the URL would infer', () => {
+    expect(inferVendor('epic', 'https://fhir-myrecord.cerner.com/r4/some-tenant/')).toBe('epic');
+    expect(inferVendor('cerner', 'https://fhir.epic.com/api/FHIR/R4')).toBe('cerner');
+  });
+});
 
 describe('SmartFhirConnect — not connected', () => {
   // DR-0016: the provider picker is the primary path (lazy-loaded — awaited via `findBy`
@@ -301,6 +336,69 @@ describe('SmartFhirConnect — vendor-aware client id', () => {
       'cerner-build-id',
       { stayConnected: false, redirectUri },
     );
+  });
+
+  // Regression for the security-hardening finding: a look-alike host must NOT be misattributed
+  // to Cerner (which would attach the Cerner client id to an attacker-controlled origin and
+  // wrongly suppress the manual-entry field for a build that only has Epic's Variable set).
+  it('does not misclassify a cerner.com look-alike host as Cerner, and still surfaces the manual field', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    // VITE_EPIC_CLIENT_ID intentionally left unset — Epic is the active (inferred) vendor for
+    // this URL, so the manual field must appear.
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+
+    await user.type(screen.getByLabelText('FHIR base URL'), 'https://cerner.com.evil.example/fhir');
+    expect(await screen.findByLabelText('Client ID')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Client ID'), 'manually-entered-id');
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(
+      'https://cerner.com.evil.example/fhir',
+      'manually-entered-id',
+      { stayConnected: false, redirectUri },
+    );
+  });
+
+  // Regression for the a11y finding (WCAG 4.1.3): the manual Client ID field used to appear
+  // with no announcement — focus stays in the picker/URL field the whole time, so a
+  // screen-reader user was never told a new required field showed up. The field must live
+  // inside an always-mounted `role="status"` region so its insertion is announced, and the
+  // hint text must name the active vendor (FIX 6) so the announcement is actionable.
+  it('announces the manual Client ID field appearing via a role="status" region naming the active vendor', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    // VITE_CERNER_CLIENT_ID intentionally left unset. Epic starts as the active vendor (no
+    // pick, no typed URL yet) and Epic's Variable IS set here, so the field (and its
+    // announcement) should NOT be present yet.
+    const user = userEvent.setup();
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+
+    await pick(user, input, cernerTarget);
+
+    // The field now lives inside a `role="status"` live region (queried by plain DOM
+    // ancestry, not testing-library's role/name matcher — `role="status"` computes no
+    // accessible name from content per the ARIA spec, and `syncStatus`'s own always-mounted
+    // `role="status"` paragraph elsewhere in this form means a bare `getByRole('status')`
+    // would match more than one element), and the region's own text names the newly-active
+    // vendor — both together are what makes the appearance an actionable, announced event
+    // rather than a silent DOM insertion.
+    const clientIdInput = await screen.findByLabelText('Client ID');
+    const statusRegion = clientIdInput.closest('[role="status"]');
+    expect(statusRegion).not.toBeNull();
+    expect(statusRegion!).toHaveTextContent(
+      /this provider needs a client id you register yourself/i,
+    );
+    expect(statusRegion!).toHaveTextContent(/register stemma with oracle health/i);
   });
 
   it('shows the manual Client ID field only for the active vendor when its Variable is unset, and hides it once that vendor has one', async () => {
