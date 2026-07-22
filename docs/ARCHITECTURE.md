@@ -415,38 +415,59 @@ mandatory `Patient` read is the only fetch that still fails closed.
 
 ### The build-time env seam, the provider picker, and its generated directory (DR-0027)
 
-Connecting to a provider no longer requires hand-entering OAuth values. Three pieces, each landing
-in the layer the layering table already prescribes:
+Connecting to a provider no longer requires hand-entering OAuth values, and now spans **both Epic
+and Oracle Health (Cerner)** through one unified picker. Three pieces, each landing in the layer
+the layering table already prescribes:
 
 - **`src/ui/config.ts`** is the *only* place in the app that reads `import.meta.env` — a Vite/build
-  concern the layering table restricts to the UI layer. `buildTimeSmartClientId()` returns the
-  `VITE_SMART_CLIENT_ID` value baked in by [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
-  (sourced from a GitHub Actions repository **Variable**, `vars.SMART_CLIENT_ID` — not a Secret,
-  since a public-client `client_id` isn't confidential, RFC 6749 §2.1) or `null` when unset. The
-  value flows straight into the existing `beginConnect(baseUrl, clientId, opts)` call; neither
-  `src/store/` nor `src/integrations/` gained a new dependency. When `null` (a fork, or any build
-  without the variable), `SmartFhirConnect` renders its manual **Client ID** field unchanged.
+  concern the layering table restricts to the UI layer. `buildTimeClientId(vendor: SmartVendor)`
+  takes the vendor the user's chosen provider belongs to and returns the matching client ID: Epic's
+  `VITE_EPIC_CLIENT_ID` (falling back to the legacy `VITE_SMART_CLIENT_ID` alias) or Cerner's
+  `VITE_CERNER_CLIENT_ID`, both baked in by
+  [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) from GitHub Actions repository
+  **Variables** (`vars.EPIC_CLIENT_ID` / legacy `vars.SMART_CLIENT_ID`, and `vars.CERNER_CLIENT_ID`
+  — not Secrets, since a public-client `client_id` isn't confidential, RFC 6749 §2.1), or `null` per
+  vendor when its Variable is unset. Epic and Oracle Health are separate app registrations, so the
+  id is resolved **per vendor**, not once globally — one Epic id covers every Epic organization, one
+  Cerner id covers every Oracle Health tenant. The value flows straight into the existing
+  `beginConnect(baseUrl, clientId, opts)` call; neither `src/store/` nor `src/integrations/` gained
+  a new dependency. When a vendor's id is `null` (its Variable unset, a fork, or local dev),
+  `SmartFhirConnect` renders the manual **Client ID** field for providers of that vendor only —
+  picking an Epic provider in a build where only Cerner is configured (or vice versa) reveals it.
 - **`src/data/smart-endpoints.ts`** is a second **generated, do-not-hand-edit** data table
   alongside `conditions.ts` — same contract: pure, typed against `domain` only, regenerate rather
   than edit. [`scripts/gen-endpoints.mjs`](../scripts/gen-endpoints.mjs) (`npm run gen:endpoints`)
-  slims Epic's published "User-access Brands" FHIR bundle to a brand-level index (~1,243 entries:
-  name, FHIR base URL, city/state) with a compact interned-URL encoding to keep the committed file
-  small. Unlike `gen-conditions.mjs`, there is **no CI staleness gate** — re-fetching Epic's ~92 MB
-  source bundle on every CI run isn't proportionate, so freshness is a documented manual cadence
-  (see [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#maintainer-setup--connecting-a-shared-epic-app));
+  now merges **two** sources: Epic's published "User-access Brands" FHIR bundle, slimmed to a
+  brand-level index, and Oracle Health / Cerner's `ignite-endpoints` patient endpoint list
+  (`millennium_patient_r4_endpoints.json`), which is already per-facility so needs no brand
+  collapsing. Every entry carries a `source: 'epic' | 'cerner'` tag (the `SmartVendor` type) driving
+  both the per-vendor client-id lookup above and an inline system label in the picker. The merged,
+  deduplicated, sorted directory is **2,566 entries** (~1,243 Epic + ~1,323 Cerner) with a compact
+  interned-URL encoding to keep the committed file small (~292 KB raw / ~84 KB gzip). Oracle
+  Health's public sandbox tenant is excluded so patients never see a non-production endpoint in the
+  picker. Unlike `gen-conditions.mjs`, there is **no CI staleness gate** for either source —
+  re-fetching Epic's ~92 MB bundle on every CI run isn't proportionate, and Oracle Health publishes
+  no fixed refresh cadence for its endpoint list (watched instead via the
+  `oracle-samples/ignite-endpoints` repository's git history) — so freshness is a documented manual
+  cadence (see
+  [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#maintainer-setup--connecting-shared-epic-and-cerner-apps));
   `tsc` still enforces the generated file's shape via the picker's typed import. The directory is
   **built into the app, never fetched at runtime** — preserving local-first exactly as the curated
   catalog does.
-- **`EpicBrandPicker.tsx`**, the searchable combobox over that directory, is **lazy-loaded**
-  (`React.lazy` + dynamic `import('@/data/smart-endpoints')`) from `SmartFhirConnect.tsx` so neither
-  the component nor the ~102 KB provider table touch the app's critical-path bundle — the cost is
-  paid only once someone opens the connect panel. A manual FHIR-endpoint field remains as an
-  explicit fallback (a provider not in the directory, or a non-Epic portal), reusing the same
-  `beginConnect` call the picker's `onSelect` does.
+- **`ProviderPicker.tsx`** (renamed from `EpicBrandPicker.tsx` when Cerner support landed), the
+  searchable combobox over that directory, is **lazy-loaded** (`React.lazy` + dynamic
+  `import('@/data/smart-endpoints')`) from `SmartFhirConnect.tsx` so neither the component nor the
+  provider table touch the app's critical-path bundle — the cost is paid only once someone opens
+  the connect panel. Search is deliberately **unified across both vendors** — there is no
+  Epic-vs-Cerner toggle; each result simply discloses its own system ("Epic" / "Oracle Health")
+  inline via a small `VENDOR_LABEL` lookup keyed on the row's `source`, folded into the option's
+  accessible name so a screen reader announces it too. A manual FHIR-endpoint field remains as an
+  explicit fallback (a provider not in the directory), reusing the same `beginConnect` call the
+  picker's `onSelect` does.
 
 The redirect URI is no longer a form field either: `SmartFhirConnect`'s `redirectUri()` still
 computes `window.location.origin + import.meta.env.BASE_URL` (unchanged since ADR-010) and passes
-it to `beginConnect`, but Epic fixes redirect URIs at app-registration time — an out-of-band,
+it to `beginConnect`, but both vendors fix redirect URIs at app-registration time — an out-of-band,
 one-time step for whoever registers the app, not a per-user runtime concern — so displaying it to
 every visitor was misleading rather than merely informational.
 
@@ -868,6 +889,22 @@ new runtime network call — the directory is build-time data); the standing `Cl
 is unchanged on the connect/review surfaces. See
 [DR-0027](../.ai-dlc/records/DR-0027-fhir-epic-import-flow-design.md) for the full decision record,
 and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for the updated setup guide. (roadmap Phase 3.)
+
+**Follow-up — Oracle Health (Cerner) added alongside Epic.** The picker, directory generator, and
+build-time client-id seam decided above were subsequently extended to cover Oracle Health (Cerner)
+as a second vendor, not just Epic: `scripts/gen-endpoints.mjs` now merges Epic's Brands bundle with
+Oracle Health's `ignite-endpoints` patient endpoint list into one 2,566-entry directory (~1,243
+Epic + ~1,323 Cerner), each entry tagged `source: 'epic' | 'cerner'`; `buildTimeClientId(vendor)`
+(renamed from `buildTimeSmartClientId()`) resolves a separate client ID per vendor, since Epic and
+Oracle Health each require their own app registration (`VITE_EPIC_CLIENT_ID` /
+`VITE_CERNER_CLIENT_ID`, with `VITE_SMART_CLIENT_ID` kept as Epic's back-compat alias); and the
+picker component was renamed `EpicBrandPicker` → `ProviderPicker`, since it's no longer Epic-only.
+The design point this ADR establishes — a public-client `client_id` isn't a secret, so it can be
+baked in at build time with a manual fallback when unset — is unchanged; only the number of vendors
+covered grew from one to two, and the picker's search stayed unified rather than gaining a
+vendor-selection step. See [§9](#the-build-time-env-seam-the-provider-picker-and-its-generated-directory-dr-0027)
+above for the current-state design and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for the setup guide
+covering both vendors.
 
 ---
 

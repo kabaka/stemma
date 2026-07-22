@@ -14,10 +14,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SmartFhirConnect } from './SmartFhirConnect';
+import { inferVendor, SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord } from '@/data/seed';
+import { SMART_PROVIDERS } from '@/data/smart-endpoints';
 import {
   conditionResource,
   fhirBundle,
@@ -46,6 +47,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   useSmartConnectionStore.setState({ connections: [], callbackError: null, ...realActions });
+  // `vi.stubEnv` (used by the vendor-aware client id tests below) must not leak between
+  // tests — `buildTimeClientId` (see src/ui/config.ts) is called fresh on every render, not
+  // cached at module load, so a lingering stub would silently affect unrelated tests.
+  vi.unstubAllEnvs();
 });
 
 const CONNECTION: SmartConnection = {
@@ -61,6 +66,41 @@ const CONNECTION: SmartConnection = {
   lastSyncAt: null,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
+
+// Regression for the security-hardening finding: `inferVendor` used to test the whole URL
+// STRING against a `cerner.com` substring, so a crafted host could spoof the Cerner vendor
+// (attaching the Cerner client id to an attacker-controlled origin and suppressing the
+// manual-entry prompt for a build that only has Epic's Variable set). It must parse the real
+// hostname instead.
+describe('inferVendor', () => {
+  it('infers cerner for a real Cerner/Oracle Health host', () => {
+    expect(inferVendor(null, 'https://fhir-myrecord.cerner.com/r4/some-tenant/')).toBe('cerner');
+  });
+
+  it('does NOT infer cerner for a look-alike host with cerner.com as a subdomain prefix', () => {
+    expect(inferVendor(null, 'https://cerner.com.evil.example/fhir')).toBe('epic');
+  });
+
+  it('does NOT infer cerner for cerner.com appearing only in the path', () => {
+    expect(inferVendor(null, 'https://evil.example/path/cerner.com')).toBe('epic');
+  });
+
+  it('infers epic for a real Epic-style host', () => {
+    expect(inferVendor(null, 'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4')).toBe(
+      'epic',
+    );
+  });
+
+  it('defaults to epic for a non-URL (not-yet-parseable) string', () => {
+    expect(inferVendor(null, 'not a url')).toBe('epic');
+    expect(inferVendor(null, '')).toBe('epic');
+  });
+
+  it('a picked selectedSource is authoritative over whatever the URL would infer', () => {
+    expect(inferVendor('epic', 'https://fhir-myrecord.cerner.com/r4/some-tenant/')).toBe('epic');
+    expect(inferVendor('cerner', 'https://fhir.epic.com/api/FHIR/R4')).toBe('cerner');
+  });
+});
 
 describe('SmartFhirConnect — not connected', () => {
   // DR-0016: the provider picker is the primary path (lazy-loaded — awaited via `findBy`
@@ -209,6 +249,179 @@ describe('SmartFhirConnect — not connected', () => {
 
     await user.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(clearCallbackError).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Multi-vendor (Epic + Cerner/Oracle Health) client id resolution: each vendor has its own
+// build-time client id (see src/ui/config.ts), resolved from whichever provider is ACTIVE —
+// a directory pick is authoritative, a manually-typed URL is inferred from its host — so the
+// same build can serve both vendors, each with the right id, and the manual Client ID field
+// only appears for whichever vendor's Variable this build doesn't have set.
+describe('SmartFhirConnect — vendor-aware client id', () => {
+  const epicTarget = SMART_PROVIDERS.find((p) => p.source === 'epic')!;
+  const cernerTarget = SMART_PROVIDERS.find((p) => p.source === 'cerner')!;
+
+  async function pick(
+    user: ReturnType<typeof userEvent.setup>,
+    input: HTMLElement,
+    target: (typeof SMART_PROVIDERS)[number],
+  ): Promise<void> {
+    // Clear first — a prior pick leaves the input holding the FULL selected name (see
+    // `select()` in ProviderPicker.tsx), and userEvent.type appends rather than replacing.
+    await user.clear(input);
+    await user.type(input, target.name.slice(0, 8));
+    const options = await screen.findAllByRole('option');
+    const option = options.find((o) => o.textContent?.includes(target.name));
+    expect(option).toBeDefined();
+    await user.click(option!);
+  }
+
+  it('picking an Epic provider calls beginConnect with the build-time Epic client id', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    await pick(user, input, epicTarget);
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(epicTarget.fhirBaseUrl, 'epic-build-id', {
+      stayConnected: false,
+      redirectUri,
+    });
+  });
+
+  it('picking a Cerner provider calls beginConnect with the build-time Cerner client id', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    await pick(user, input, cernerTarget);
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(cernerTarget.fhirBaseUrl, 'cerner-build-id', {
+      stayConnected: false,
+      redirectUri,
+    });
+  });
+
+  it('a manually-typed cerner.com FHIR base URL infers the Cerner vendor and its client id', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+
+    await user.type(
+      screen.getByLabelText('FHIR base URL'),
+      'https://fhir-myrecord.cerner.com/r4/some-tenant/',
+    );
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(
+      'https://fhir-myrecord.cerner.com/r4/some-tenant/',
+      'cerner-build-id',
+      { stayConnected: false, redirectUri },
+    );
+  });
+
+  // Regression for the security-hardening finding: a look-alike host must NOT be misattributed
+  // to Cerner (which would attach the Cerner client id to an attacker-controlled origin and
+  // wrongly suppress the manual-entry field for a build that only has Epic's Variable set).
+  it('does not misclassify a cerner.com look-alike host as Cerner, and still surfaces the manual field', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    // VITE_EPIC_CLIENT_ID intentionally left unset — Epic is the active (inferred) vendor for
+    // this URL, so the manual field must appear.
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+
+    await user.type(screen.getByLabelText('FHIR base URL'), 'https://cerner.com.evil.example/fhir');
+    expect(await screen.findByLabelText('Client ID')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Client ID'), 'manually-entered-id');
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(
+      'https://cerner.com.evil.example/fhir',
+      'manually-entered-id',
+      { stayConnected: false, redirectUri },
+    );
+  });
+
+  // Regression for the a11y finding (WCAG 4.1.3): the manual Client ID field used to appear
+  // with no announcement — focus stays in the picker/URL field the whole time, so a
+  // screen-reader user was never told a new required field showed up. The field must live
+  // inside an always-mounted `role="status"` region so its insertion is announced, and the
+  // hint text must name the active vendor (FIX 6) so the announcement is actionable.
+  it('announces the manual Client ID field appearing via a role="status" region naming the active vendor', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    // VITE_CERNER_CLIENT_ID intentionally left unset. Epic starts as the active vendor (no
+    // pick, no typed URL yet) and Epic's Variable IS set here, so the field (and its
+    // announcement) should NOT be present yet.
+    const user = userEvent.setup();
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+
+    await pick(user, input, cernerTarget);
+
+    // The field now lives inside a `role="status"` live region (queried by plain DOM
+    // ancestry, not testing-library's role/name matcher — `role="status"` computes no
+    // accessible name from content per the ARIA spec, and `syncStatus`'s own always-mounted
+    // `role="status"` paragraph elsewhere in this form means a bare `getByRole('status')`
+    // would match more than one element), and the region's own text names the newly-active
+    // vendor — both together are what makes the appearance an actionable, announced event
+    // rather than a silent DOM insertion.
+    const clientIdInput = await screen.findByLabelText('Client ID');
+    const statusRegion = clientIdInput.closest('[role="status"]');
+    expect(statusRegion).not.toBeNull();
+    expect(statusRegion!).toHaveTextContent(
+      /this provider needs a client id you register yourself/i,
+    );
+    expect(statusRegion!).toHaveTextContent(/register stemma with oracle health/i);
+  });
+
+  it('shows the manual Client ID field only for the active vendor when its Variable is unset, and hides it once that vendor has one', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    // VITE_CERNER_CLIENT_ID intentionally left unset.
+    const user = userEvent.setup();
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    // No provider picked yet and no URL typed — the active vendor defaults to Epic, whose
+    // Variable IS set here, so the manual field must not appear.
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+
+    // Picking a Cerner provider flips the active vendor to Cerner, whose Variable is unset —
+    // the manual field must now appear.
+    await pick(user, input, cernerTarget);
+    expect(await screen.findByLabelText('Client ID')).toBeInTheDocument();
+
+    // Picking an Epic provider next flips back — the field must hide again.
+    await pick(user, input, epicTarget);
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
   });
 });
 

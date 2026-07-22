@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
-// The pure transform under test lives in the generator script (network-free, clock-free).
-import { decodeProviders, encodeProviders, slimBrandsBundle } from './gen-endpoints.mjs';
+// The pure transforms under test live in the generator script (network-free, clock-free).
+import {
+  decodeProviders,
+  encodeProviders,
+  mergeProviders,
+  slimBrandsBundle,
+  slimCernerBundle,
+} from './gen-endpoints.mjs';
 
-// A small hand-written Brands bundle exercising every branch of the transform:
+// A small hand-written Epic Brands bundle exercising every branch of the transform:
 //  - 2 Endpoints with addresses (ep1, ep2);
 //  - an Organization whose name+url duplicates ep1's endpoint entry but adds city/state
 //    (dedup must keep ONE and prefer this location-bearing one) via a `urn:uuid:` ref;
@@ -86,6 +92,7 @@ describe('slimBrandsBundle', () => {
       fhirBaseUrl: 'https://alpha.example.org/fhir/r4',
       city: 'Austin',
       state: 'TX',
+      source: 'epic',
     });
   });
 
@@ -97,6 +104,7 @@ describe('slimBrandsBundle', () => {
       fhirBaseUrl: 'https://beta.example.org/fhir/r4',
       city: 'Boston',
       state: 'MA',
+      source: 'epic',
     });
   });
 
@@ -112,6 +120,10 @@ describe('slimBrandsBundle', () => {
     expect(providers.some((p) => p.name === '')).toBe(false);
   });
 
+  it('tags every entry source: epic', () => {
+    expect(providers.every((p) => p.source === 'epic')).toBe(true);
+  });
+
   it('produces a deterministic, fully-specified sorted result', () => {
     // Beta Clinic survives only as the bare endpoint entry (no org added location).
     expect(providers).toEqual([
@@ -120,13 +132,179 @@ describe('slimBrandsBundle', () => {
         fhirBaseUrl: 'https://alpha.example.org/fhir/r4',
         city: 'Austin',
         state: 'TX',
+        source: 'epic',
       },
-      { name: 'Beta Clinic', fhirBaseUrl: 'https://beta.example.org/fhir/r4' },
+      { name: 'Beta Clinic', fhirBaseUrl: 'https://beta.example.org/fhir/r4', source: 'epic' },
       {
         name: 'Gamma Medical',
         fhirBaseUrl: 'https://beta.example.org/fhir/r4',
         city: 'Boston',
         state: 'MA',
+        source: 'epic',
+      },
+    ]);
+  });
+});
+
+// A small hand-written Cerner Ignite bundle (1:1 paired Organization + Endpoint):
+//  - a production org (Cortland) with an `Endpoint/<id>` ref and city/state → kept;
+//  - a sandbox org whose endpoint address carries the public sandbox tenant → dropped;
+//  - a falsy-name org → dropped;
+//  - an org whose endpoint ref dangles → excluded.
+const cernerBundle = {
+  resourceType: 'Bundle',
+  entry: [
+    {
+      resource: {
+        resourceType: 'Endpoint',
+        id: 'c-ep-cortland',
+        name: 'Cortland',
+        address: 'https://fhir-myrecord.cerner.com/r4/cortland-tenant/',
+      },
+    },
+    {
+      resource: {
+        resourceType: 'Endpoint',
+        id: 'c-ep-sandbox',
+        name: 'Sandbox',
+        address: 'https://fhir-myrecord.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d/',
+      },
+    },
+    {
+      resource: {
+        resourceType: 'Organization',
+        id: 'c-org-cortland',
+        name: 'Cortland Regional Medical Center',
+        address: [{ city: 'Cortland', state: 'NY' }],
+        endpoint: [{ reference: 'Endpoint/c-ep-cortland' }],
+      },
+    },
+    {
+      resource: {
+        resourceType: 'Organization',
+        id: 'c-org-sandbox',
+        name: 'Public Sandbox Hospital',
+        address: [{ city: 'Kansas City', state: 'MO' }],
+        endpoint: [{ reference: 'Endpoint/c-ep-sandbox' }],
+      },
+    },
+    {
+      resource: {
+        resourceType: 'Organization',
+        id: 'c-org-empty-name',
+        name: '',
+        endpoint: [{ reference: 'Endpoint/c-ep-cortland' }],
+      },
+    },
+    {
+      resource: {
+        resourceType: 'Organization',
+        id: 'c-org-dangling',
+        name: 'Dangling Clinic',
+        endpoint: [{ reference: 'Endpoint/c-ep-missing' }],
+      },
+    },
+  ],
+};
+
+describe('slimCernerBundle', () => {
+  const providers = slimCernerBundle(cernerBundle);
+
+  it('emits a production org tagged source: cerner with city/state carried', () => {
+    expect(providers).toContainEqual({
+      name: 'Cortland Regional Medical Center',
+      fhirBaseUrl: 'https://fhir-myrecord.cerner.com/r4/cortland-tenant/',
+      city: 'Cortland',
+      state: 'NY',
+      source: 'cerner',
+    });
+  });
+
+  it('excludes the public sandbox tenant', () => {
+    expect(providers.some((p) => p.name === 'Public Sandbox Hospital')).toBe(false);
+    expect(
+      providers.some((p) => p.fhirBaseUrl.includes('ec2458f2-1e24-41c8-b71b-0e701af7583d')),
+    ).toBe(false);
+  });
+
+  it('drops entries with a falsy name', () => {
+    expect(providers.some((p) => p.name === '')).toBe(false);
+  });
+
+  it('excludes orgs whose endpoint reference does not resolve', () => {
+    expect(providers.some((p) => p.name === 'Dangling Clinic')).toBe(false);
+  });
+
+  it('tags every entry source: cerner', () => {
+    expect(providers.every((p) => p.source === 'cerner')).toBe(true);
+  });
+});
+
+describe('mergeProviders', () => {
+  const epic = slimBrandsBundle(bundle);
+  const cerner = slimCernerBundle(cernerBundle);
+  const merged = mergeProviders(epic, cerner);
+
+  it('interleaves sources by name rather than blocking one vendor before the other', () => {
+    // Alpha (epic), Beta (epic), Cortland (cerner), Gamma (epic) — Cortland sorts between
+    // Beta and Gamma by name, proving the two sources interleave.
+    expect(merged.map((p) => p.name)).toEqual([
+      'Alpha Health',
+      'Beta Clinic',
+      'Cortland Regional Medical Center',
+      'Gamma Medical',
+    ]);
+    expect(merged.map((p) => p.source)).toEqual(['epic', 'epic', 'cerner', 'epic']);
+  });
+
+  it('preserves the per-entry source through the merge', () => {
+    const cortland = merged.find((p) => p.name === 'Cortland Regional Medical Center');
+    expect(cortland?.source).toBe('cerner');
+    const alpha = merged.find((p) => p.name === 'Alpha Health');
+    expect(alpha?.source).toBe('epic');
+  });
+});
+
+describe('dedupeAndSort — dedup key includes source', () => {
+  // Regression: the dedup key used to be `name.toLowerCase() + '|' + fhirBaseUrl` alone, so a
+  // hypothetical cross-vendor collision on the SAME name+URL would silently collapse to one
+  // entry, discarding whichever vendor lost the collision — flipping that provider's client
+  // id. `source` must be part of the key so both entries survive distinctly.
+  it('keeps both entries distinct when the same name+URL is tagged with two different vendors', () => {
+    const result = mergeProviders(
+      [{ name: 'Shared Name', fhirBaseUrl: 'https://shared.example.org/fhir/r4', source: 'epic' }],
+      [
+        {
+          name: 'Shared Name',
+          fhirBaseUrl: 'https://shared.example.org/fhir/r4',
+          source: 'cerner',
+        },
+      ],
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result.map((p) => p.source).sort()).toEqual(['cerner', 'epic']);
+  });
+
+  it('still dedups a true same-vendor collision down to one entry, preferring the location-bearing one', () => {
+    const result = mergeProviders([
+      { name: 'Dup Health', fhirBaseUrl: 'https://dup.example.org/fhir/r4', source: 'epic' },
+      {
+        name: 'Dup Health',
+        fhirBaseUrl: 'https://dup.example.org/fhir/r4',
+        source: 'epic',
+        city: 'Springfield',
+        state: 'IL',
+      },
+    ]);
+
+    expect(result).toEqual([
+      {
+        name: 'Dup Health',
+        fhirBaseUrl: 'https://dup.example.org/fhir/r4',
+        source: 'epic',
+        city: 'Springfield',
+        state: 'IL',
       },
     ]);
   });
@@ -150,5 +328,17 @@ describe('encodeProviders / decodeProviders', () => {
     // The shared-URL entry decodes to Beta's base URL, not Alpha's.
     const gamma = decoded.find((p) => p.name === 'Gamma Medical');
     expect(gamma?.fhirBaseUrl).toBe('https://beta.example.org/fhir/r4');
+  });
+
+  it('encodes the source as a compact numeric code and decodes it back per entry', () => {
+    const merged = mergeProviders(slimBrandsBundle(bundle), slimCernerBundle(cernerBundle));
+    const { rows } = encodeProviders(merged);
+    // Source code sits at row index 2: 0 = epic, 1 = cerner. Cortland (cerner) is row 2.
+    expect(rows.map((row) => row[2])).toEqual([0, 0, 1, 0]);
+    const decoded = decodeProviders(encodeProviders(merged));
+    expect(decoded).toEqual(merged);
+    expect(decoded.find((p) => p.name === 'Cortland Regional Medical Center')?.source).toBe(
+      'cerner',
+    );
   });
 });

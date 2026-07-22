@@ -643,14 +643,15 @@ textarea.field {
   margin-top: 10px;
 }
 
-/* ---- SMART-on-FHIR Epic provider picker (EpicBrandPicker.tsx, DR-0016) ----
-   A filterable single-input combobox over the bundled brand-level provider directory,
-   lazy-loaded off the critical path. The dropdown is its own scoped class pair, kept
-   independent of the unrelated `.pedigree-hl-*` popover (PedigreeHighlight.tsx). */
-.epic-picker {
+/* ---- SMART-on-FHIR provider picker (ProviderPicker.tsx, DR-0016) ----
+   A filterable single-input combobox over the bundled, multi-vendor (Epic + Cerner/Oracle
+   Health) provider directory, lazy-loaded off the critical path. The dropdown is its own
+   scoped class pair, kept independent of the unrelated `.pedigree-hl-*` popover
+   (PedigreeHighlight.tsx). */
+.provider-picker {
   position: relative;
 }
-.epic-picker__listbox {
+.provider-picker__listbox {
   position: absolute;
   z-index: 30;
   top: 100%;
@@ -666,18 +667,18 @@ textarea.field {
   padding: 4px;
   list-style: none;
 }
-/* Applied by EpicBrandPicker when there's too little room below the input (inside the
+/* Applied by ProviderPicker when there's too little room below the input (inside the
    scrollable `.pedigree-import-scroll` column) but genuinely more room above — a11y finding:
    the dropdown was being visually clipped against that ancestor's bottom edge for a mouse/
    touch user in perfectly ordinary window sizes, not just a short-window/200%-zoom edge case.
    `max-height` stays the same 280px so the flip is the only difference. */
-.epic-picker__listbox--above {
+.provider-picker__listbox--above {
   top: auto;
   bottom: 100%;
   margin-top: 0;
   margin-bottom: 4px;
 }
-.epic-picker__option {
+.provider-picker__option {
   display: block;
   width: 100%;
   text-align: left;
@@ -689,13 +690,13 @@ textarea.field {
   cursor: pointer;
   font-size: 13px;
 }
-.epic-picker__option:hover {
+.provider-picker__option:hover {
   background: var(--bg-hover);
 }
 /* The keyboard-highlighted option: `aria-activedescendant` on the input points here and
    `aria-selected="true"` carries the same information to assistive tech, so the highlight
    is never colour-only (WCAG 1.4.1) — the accent border is the non-colour cue. */
-.epic-picker__option--active {
+.provider-picker__option--active {
   background: var(--bg-hover);
   border-color: var(--accent);
 }

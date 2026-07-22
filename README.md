@@ -54,10 +54,11 @@ browser.
   directly to your patient portal with your explicit consent to pull the same, **plus your full
   clinical timeline** — medications, labs, vitals, immunizations, allergies, procedures, visits,
   and the fact that a genetic test was performed (never its result) — at whatever date precision
-  the record has. You find your provider in a searchable, built-in directory (no FHIR URL to hunt
-  down) rather than typing one, sign in with them (not with Stemma), and land back on your pedigree
-  with a sync already running (see [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)). The latter
-  two merge into your record with a per-item review — nothing is written silently.
+  the record has. You find your provider in a single searchable, built-in directory spanning
+  **Epic and Oracle Health (Cerner)** (no FHIR URL to hunt down, and no vendor to pick first)
+  rather than typing one, sign in with them (not with Stemma), and land back on your pedigree with
+  a sync already running (see [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)). The latter two
+  merge into your record with a per-item review — nothing is written silently.
 - **Local-first & private** — the entire record lives in your browser's `localStorage`. Nothing
   is uploaded automatically. Every network call Stemma makes is opt-in and user-triggered: the
   optional ICD-10 vocabulary lookup (below), and, only if you connect one, a SMART-on-FHIR sync to
@@ -112,7 +113,7 @@ src/
 │   └── *.test.ts          # Co-located unit tests (graph, patterns, screening, catalog)
 ├── data/              # Curated, pure data tables (typed against domain)
 │   ├── conditions.ts      # GENERATED — 116 curated conditions (do not hand-edit)
-│   ├── smart-endpoints.ts # GENERATED — ~1,243 Epic provider FHIR endpoints (do not hand-edit)
+│   ├── smart-endpoints.ts # GENERATED — 2,566 provider FHIR endpoints, Epic + Oracle Health/Cerner (do not hand-edit)
 │   ├── categories.ts      # Clinical categories + default/colorblind palettes
 │   ├── recommendations.ts # Curated per-condition advisory prompts
 │   ├── events.ts          # Timeline event-type metadata
@@ -140,7 +141,7 @@ src/
 │   ├── config.ts          # Build-time env seam — reads import.meta.env (UI-only concern)
 │   ├── views/             # Overview, Pedigree, Patterns, Timeline, Reports
 │   └── components/        # FlagCard, PersonDrawer, ConditionPicker, SmartFhirConnect,
-│                           #   EpicBrandPicker (lazy-loaded), SmartSyncChip
+│                           #   ProviderPicker (lazy-loaded), SmartSyncChip
 ├── styles/            # theme.css + components.css
 └── main.tsx
 
@@ -184,11 +185,12 @@ Stemma is **not limited to a fixed condition list.** The catalog has two layers:
   long-tail condition. If you connect a provider via **SMART on FHIR**
   ([`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)), that adds a second, equally opt-in call:
   OAuth and FHIR reads against the provider endpoint *you* name (or pick from the built-in
-  directory) — never a Stemma server, never a third party or analytics endpoint. The provider
-  directory itself is static, built-in data (regenerated periodically, never queried live), so
-  searching it costs no network call at all. Tokens from that connection stay in the browser
-  (session storage for the access token; local storage for a refresh token only if you opt into
-  "stay connected").
+  directory spanning Epic and Oracle Health/Cerner) — never a Stemma server, never a third party or
+  analytics endpoint. The provider directory itself is static, built-in data (regenerated
+  periodically from each vendor's own published endpoint list, never queried live), so searching it
+  costs no network call at all. Tokens from that connection stay in the browser (session storage
+  for the access token; local storage for a refresh token only if you opt into "stay connected" and
+  the provider grants one).
 - **No lock-in.** Everything is designed to export to open standards (below), because a personal
   health record should outlive the app that holds it.
 
@@ -209,20 +211,25 @@ browser — to:
   conditions and the family-history graph, reconciled into the live record through a
   **merge-with-review** step (every parsed item is a suggestion you individually accept or skip,
   not a wholesale replace). Parsed 100% client-side.
-- **SMART on FHIR import** — connects live to your patient portal's FHIR server (Epic MyChart,
-  Cerner, and most US portals support this) using the same merge-with-review pipeline as C-CDA,
-  over a public-client OAuth2 + PKCE flow with no backend and no client secret. Pick your provider
-  from a searchable, built-in directory of Epic organizations (generated at build time from Epic's
-  own published directory — never fetched at runtime) instead of hunting down a FHIR URL yourself;
-  a manual endpoint field remains for anything not listed or non-Epic. The hosted app can ship a
-  single shared, non-secret OAuth client ID baked in at build time, so most visitors never need to
-  register or paste one; connecting lands you back on the pedigree with a sync already running, and
-  a sidebar chip re-syncs your most-overdue connection in one click afterward. Pulls your full
-  clinical timeline — conditions, family history, medications, labs, vitals, immunizations,
-  allergies, procedures, visits (off by default), and genetic test-of-record (fact of the test
-  only, never an interpretation) — preserving the source's own date precision and reference
-  ranges verbatim. Opt-in and user-initiated; talks only to the provider endpoint you (or the
-  picker) name. See [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md) for setup.
+- **SMART on FHIR import** — connects live to your patient portal's FHIR server, covering **both
+  Epic (MyChart) and Oracle Health (Cerner)** patient portals, using the same merge-with-review
+  pipeline as C-CDA, over a public-client OAuth2 + PKCE flow with no backend and no client secret.
+  Pick your provider from a single searchable, built-in directory spanning both vendors — 2,566
+  entries (~1,243 Epic + ~1,323 Oracle Health), generated at build time from each vendor's own
+  published endpoint list, never fetched at runtime — each result labeled with its system so you
+  never need to know which vendor your provider runs; a manual endpoint field remains for anything
+  not listed. Epic and Oracle Health are separate app registrations, so the hosted app can ship up
+  to two shared, non-secret OAuth client IDs baked in at build time (one per vendor); most visitors
+  never need to register or paste one. Connecting lands you back on the pedigree with a sync
+  already running, and a sidebar chip re-syncs your most-overdue connection in one click
+  afterward. Pulls your full clinical timeline — conditions, family history, medications, labs,
+  vitals, immunizations, allergies, procedures, visits (off by default), and genetic test-of-record
+  (fact of the test only, never an interpretation) — preserving the source's own date precision and
+  reference ranges verbatim. Opt-in and user-initiated; talks only to the provider endpoint you (or
+  the picker) name. Not every server grants a public client like Stemma a refresh token (Epic, and
+  historically Oracle Health, both tie it to a confidential secret), so unattended, no-relogin
+  sync isn't guaranteed for every provider — see [`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md)
+  for setup and the honest limits.
 - **Pedigree SVG** in correct 2022 NSGC nomenclature — the three-generation chart a counselor
   draws at intake.
 
