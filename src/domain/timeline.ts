@@ -2,9 +2,11 @@
  * Timeline read-models: pure, deterministic views derived from a person's timeline
  * events. These project the recorded facts (structured medication / lab payloads) into
  * the shapes the UI charts and lists consume, without inferring anything beyond what was
- * recorded — no in-range/out-of-range flag, no clinical interpretation, that is reserved
- * for a clinician (guardrail #1). Like the rest of `src/domain/`, no wall clock: any
- * "now" is injected as an explicit `asOfYear`.
+ * recorded. A positional restatement of the user's OWN recorded reference bounds is
+ * permitted (above/below/within, via {@link rangePosition}); clinical interpretation,
+ * severity, the H/L/abnormal vocabulary, any risk number, colour-only signalling, and
+ * engine consumption remain forbidden and reserved for a clinician (guardrail #1). Like
+ * the rest of `src/domain/`, no wall clock: any "now" is injected as an explicit `asOfYear`.
  */
 import type { FamilyRecord, Measurement, TimelineEvent } from './types';
 
@@ -114,6 +116,59 @@ export interface MeasurementPoint {
 export type LabPoint = MeasurementPoint;
 
 /**
+ * Where a value sits relative to a recorded reference range: strictly `'above'` the high
+ * bound, strictly `'below'` the low bound, or `'within'` (inclusive of either bound).
+ */
+export type RangePosition = 'within' | 'above' | 'below';
+
+/**
+ * Positional restatement of a single measurement against ITS OWN co-recorded reference
+ * bounds: is the value above the high bound, below the low bound, or within the range?
+ *
+ * Why this is guardrail-#1-safe: this is a purely factual comparison of two numbers the
+ * user themselves transcribed — the sample's `value` and the sample's `refLow`/`refHigh`.
+ * It is a positional restatement of the FHIR `referenceRange` axis (the recorded bounds),
+ * NOT the FHIR `interpretation` axis (the clinical H/L/abnormal / severity assessment),
+ * which remains forbidden. Saying "this number is above the number you also wrote down"
+ * manufactures no clinical judgement, no severity, and no risk figure — it never decides
+ * whether that is good, bad, or actionable; that is reserved for a clinician.
+ *
+ * Contract for callers: pass each point's OWN co-recorded bounds — NEVER back-apply
+ * another sample's range to this value. This helper is DISPLAY-ONLY: it must never feed
+ * the engine (patterns / screening / recommendations).
+ *
+ * Semantics (strict, bounds inclusive per FHIR/standard lab convention):
+ * - `value` must be finite, else `undefined` (nothing to position).
+ * - A bound counts as present ONLY when `Number.isFinite(bound)` — so `0` is a valid
+ *   bound and is honoured, while `undefined`/`NaN`/`±Infinity` bounds are absent.
+ * - Neither bound present → `undefined` (nothing to compare against).
+ * - Both bounds present but inverted (`refLow > refHigh`, an incoherent transcription) →
+ *   `undefined`; emit nothing rather than guess a side.
+ * - `'above'` only when `value > refHigh`; `'below'` only when `value < refLow`; a value
+ *   equal to a bound is `'within'`.
+ * - One-sided range says nothing about the side that was not recorded: with only
+ *   `refHigh`, return `'above'` when `value > refHigh` else `'within'`; mirror for a
+ *   `refLow`-only range.
+ */
+export function rangePosition(
+  value: number,
+  refLow?: number,
+  refHigh?: number,
+): RangePosition | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  // Narrow each bound to a real `number` (or `undefined`) up front, so a bound counts as
+  // present ONLY when finite — `0` is honoured; `undefined`/`NaN`/`±Infinity` are absent —
+  // and the comparisons below read the narrowed locals with no type assertions.
+  const low = refLow !== undefined && Number.isFinite(refLow) ? refLow : undefined;
+  const high = refHigh !== undefined && Number.isFinite(refHigh) ? refHigh : undefined;
+  if (low === undefined && high === undefined) return undefined;
+  if (low !== undefined && high !== undefined && low > high) return undefined;
+  if (high !== undefined && value > high) return 'above';
+  if (low !== undefined && value < low) return 'below';
+  return 'within';
+}
+
+/**
  * The measurement-bearing event kinds. `lab` and `vital` share the {@link Measurement}
  * payload shape but live on different event fields, so every read-model that projects a
  * measurement is parameterised by this discriminant — never assume a title is unique
@@ -132,7 +187,10 @@ function measurementField(e: TimelineEvent, type: MeasurementEventType): Measure
  * title, sorted ascending by year. Both the event `type` and the presence of the matching
  * payload field are guarded (defence-in-depth against a hand-crafted/corrupt backup that
  * attaches a measurement payload to some other event type). Pure; returns the recorded data
- * as-is — no in-range/out-of-range flag or interpretation (guardrail #1).
+ * as-is. A positional restatement of a point's own recorded bounds is permitted (above/below/
+ * within, via {@link rangePosition}); clinical interpretation, severity, the H/L/abnormal
+ * vocabulary, any risk number, colour-only signalling, and engine consumption remain
+ * forbidden (guardrail #1).
  */
 function measurementSeries(
   record: FamilyRecord,
@@ -186,8 +244,11 @@ function measurementTitles(
  * Time series for one lab test on one person, matched by trimmed case-insensitive title,
  * sorted ascending by year. Pure. Only `lab`-type events carrying a `lab` payload (the
  * type check is defence-in-depth against a hand-crafted/corrupt backup that attaches a
- * `lab` payload to some other event type). Returns the recorded data as-is — no
- * in-range/out-of-range flag or interpretation (guardrail #1).
+ * `lab` payload to some other event type). Returns the recorded data as-is. A positional
+ * restatement of a point's own recorded bounds is permitted (above/below/within, via
+ * {@link rangePosition}); clinical interpretation, severity, the H/L/abnormal vocabulary,
+ * any risk number, colour-only signalling, and engine consumption remain forbidden
+ * (guardrail #1).
  */
 export function labSeries(
   record: FamilyRecord,
@@ -211,7 +272,10 @@ export function labTitles(record: FamilyRecord, personId: string): string[] {
  * sorted ascending by year. Structurally identical to {@link labSeries} but discriminates
  * on `vital`-type events carrying a `vital` payload; a `lab` and a `vital` sharing an
  * identical title never cross-contaminate (the event-type discriminant is explicit). Pure;
- * returns the recorded data as-is — no interpretation (guardrail #1).
+ * returns the recorded data as-is. A positional restatement of a point's own recorded bounds
+ * is permitted (above/below/within, via {@link rangePosition}); clinical interpretation,
+ * severity, the H/L/abnormal vocabulary, any risk number, colour-only signalling, and engine
+ * consumption remain forbidden (guardrail #1).
  */
 export function vitalSeries(
   record: FamilyRecord,
@@ -232,8 +296,11 @@ export function vitalTitles(record: FamilyRecord, personId: string): string[] {
 
 /**
  * One row of the printable "Labs & vitals" summary: the latest recorded sample of a single
- * measurement series plus its span, a faithful restatement of the recorded facts only —
- * no min/max, no in-range/out-of-range flag, no interpretation (guardrail #1).
+ * measurement series plus its span, a faithful restatement of the recorded facts only — no
+ * min/max. A positional restatement of a point's own recorded bounds is permitted (above/
+ * below/within, via {@link rangePosition}); clinical interpretation, severity, the H/L/abnormal
+ * vocabulary, any risk number, colour-only signalling, and engine consumption remain forbidden
+ * (guardrail #1).
  */
 export interface MeasurementSeriesSummary {
   title: string;
@@ -252,7 +319,10 @@ export interface MeasurementSeriesSummary {
  * already ascending by year) to its summary row. "Latest" relies on that ascending-year
  * invariant — the last point, no re-sort and no `max()`. `latestUnit`/`refLow`/`refHigh`
  * come from the latest point; `firstYear` from the first; `count` is the point count.
- * Returns `undefined` for an empty series. Pure; no interpretation (guardrail #1).
+ * Returns `undefined` for an empty series. Pure. A positional restatement of a point's own
+ * recorded bounds is permitted (above/below/within, via {@link rangePosition}); clinical
+ * interpretation, severity, the H/L/abnormal vocabulary, any risk number, colour-only
+ * signalling, and engine consumption remain forbidden (guardrail #1).
  */
 export function seriesSummary(
   title: string,
@@ -278,7 +348,10 @@ export function seriesSummary(
  * Every distinct lab OR vital series for a person (per `type`), each reduced to its
  * {@link seriesSummary} row, in the same first-seen order as {@link labTitles}/
  * {@link vitalTitles}. A title exists only because at least one event carries it, so no
- * series is empty and every title yields a row. Pure; faithful restatement only (guardrail #1).
+ * series is empty and every title yields a row. Pure; faithful restatement only. A positional
+ * restatement of a point's own recorded bounds is permitted (above/below/within, via
+ * {@link rangePosition}); clinical interpretation, severity, the H/L/abnormal vocabulary, any
+ * risk number, colour-only signalling, and engine consumption remain forbidden (guardrail #1).
  */
 export function measurementSummaries(
   record: FamilyRecord,

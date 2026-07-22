@@ -160,7 +160,7 @@ describe('CcdaReview — Health events section (Wave 2/3 full-timeline import)',
     expect(screen.getByText('Already recorded')).toBeInTheDocument();
   });
 
-  it('renders the source-transcribed reference range for a lab result, and never an in/out-of-range flag or interpretation', () => {
+  it('renders the source-transcribed reference range and a positional above/below-range marker, never a clinical interpretation (DR-0036)', () => {
     const record = seedRecord();
     const bundle = fhirBundle([
       patientResource(),
@@ -183,10 +183,153 @@ describe('CcdaReview — Health events section (Wave 2/3 full-timeline import)',
     // The exact, source-attributed wording — never an unattributed "normal range".
     expect(screen.getByText('Reference range (from this record): 4–6 %')).toBeInTheDocument();
     expect(screen.getByText(/7\.1 %/)).toBeInTheDocument();
+    // 7.1 > refHigh 6 — a strictly positional marker, computed from this reading's own bounds.
+    expect(screen.getByText('above range', { selector: '.range-mark' })).toBeInTheDocument();
     // Guardrail #1: Stemma never ships a built-in "normal" range and never flags the value
-    // against it — no interpretation word or in/out-of-range flag anywhere on the page.
+    // against it — no clinical-interpretation word or in/out-of-range flag anywhere on the
+    // page. "above range"/"below range" are the only comparison vocabulary permitted, and
+    // they're positional (about the recorded bounds), never diagnostic.
     expect(
       screen.queryByText(/abnormal|out of range|in range|\bnormal\b|\bhigh\b|\blow\b/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('a one-sided reference range (high only) still renders the marker with its comparison bound visible', () => {
+    const record = seedRecord();
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'lab-high-only',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' }],
+        effectiveDateTime: '2021-01-01',
+        valueQuantity: { value: 7, unit: '%' },
+        referenceRanges: [{ high: { value: 6, unit: '%' } }],
+      }),
+    ]);
+    const staged = stageHealthRecordImport(parseFhirImport(bundle), record, catalog);
+    expect(staged.events[0].lab?.refLow).toBeUndefined();
+    expect(staged.events[0].lab?.refHigh).toBe(6);
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('above range', { selector: '.range-mark' })).toBeInTheDocument();
+    // The marker never appears detached from its comparison bound — the reference-range line
+    // renders too, with an em-dash placeholder standing in for the absent low bound.
+    expect(screen.getByText('Reference range (from this record): —–6 %')).toBeInTheDocument();
+  });
+
+  it('a one-sided reference range (low only) renders "below range" and the low bound', () => {
+    const record = seedRecord();
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'lab-low-only',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' }],
+        effectiveDateTime: '2021-01-01',
+        valueQuantity: { value: 3, unit: '%' },
+        referenceRanges: [{ low: { value: 4, unit: '%' } }],
+      }),
+    ]);
+    const staged = stageHealthRecordImport(parseFhirImport(bundle), record, catalog);
+    expect(staged.events[0].lab?.refLow).toBe(4);
+    expect(staged.events[0].lab?.refHigh).toBeUndefined();
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('below range', { selector: '.range-mark' })).toBeInTheDocument();
+    expect(screen.getByText('Reference range (from this record): 4–— %')).toBeInTheDocument();
+    expect(screen.queryByText('above range', { selector: '.range-mark' })).not.toBeInTheDocument();
+  });
+
+  it('a value within its reference range shows neither "above range" nor "below range"', () => {
+    const record = seedRecord();
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'lab-within',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' }],
+        effectiveDateTime: '2021-01-01',
+        valueQuantity: { value: 5, unit: '%' },
+        referenceRanges: [{ low: { value: 4, unit: '%' }, high: { value: 6, unit: '%' } }],
+      }),
+    ]);
+    const staged = stageHealthRecordImport(parseFhirImport(bundle), record, catalog);
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('Reference range (from this record): 4–6 %')).toBeInTheDocument();
+    expect(screen.queryByText('above range', { selector: '.range-mark' })).not.toBeInTheDocument();
+    expect(screen.queryByText('below range', { selector: '.range-mark' })).not.toBeInTheDocument();
+  });
+
+  it('a lab result with no reference range shows no marker and no reference-range line', () => {
+    const record = seedRecord();
+    const bundle = fhirBundle([
+      patientResource(),
+      observationResource({
+        id: 'lab-no-range',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' }],
+        effectiveDateTime: '2021-01-01',
+        valueQuantity: { value: 7.1, unit: '%' },
+      }),
+    ]);
+    const staged = stageHealthRecordImport(parseFhirImport(bundle), record, catalog);
+    expect(staged.events[0].lab?.refLow).toBeUndefined();
+    expect(staged.events[0].lab?.refHigh).toBeUndefined();
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText(/7\.1 %/)).toBeInTheDocument();
+    expect(screen.queryByText('above range', { selector: '.range-mark' })).not.toBeInTheDocument();
+    expect(screen.queryByText('below range', { selector: '.range-mark' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reference range \(from this record\)/)).not.toBeInTheDocument();
+  });
+
+  it('renders the "above range"/"below range" caveat once under Health events when at least one lab/vital is staged', () => {
+    const record = seedRecord();
+    const bundle = fhirBundle([
+      patientResource(),
+      medicationStatementResource({
+        id: 'ms1',
+        status: 'active',
+        medicationCodings: [{ system: SYS.rxnorm, code: '860975', display: 'Metformin' }],
+        effectiveDateTime: '2020-05-01',
+      }),
+      observationResource({
+        id: 'lab-range',
+        category: 'laboratory',
+        status: 'final',
+        codings: [{ system: SYS.loinc, code: '4548-4', display: 'Hemoglobin A1c' }],
+        effectiveDateTime: '2021-01-01',
+        valueQuantity: { value: 7.1, unit: '%' },
+        referenceRanges: [{ low: { value: 4, unit: '%' }, high: { value: 6, unit: '%' } }],
+      }),
+    ]);
+    const staged = stageHealthRecordImport(parseFhirImport(bundle), record, catalog);
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getAllByText(/factual comparison, not a clinical assessment/i)).toHaveLength(1);
+    expect(screen.getByText(/discuss results with a clinician/i)).toBeInTheDocument();
+  });
+
+  it('does not render the above/below-range caveat when the staged events include no lab or vital', () => {
+    const record = seedRecord();
+    const staged = stageHealthRecordImport(parseFhirImport(medBundle()), record, catalog);
+    expect(staged.events.every((e) => e.type !== 'lab' && e.type !== 'vital')).toBe(true);
+
+    render(<CcdaReview staged={staged} record={record} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(
+      screen.queryByText(/factual comparison, not a clinical assessment/i),
     ).not.toBeInTheDocument();
   });
 

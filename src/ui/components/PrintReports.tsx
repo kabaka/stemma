@@ -10,8 +10,12 @@
  *     duplicated. (`f.rec` — the pattern's advisory recommendation text — is unrelated to
  *     this dedup: it only ever renders in the flags loop above, never in that table.)
  *  3. An IPS-style personal-health summary for the record owner, including a "Labs &
- *     vitals" section (latest value, reference range as recorded, reading count and
- *     span per series — no min/max, no in/out-of-range flag). The Health timeline table
+ *     vitals" section (latest value, reference range as recorded, reading count and span
+ *     per series — no min/max). The latest value DOES carry a strictly positional "above
+ *     range"/"below range" restatement of that same reading's own recorded bounds, via
+ *     {@link RangePositionMark}/`rangePosition` (DR-0036) — never a clinical interpretation,
+ *     severity, or colour-only signal (guardrail #1); see the print-note above the table.
+ *     The Health timeline table
  *     below it excludes a structured lab/vital measurement event ONLY when it carries no
  *     free-text `detail` note — its value is already faithfully summarised in "Labs &
  *     vitals" instead of a generic Year/Type/Event row. A structured measurement that DOES
@@ -48,7 +52,9 @@ import {
   currentMedications,
   immunizations,
   measurementSummaries,
+  rangePosition,
 } from '@/domain/timeline';
+import { RangePositionMark } from './RangePositionMark';
 import { CATEGORY_LABELS, categoryColor, legendCategories } from '@/data/categories';
 import { EVENT_META } from '@/data/events';
 import { PROV_LABEL } from '@/data/provenance';
@@ -110,8 +116,10 @@ function byRecency(a: MeasurementSeriesSummary, b: MeasurementSeriesSummary): nu
   return b.latestYear - a.latestYear || a.title.localeCompare(b.title);
 }
 
-/** `refLow`/`refHigh` restated exactly as recorded — no in/out-of-range flag, no colour,
- * mirroring `LabTrend`/`CcdaReview`'s neutral presentation (guardrail #1). */
+/** `refLow`/`refHigh` restated exactly as recorded, as plain text — this column itself
+ * carries no in/out-of-range marking; the marker lives on the value cell instead, via
+ * {@link RangePositionMark} (DR-0036), and is neutral/colour-independent there too
+ * (guardrail #1). */
 function referenceRange(s: MeasurementSeriesSummary): string {
   if (s.refLow === undefined && s.refHigh === undefined) return '—';
   return `${s.refLow ?? '—'}–${s.refHigh ?? '—'} ${s.latestUnit}`;
@@ -165,6 +173,7 @@ function MeasurementTable({
             <td>
               {s.latestValue} {s.latestUnit}{' '}
               <span className="print-affected">({s.latestYear})</span>
+              <RangePositionMark position={rangePosition(s.latestValue, s.refLow, s.refHigh)} />
             </td>
             <td>{referenceRange(s)}</td>
             <td>{s.count}</td>
@@ -569,7 +578,10 @@ export function PrintReports() {
                     <h3 className="print-subhead">Labs &amp; vitals</h3>
                     <p className="print-note">
                       Values and reference ranges are shown exactly as recorded from your own
-                      reports; Stemma does not assess whether any value is normal.
+                      reports. A value marked <em>above range</em> or <em>below range</em> falls
+                      outside the reference range you recorded — a factual comparison, not a
+                      clinical assessment of whether the value is normal. Reference ranges depend on
+                      the lab, method, age and sex; discuss results with a clinician.
                     </p>
                     <MeasurementTable caption="Labs" rows={labs} />
                     <MeasurementTable caption="Vitals" rows={vitals} />

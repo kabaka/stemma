@@ -104,7 +104,11 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
     document `attachments`. Two new `EventType`s (`allergy`, `vital`). Derivations live in
     the pure `src/domain/timeline.ts`; UI is a type-aware event form plus "Currently taking"
     and a **lab-trend** table (`labSeries`/`labTitles`) that shows the value next to the
-    user's own range with **no in/out-of-range flag** (interpretation is a clinician's job).
+    user's own range. Per **DR-0036**, each value also carries a strictly **positional**
+    "above range"/"below range" restatement of that same reading's own bounds
+    (`rangePosition`, the FHIR `referenceRange` axis) — a factual comparison, colour-
+    independent and identical for either direction; it is never a clinical interpretation,
+    severity, or risk number (the `interpretation` axis stays a clinician's job, guardrail #1).
   - **Deferred (named, not dropped):** document *bytes* — attachments are references only
     this cycle; real blob storage waits on the async-storage seam (§7). A vitals *trend*
     surface (labs get the trend view). FHIR/Phenopacket enrichment of the new fields (the
