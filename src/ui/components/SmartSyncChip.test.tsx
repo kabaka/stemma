@@ -53,6 +53,18 @@ describe('SmartSyncChip', () => {
     expect(screen.getByRole('button', { name: /health record connected/i })).toBeInTheDocument();
   });
 
+  // A11y regression: the re-sync action used to live only in `title` (invisible to keyboard
+  // users, inconsistent across AT) — the accessible name itself must convey that activating
+  // this chip syncs now, not just what it currently shows.
+  it('exposes "sync now" in the accessible name, not only in the title tooltip', () => {
+    useSmartConnectionStore.setState({
+      connections: [connection({ lastSyncAt: '2026-06-01T00:00:00.000Z' })],
+    });
+    render(<SmartSyncChip />);
+
+    expect(screen.getByRole('button', { name: /sync now/i })).toBeInTheDocument();
+  });
+
   it('clicking navigates to the pedigree and requests a sync for the most-overdue connection', async () => {
     const user = userEvent.setup();
     useSmartConnectionStore.setState({

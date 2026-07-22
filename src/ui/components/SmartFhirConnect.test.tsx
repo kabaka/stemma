@@ -12,7 +12,7 @@
  * parse→stage pipeline rather than fabricating a `ParsedHealthRecord` by hand.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
@@ -363,5 +363,87 @@ describe('SmartFhirConnect — connected', () => {
       /sign-in with this provider failed/i,
     );
     expect(screen.getByText(CONNECTION.fhirBaseUrl)).toBeInTheDocument();
+  });
+
+  // Regression suite for the `requestedSyncId` auto-sync latch (see SmartFhirConnect.tsx's
+  // `autoSyncedRef` comment): the signal is the seam both a successful OAuth callback AND
+  // `SmartSyncChip`'s manual re-sync use, so these assert the sync path is actually invoked
+  // by the signal — not just that a piece of state got set — which is the gap that let the
+  // stuck-latch bug through originally.
+  describe('requestedSyncId auto-sync signal', () => {
+    beforeEach(() => {
+      useSmartConnectionStore.setState({ requestedSyncId: null });
+    });
+
+    it('invokes the sync path exactly once for a valid connection id, and clears the signal', async () => {
+      const bundle = fhirBundle([patientResource({ id: 'pat-1' })]);
+      const syncNow = vi.fn().mockResolvedValue(bundle);
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
+      expect(syncNow).toHaveBeenCalledWith('conn-1');
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+    });
+
+    // The actual regression: before the fix, `autoSyncedRef` latched onto the connection id
+    // forever, so a SECOND `requestSync` for the SAME (stable, UUID) connection id — exactly
+    // what `SmartSyncChip`'s retry click fires — silently no-opped instead of syncing again.
+    it('invokes the sync path again on a second requestSync for the same connection id (chip retry)', async () => {
+      const bundle = fhirBundle([patientResource({ id: 'pat-1' })]);
+      const syncNow = vi.fn().mockResolvedValue(bundle);
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(2));
+    });
+
+    it('clears a requestedSyncId that names a connection which no longer exists, without syncing', async () => {
+      const syncNow = vi.fn();
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('does-not-exist');
+      });
+
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+      expect(syncNow).not.toHaveBeenCalled();
+    });
   });
 });

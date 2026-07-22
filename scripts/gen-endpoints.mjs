@@ -250,6 +250,11 @@ async function loadBundle() {
     console.log(`Reading Brands bundle from cache: ${cachePath}`);
     return JSON.parse(readFileSync(cachePath, 'utf8'));
   }
+  // Security note: there is no runtime/CI integrity check on this fetch — no pinned hash,
+  // no signature — by design (Epic publishes no checksum for the Brands bundle to pin
+  // against, and it's a build-time/dev-machine fetch, never a runtime one). The generated
+  // `src/data/smart-endpoints.ts` diff this produces MUST be eyeballed by a human reviewer
+  // before commit, same as any other third-party data pulled into the repo.
   console.log(`Fetching Brands bundle: ${SOURCE_URL} (~92 MB, this can take a while)…`);
   const response = await fetch(SOURCE_URL);
   if (!response.ok) {

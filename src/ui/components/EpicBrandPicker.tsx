@@ -2,6 +2,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
@@ -15,6 +16,10 @@ import {
  * ARIA wiring below needs more than a first page shown at once, and rendering all matches
  * for a broad query (e.g. "health") would be needless DOM weight. */
 const MAX_RESULTS = 50;
+
+/** Must match `.epic-picker__listbox`'s `max-height` in components.css — used only to
+ * decide whether to flip the popup upward (below), never to size anything itself. */
+const LISTBOX_MAX_HEIGHT_PX = 280;
 
 /** Precomputed once when this (lazily-loaded) module evaluates, not per keystroke: each
  * provider's lowercased "name city state" search key. Filtering 1,243 short strings per
@@ -60,6 +65,17 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
   // resetting a separate `activeIndex` on every keystroke: resetting on `onChange` below is
   // synchronous and exact, with no render lag and no dependency-array footgun to get wrong.
   const [manualIndex, setManualIndex] = useState<number | null>(null);
+  // Whether the open listbox should render ABOVE the input instead of below it (a11y
+  // finding, DR-0016): this picker sits inside `.pedigree-import-scroll` — a real,
+  // viewport-bounded `overflow-y: auto` column, not just a short/zoomed edge case — and the
+  // connect form's own content above the input (heading, description, clinical boundary,
+  // "what this shares" disclaimer) commonly leaves less than the listbox's 280px `max-height`
+  // of room below, clipping it against that ancestor's own bottom edge for a mouse/touch user
+  // (keyboard nav self-heals via the `scrollIntoView` effect below, but nothing scrolls on
+  // first open). Flipping upward when there's genuinely more room there is the minimal fix —
+  // no bespoke measuring library, no changing the scroll container's shape for every render.
+  const [openUpward, setOpenUpward] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const inputId = useId();
   const listboxId = useId();
@@ -84,6 +100,39 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
       .getElementById(`${optionIdBase}-${activeIndex}`)
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [activeIndex, optionIdBase]);
+
+  // Re-measure whenever the listbox is (or becomes) open, and keep tracking while it stays
+  // open — the surrounding column can scroll or the window can resize without the listbox
+  // itself closing. `getBoundingClientRect` is viewport-relative, exactly what determines
+  // real clipping against the `.pedigree-import-scroll` ancestor. Only flips when there's
+  // BOTH too little room below AND genuinely more room above — never flips into an equally
+  // cramped "above" that would just relocate the same clipping. In jsdom (component tests)
+  // every rect is zeroed, so `spaceBelow` reads as the full (large) `window.innerHeight` and
+  // this never flips — existing keyboard/pointer test assertions are unaffected.
+  useEffect(() => {
+    if (!open) {
+      setOpenUpward(false);
+      return;
+    }
+    const measure = (): void => {
+      const el = inputRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenUpward(spaceBelow < LISTBOX_MAX_HEIGHT_PX + 8 && spaceAbove > spaceBelow);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    // `capture: true` — scroll events don't bubble, but a scroll on the `.pedigree-import-
+    // scroll` ancestor still reaches a capturing window listener on its way down to the
+    // actual scroll target.
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open]);
 
   const select = (p: SmartProvider): void => {
     onSelect(p);
@@ -133,13 +182,14 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
         Find your provider
       </label>
       <input
+        ref={inputRef}
         id={inputId}
         className="field"
         type="text"
         role="combobox"
         autoComplete="off"
         aria-expanded={open && shown.length > 0}
-        aria-controls={listboxId}
+        aria-controls={open && shown.length > 0 ? listboxId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={
           open && activeIndex >= 0 ? `${optionIdBase}-${activeIndex}` : undefined
@@ -163,7 +213,9 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
           id={listboxId}
           role="listbox"
           aria-label="Matching providers"
-          className="epic-picker__listbox"
+          className={
+            openUpward ? 'epic-picker__listbox epic-picker__listbox--above' : 'epic-picker__listbox'
+          }
         >
           {shown.map((p, i) => (
             <li

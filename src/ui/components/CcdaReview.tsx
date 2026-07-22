@@ -555,16 +555,16 @@ export function CcdaReview({
           (native <details>, keyboard-operable for free) so it never dominates the checklist,
           one click away for anyone confused by an amber badge or a greyed-out checkbox. Text
           only, no colour-alone meaning (WCAG 1.4.1): each bullet names the actual badge text
-          in quotes rather than relying on the reader recognising a colour. */}
-      <details style={{ margin: 0 }}>
-        <summary className="lbl" style={{ cursor: 'pointer', width: 'fit-content' }}>
-          What do these labels mean?
-        </summary>
+          in quotes rather than relying on the reader recognising a colour. Shares the same
+          `.disclosure`/`.disclosure__toggle`/`.disclosure__body` treatment SmartFhirConnect's
+          "enter a FHIR endpoint manually" disclosure uses, rather than a bespoke inline-styled
+          one-off, for a consistent caret/disclosure look across the two importers. */}
+      <details className="disclosure">
+        <summary className="disclosure__toggle">What do these labels mean?</summary>
         <ul
-          className="mono-dim"
+          className="disclosure__body mono-dim"
           role="list"
           style={{
-            margin: '8px 0 0',
             paddingLeft: 18,
             display: 'flex',
             flexDirection: 'column',

@@ -31,6 +31,14 @@ export function SmartSyncChip() {
     connections.length > 1
       ? `${connections.length} health records connected · ${lastSyncLabel}`
       : `Health record connected · ${lastSyncLabel}`;
+  // The ACCESSIBLE name must say both what this chip shows and what activating it does — a
+  // click doesn't just navigate, it also fires a re-sync (see `handleClick`), and that action
+  // used to live only in `title` (invisible to keyboard users, inconsistently exposed across
+  // screen readers). `aria-label` overrides the text-content-derived accessible name with one
+  // that folds the action in; the visible chip text (`label`) is left as the compact sighted
+  // display. `title` mirrors the same string as a supplemental tooltip only, never the sole
+  // carrier of the action.
+  const accessibleLabel = `${label} — sync now`;
 
   const handleClick = (): void => {
     useStore.getState().setView('tree');
@@ -42,7 +50,8 @@ export function SmartSyncChip() {
       type="button"
       className="chip"
       onClick={handleClick}
-      title="Go to the pedigree and sync your connected health record"
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
     >
       {label}
     </button>

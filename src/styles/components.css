@@ -454,13 +454,6 @@ textarea.field {
   font-size: 13px;
   width: 100%;
 }
-/* Monospace `.field` variant for a value the user copies verbatim rather than edits (e.g.
-   the SMART-on-FHIR redirect URI) — a `readOnly` input, not a `<code>` block, so it's
-   natively focusable and keyboard-selectable (see SmartFhirConnect.tsx). */
-input.field.mono {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-}
 /* Not element-qualified: PersonForm labels its segmented-toggle / organ / conditions
    groups with a <span class="lbl"> (a group heading isn't a single control's <label>),
    and those must get the same small, dim caption styling as real <label class="lbl">s. */
@@ -672,6 +665,17 @@ input.field.mono {
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
   padding: 4px;
   list-style: none;
+}
+/* Applied by EpicBrandPicker when there's too little room below the input (inside the
+   scrollable `.pedigree-import-scroll` column) but genuinely more room above — a11y finding:
+   the dropdown was being visually clipped against that ancestor's bottom edge for a mouse/
+   touch user in perfectly ordinary window sizes, not just a short-window/200%-zoom edge case.
+   `max-height` stays the same 280px so the flip is the only difference. */
+.epic-picker__listbox--above {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
 }
 .epic-picker__option {
   display: block;

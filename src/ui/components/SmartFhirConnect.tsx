@@ -385,26 +385,37 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
     latestRef.current = { connections, handleSync, clearRequestedSync };
   });
 
-  // `autoSyncedRef` is a per-component-instance latch, mirroring `App.tsx`'s own
+  // `autoSyncedRef` is a per-SIGNAL-EPISODE latch, mirroring `App.tsx`'s own
   // `smartCallbackFired` ref: it stops React 18 StrictMode's dev double-invoke from firing
-  // `handleSync` twice for the SAME id (the effect body runs twice against the same
+  // `handleSync` twice for the SAME episode (the effect body runs twice against the same
   // closed-over `requestedSyncId` before any state update from the first run can flow back
-  // in). `clearRequestedSync()` runs synchronously as this effect's first statement — before
-  // `handleSync`'s first `await` — so the store's own signal never lingers to be picked up
-  // again later (mirrors the store's own `callbackInFlight` discipline). `handleSync` itself
-  // still guards re-entrancy via `syncingId` as a second, independent layer.
+  // in). It must NOT latch forever, though — connection ids are stable UUIDs, so a later,
+  // genuinely distinct `requestSync(sameId)` (e.g. `SmartSyncChip`'s re-sync, which targets
+  // the most-stale connection and is often the only one) would otherwise match the same
+  // `=== requestedSyncId` check and silently no-op. So the latch is reset back to `null` the
+  // moment `requestedSyncId` returns to `null` (below) — the store's own one-shot-signal
+  // discipline — meaning each new episode starts with a clear latch and gets honored.
+  // `clearRequestedSync()` still runs synchronously as this effect's first statement for a
+  // NEW episode — before `handleSync`'s first `await` — so the signal never lingers to be
+  // picked up again later; this now runs unconditionally (including when the referenced
+  // connection isn't found), so a stale/bogus id can never strand `requestedSyncId` non-null.
+  // `handleSync` itself still guards re-entrancy via `syncingId` as a second, independent
+  // layer.
   const autoSyncedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!requestedSyncId) return;
+    if (!requestedSyncId) {
+      autoSyncedRef.current = null;
+      return;
+    }
     if (autoSyncedRef.current === requestedSyncId) return;
+    autoSyncedRef.current = requestedSyncId;
     const {
       connections: latestConnections,
       handleSync: sync,
       clearRequestedSync: clear,
     } = latestRef.current;
-    if (!latestConnections.some((c) => c.id === requestedSyncId)) return;
-    autoSyncedRef.current = requestedSyncId;
     clear();
+    if (!latestConnections.some((c) => c.id === requestedSyncId)) return;
     void sync(requestedSyncId);
   }, [requestedSyncId]);
 
