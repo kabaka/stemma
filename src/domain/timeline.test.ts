@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { FamilyRecord, Person, TimelineEvent } from './types';
-import { allergies, currentMedications, immunizations, labSeries, labTitles } from './timeline';
+import {
+  allergies,
+  currentMedications,
+  immunizations,
+  labSeries,
+  labTitles,
+  measurementSummaries,
+  seriesSummary,
+  vitalSeries,
+  vitalTitles,
+  type LabPoint,
+  type MeasurementPoint,
+} from './timeline';
 
 /** Minimal fixture person, matching the style of record.test.ts / screening.test.ts. */
 function mkPerson(id: string, overrides: Partial<Person> = {}): Person {
@@ -614,5 +626,498 @@ describe('labTitles', () => {
     };
     const record = mkRecord([mkPerson('a')], [wrongType]);
     expect(labTitles(record, 'a')).toEqual([]);
+  });
+});
+
+describe('lab/vital type discrimination (no cross-contamination)', () => {
+  // A lab and a vital event sharing the exact same title on the same person — the two
+  // series must stay strictly partitioned by event `type`.
+  const labEvent: TimelineEvent = {
+    id: 'x1',
+    person: 'a',
+    year: 2020,
+    type: 'lab',
+    title: 'Weight',
+    detail: '',
+    lab: { value: 70, unit: 'kg' },
+  };
+  const vitalEvent: TimelineEvent = {
+    id: 'x2',
+    person: 'a',
+    year: 2021,
+    type: 'vital',
+    title: 'Weight',
+    detail: '',
+    vital: { value: 170, unit: 'lb' },
+  };
+  const record = mkRecord([mkPerson('a')], [labEvent, vitalEvent]);
+
+  it('labSeries returns only the lab-typed event for an identically-titled series', () => {
+    const series = labSeries(record, 'a', 'Weight');
+    expect(series).toHaveLength(1);
+    expect(series[0]).toEqual({ eventId: 'x1', year: 2020, value: 70, unit: 'kg' });
+  });
+
+  it('vitalSeries returns only the vital-typed event for an identically-titled series', () => {
+    const series = vitalSeries(record, 'a', 'Weight');
+    expect(series).toHaveLength(1);
+    expect(series[0]).toEqual({ eventId: 'x2', year: 2021, value: 170, unit: 'lb' });
+  });
+
+  it('labTitles never surfaces a title that only exists as a vital event', () => {
+    const vitalOnly = mkRecord([mkPerson('a')], [vitalEvent]);
+    expect(labTitles(vitalOnly, 'a')).toEqual([]);
+  });
+
+  it('vitalTitles never surfaces a title that only exists as a lab event', () => {
+    const labOnly = mkRecord([mkPerson('a')], [labEvent]);
+    expect(vitalTitles(labOnly, 'a')).toEqual([]);
+  });
+});
+
+describe('vitalSeries', () => {
+  it('matches by trimmed, case-insensitive title', () => {
+    const event: TimelineEvent = {
+      id: 'v1',
+      person: 'a',
+      year: 2020,
+      type: 'vital',
+      title: 'Blood Pressure',
+      detail: '',
+      vital: { value: 120, unit: 'mmHg' },
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(vitalSeries(record, 'a', ' blood pressure ')).toHaveLength(1);
+    expect(vitalSeries(record, 'a', 'BLOOD PRESSURE')).toHaveLength(1);
+    expect(vitalSeries(record, 'a', 'Heart Rate')).toEqual([]);
+  });
+
+  it('sorts results ascending by year regardless of recorded order', () => {
+    const late: TimelineEvent = {
+      id: 'v2',
+      person: 'a',
+      year: 2023,
+      type: 'vital',
+      title: 'Resting HR',
+      detail: '',
+      vital: { value: 68, unit: 'bpm' },
+    };
+    const early: TimelineEvent = {
+      id: 'v3',
+      person: 'a',
+      year: 2019,
+      type: 'vital',
+      title: 'Resting HR',
+      detail: '',
+      vital: { value: 72, unit: 'bpm' },
+    };
+    const mid: TimelineEvent = {
+      id: 'v4',
+      person: 'a',
+      year: 2021,
+      type: 'vital',
+      title: 'Resting HR',
+      detail: '',
+      vital: { value: 70, unit: 'bpm' },
+    };
+    // Deliberately out of order in the record.
+    const record = mkRecord([mkPerson('a')], [late, early, mid]);
+    const series = vitalSeries(record, 'a', 'Resting HR');
+    expect(series.map((p) => p.year)).toEqual([2019, 2021, 2023]);
+  });
+
+  it('excludes a vital-type event with no structured vital payload (defence-in-depth)', () => {
+    const event: TimelineEvent = {
+      id: 'v5',
+      person: 'a',
+      year: 2020,
+      type: 'vital',
+      title: 'Temperature',
+      detail: 'Free-text note, no structured payload',
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    expect(vitalSeries(record, 'a', 'Temperature')).toEqual([]);
+  });
+
+  it('ignores a vital payload attached to a non-vital event type (defence-in-depth)', () => {
+    const wrongType: TimelineEvent = {
+      id: 'v6',
+      person: 'a',
+      year: 2020,
+      type: 'procedure',
+      title: 'Temperature',
+      detail: '',
+      vital: { value: 98.6, unit: 'F' },
+    };
+    const record = mkRecord([mkPerson('a')], [wrongType]);
+    expect(vitalSeries(record, 'a', 'Temperature')).toEqual([]);
+  });
+
+  it('returns value/unit/refLow/refHigh exactly as recorded, with no interpretation flag', () => {
+    const event: TimelineEvent = {
+      id: 'v7',
+      person: 'a',
+      year: 2020,
+      type: 'vital',
+      title: 'Blood Pressure',
+      detail: '',
+      vital: { value: 138, unit: 'mmHg', refLow: 90, refHigh: 120 },
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    const [point] = vitalSeries(record, 'a', 'Blood Pressure');
+    expect(point).toEqual({
+      eventId: 'v7',
+      year: 2020,
+      value: 138,
+      unit: 'mmHg',
+      refLow: 90,
+      refHigh: 120,
+    });
+  });
+
+  it("isolates by person — another person's identically-titled vital is never returned", () => {
+    const forA: TimelineEvent = {
+      id: 'v8',
+      person: 'a',
+      year: 2020,
+      type: 'vital',
+      title: 'Weight',
+      detail: '',
+      vital: { value: 70, unit: 'kg' },
+    };
+    const forB: TimelineEvent = {
+      id: 'v9',
+      person: 'b',
+      year: 2020,
+      type: 'vital',
+      title: 'Weight',
+      detail: '',
+      vital: { value: 90, unit: 'kg' },
+    };
+    const record = mkRecord([mkPerson('a'), mkPerson('b')], [forA, forB]);
+    const seriesA = vitalSeries(record, 'a', 'Weight');
+    expect(seriesA).toHaveLength(1);
+    expect(seriesA[0].eventId).toBe('v8');
+  });
+});
+
+describe('vitalTitles', () => {
+  it('returns distinct titles, deduplicated case-insensitively', () => {
+    const record = mkRecord(
+      [mkPerson('a')],
+      [
+        {
+          id: 'vt1',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Blood Pressure',
+          detail: '',
+          vital: { value: 120, unit: 'mmHg' },
+        },
+        {
+          id: 'vt2',
+          person: 'a',
+          year: 2021,
+          type: 'vital',
+          title: ' blood pressure ',
+          detail: '',
+          vital: { value: 118, unit: 'mmHg' },
+        },
+        {
+          id: 'vt3',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Weight',
+          detail: '',
+          vital: { value: 70, unit: 'kg' },
+        },
+      ],
+    );
+    expect(vitalTitles(record, 'a')).toEqual(['Blood Pressure', 'Weight']);
+  });
+
+  it('preserves the first-seen casing when a later duplicate uses different casing', () => {
+    const record = mkRecord(
+      [mkPerson('a')],
+      [
+        {
+          id: 'vt4',
+          person: 'a',
+          year: 2019,
+          type: 'vital',
+          title: 'weight',
+          detail: '',
+          vital: { value: 68, unit: 'kg' },
+        },
+        {
+          id: 'vt5',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Weight',
+          detail: '',
+          vital: { value: 70, unit: 'kg' },
+        },
+      ],
+    );
+    expect(vitalTitles(record, 'a')).toEqual(['weight']);
+  });
+
+  it('excludes titles from events without a vital payload', () => {
+    const record = mkRecord(
+      [mkPerson('a')],
+      [
+        {
+          id: 'vt6',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Unstructured note',
+          detail: '',
+        },
+      ],
+    );
+    expect(vitalTitles(record, 'a')).toEqual([]);
+  });
+
+  it("isolates by person — another person's vital titles are never returned", () => {
+    const record = mkRecord(
+      [mkPerson('a'), mkPerson('b')],
+      [
+        {
+          id: 'vt7',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Weight',
+          detail: '',
+          vital: { value: 70, unit: 'kg' },
+        },
+        {
+          id: 'vt8',
+          person: 'b',
+          year: 2020,
+          type: 'vital',
+          title: 'Height',
+          detail: '',
+          vital: { value: 170, unit: 'cm' },
+        },
+      ],
+    );
+    expect(vitalTitles(record, 'a')).toEqual(['Weight']);
+    expect(vitalTitles(record, 'b')).toEqual(['Height']);
+  });
+});
+
+describe('seriesSummary', () => {
+  it('returns undefined for an empty series', () => {
+    expect(seriesSummary('LDL', 'lab', [])).toBeUndefined();
+  });
+
+  it('reduces a single-point series with firstYear === latestYear and count 1', () => {
+    const points: MeasurementPoint[] = [
+      { eventId: 'p1', year: 2022, value: 130, unit: 'mg/dL', refLow: 0, refHigh: 100 },
+    ];
+    const summary = seriesSummary('LDL', 'lab', points);
+    expect(summary).toEqual({
+      title: 'LDL',
+      type: 'lab',
+      latestValue: 130,
+      latestUnit: 'mg/dL',
+      latestYear: 2022,
+      refLow: 0,
+      refHigh: 100,
+      count: 1,
+      firstYear: 2022,
+    });
+  });
+
+  it('takes "latest" as the last point in the ascending series, not the maximum value', () => {
+    // Ascending by year, as labSeries/vitalSeries produce — the middle point has the
+    // highest value, but the LAST point (2022) is what must be reported as "latest".
+    // A naive Math.max()-based implementation would report 200, not 150.
+    const points: MeasurementPoint[] = [
+      { eventId: 'q1', year: 2018, value: 120, unit: 'mg/dL' },
+      { eventId: 'q2', year: 2020, value: 200, unit: 'mg/dL' },
+      { eventId: 'q3', year: 2022, value: 150, unit: 'mg/dL' },
+    ];
+    const summary = seriesSummary('LDL', 'lab', points);
+    expect(summary?.latestValue).toBe(150);
+    expect(summary?.latestYear).toBe(2022);
+    expect(summary?.firstYear).toBe(2018);
+    expect(summary?.count).toBe(3);
+  });
+
+  it('takes refLow/refHigh/latestUnit from the LATEST point, not an earlier one', () => {
+    const points: MeasurementPoint[] = [
+      { eventId: 'r1', year: 2019, value: 68, unit: 'bpm', refLow: 60, refHigh: 100 },
+      { eventId: 'r2', year: 2023, value: 72, unit: 'beats/min', refLow: 50, refHigh: 90 },
+    ];
+    const summary = seriesSummary('Resting HR', 'vital', points);
+    expect(summary?.latestUnit).toBe('beats/min');
+    expect(summary?.refLow).toBe(50);
+    expect(summary?.refHigh).toBe(90);
+  });
+
+  it('omits refLow/refHigh when the latest point has none recorded', () => {
+    const points: MeasurementPoint[] = [
+      { eventId: 's1', year: 2020, value: 5.4, unit: '%', refLow: 4, refHigh: 6 },
+      { eventId: 's2', year: 2022, value: 5.8, unit: '%' },
+    ];
+    const summary = seriesSummary('HbA1c', 'lab', points);
+    expect(summary?.refLow).toBeUndefined();
+    expect(summary?.refHigh).toBeUndefined();
+  });
+
+  it('passes the given title and type through unchanged', () => {
+    const points: MeasurementPoint[] = [{ eventId: 't1', year: 2020, value: 1, unit: 'u' }];
+    expect(seriesSummary('Custom Title', 'vital', points)).toMatchObject({
+      title: 'Custom Title',
+      type: 'vital',
+    });
+  });
+
+  it('does not report min/max fields — guardrail #1, no computed statistics', () => {
+    const points: MeasurementPoint[] = [
+      { eventId: 'u1', year: 2020, value: 10, unit: 'u' },
+      { eventId: 'u2', year: 2021, value: 999, unit: 'u' },
+    ];
+    const summary = seriesSummary('X', 'lab', points);
+    expect(summary).not.toHaveProperty('min');
+    expect(summary).not.toHaveProperty('max');
+  });
+});
+
+describe('measurementSummaries', () => {
+  it('returns one summary per distinct lab title, in first-seen order', () => {
+    const record = mkRecord(
+      [mkPerson('a')],
+      [
+        {
+          id: 'm1',
+          person: 'a',
+          year: 2019,
+          type: 'lab',
+          title: 'HbA1c',
+          detail: '',
+          lab: { value: 5.4, unit: '%' },
+        },
+        {
+          id: 'm2',
+          person: 'a',
+          year: 2020,
+          type: 'lab',
+          title: 'LDL',
+          detail: '',
+          lab: { value: 130, unit: 'mg/dL' },
+        },
+        {
+          id: 'm3',
+          person: 'a',
+          year: 2021,
+          type: 'lab',
+          title: 'HbA1c',
+          detail: '',
+          lab: { value: 5.8, unit: '%' },
+        },
+      ],
+    );
+    const summaries = measurementSummaries(record, 'a', 'lab');
+    expect(summaries.map((s) => s.title)).toEqual(['HbA1c', 'LDL']);
+    expect(summaries.every((s) => s.type === 'lab')).toBe(true);
+    const hba1c = summaries.find((s) => s.title === 'HbA1c');
+    expect(hba1c?.count).toBe(2);
+    expect(hba1c?.latestValue).toBe(5.8);
+    expect(hba1c?.firstYear).toBe(2019);
+    const ldl = summaries.find((s) => s.title === 'LDL');
+    expect(ldl?.count).toBe(1);
+  });
+
+  it('returns one summary per distinct vital title, isolated from lab series of the same title', () => {
+    const record = mkRecord(
+      [mkPerson('a')],
+      [
+        {
+          id: 'm4',
+          person: 'a',
+          year: 2020,
+          type: 'vital',
+          title: 'Weight',
+          detail: '',
+          vital: { value: 70, unit: 'kg' },
+        },
+        {
+          id: 'm5',
+          person: 'a',
+          year: 2020,
+          type: 'lab',
+          title: 'Weight',
+          detail: '',
+          lab: { value: 999, unit: 'kg' },
+        },
+      ],
+    );
+    const summaries = measurementSummaries(record, 'a', 'vital');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({ title: 'Weight', type: 'vital', latestValue: 70 });
+  });
+
+  it('returns an empty array when the person has no measurements of that type', () => {
+    const record = mkRecord([mkPerson('a')], []);
+    expect(measurementSummaries(record, 'a', 'lab')).toEqual([]);
+    expect(measurementSummaries(record, 'a', 'vital')).toEqual([]);
+  });
+
+  it("isolates by person — another person's series never leak into the summary list", () => {
+    const record = mkRecord(
+      [mkPerson('a'), mkPerson('b')],
+      [
+        {
+          id: 'm6',
+          person: 'a',
+          year: 2020,
+          type: 'lab',
+          title: 'LDL',
+          detail: '',
+          lab: { value: 130, unit: 'mg/dL' },
+        },
+        {
+          id: 'm7',
+          person: 'b',
+          year: 2020,
+          type: 'lab',
+          title: 'HbA1c',
+          detail: '',
+          lab: { value: 5.4, unit: '%' },
+        },
+      ],
+    );
+    expect(measurementSummaries(record, 'a', 'lab').map((s) => s.title)).toEqual(['LDL']);
+    expect(measurementSummaries(record, 'b', 'lab').map((s) => s.title)).toEqual(['HbA1c']);
+  });
+});
+
+describe('LabPoint / MeasurementPoint back-compat alias', () => {
+  it('LabPoint remains a usable alias for MeasurementPoint', () => {
+    const point: LabPoint = { eventId: 'x', year: 2020, value: 1, unit: 'u' };
+    const asMeasurementPoint: MeasurementPoint = point;
+    expect(asMeasurementPoint).toBe(point);
+  });
+
+  it('labSeries continues to return MeasurementPoint-shaped values under the LabPoint alias', () => {
+    const event: TimelineEvent = {
+      id: 'lp1',
+      person: 'a',
+      year: 2020,
+      type: 'lab',
+      title: 'LDL',
+      detail: '',
+      lab: { value: 130, unit: 'mg/dL' },
+    };
+    const record = mkRecord([mkPerson('a')], [event]);
+    const points: LabPoint[] = labSeries(record, 'a', 'LDL');
+    expect(points[0].value).toBe(130);
   });
 });

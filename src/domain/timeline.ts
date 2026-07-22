@@ -6,7 +6,7 @@
  * for a clinician (guardrail #1). Like the rest of `src/domain/`, no wall clock: any
  * "now" is injected as an explicit `asOfYear`.
  */
-import type { FamilyRecord, TimelineEvent } from './types';
+import type { FamilyRecord, Measurement, TimelineEvent } from './types';
 
 /** A medication a person is taking, resolved against its structured `med` payload. */
 export interface MedicationEntry {
@@ -100,14 +100,86 @@ export function immunizations(record: FamilyRecord, personId: string): Immunizat
     .sort((a, b) => a.year - b.year);
 }
 
-/** One sample in a lab time series. Reference bounds are user-entered, never a shipped band. */
-export interface LabPoint {
+/** One sample in a measurement (lab or vital) time series. Reference bounds are user-entered, never a shipped band. */
+export interface MeasurementPoint {
   eventId: string;
   year: number;
   value: number;
   unit: string;
   refLow?: number;
   refHigh?: number;
+}
+
+/** Back-compat alias for {@link MeasurementPoint} (labs were the first measurement series). */
+export type LabPoint = MeasurementPoint;
+
+/**
+ * The measurement-bearing event kinds. `lab` and `vital` share the {@link Measurement}
+ * payload shape but live on different event fields, so every read-model that projects a
+ * measurement is parameterised by this discriminant — never assume a title is unique
+ * across the two axes (a `lab` and a `vital` may share a title and must not mix).
+ */
+export type MeasurementEventType = 'lab' | 'vital';
+
+/** The measurement payload for `type`: the `lab` field for labs, the `vital` field for vitals. */
+function measurementField(e: TimelineEvent, type: MeasurementEventType): Measurement | undefined {
+  return type === 'lab' ? e.lab : e.vital;
+}
+
+/**
+ * Shared projector behind {@link labSeries}/{@link vitalSeries}: the time series for one
+ * measurement title on one person of the given `type`, matched by trimmed case-insensitive
+ * title, sorted ascending by year. Both the event `type` and the presence of the matching
+ * payload field are guarded (defence-in-depth against a hand-crafted/corrupt backup that
+ * attaches a measurement payload to some other event type). Pure; returns the recorded data
+ * as-is — no in-range/out-of-range flag or interpretation (guardrail #1).
+ */
+function measurementSeries(
+  record: FamilyRecord,
+  personId: string,
+  title: string,
+  type: MeasurementEventType,
+): MeasurementPoint[] {
+  const key = title.trim().toLowerCase();
+  const out: MeasurementPoint[] = [];
+  for (const e of record.timeline) {
+    if (e.person !== personId || e.type !== type) continue;
+    const m = measurementField(e, type);
+    if (m === undefined || e.title.trim().toLowerCase() !== key) continue;
+    out.push({
+      eventId: e.id,
+      year: e.year,
+      value: m.value,
+      unit: m.unit,
+      refLow: m.refLow,
+      refHigh: m.refHigh,
+    });
+  }
+  return out.sort((a, b) => a.year - b.year);
+}
+
+/**
+ * Shared projector behind {@link labTitles}/{@link vitalTitles}: distinct measurement titles
+ * (original casing, first-seen) recorded for a person on events of the given `type` carrying
+ * the matching payload. Deduplicated by trimmed case-insensitive title so `"HbA1c"` and
+ * `" hba1c "` collapse to the first spelling seen. Pure.
+ */
+function measurementTitles(
+  record: FamilyRecord,
+  personId: string,
+  type: MeasurementEventType,
+): string[] {
+  const seen = new Set<string>();
+  const titles: string[] = [];
+  for (const e of record.timeline) {
+    if (e.person !== personId || e.type !== type) continue;
+    if (measurementField(e, type) === undefined) continue;
+    const key = e.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    titles.push(e.title);
+  }
+  return titles;
 }
 
 /**
@@ -117,28 +189,12 @@ export interface LabPoint {
  * `lab` payload to some other event type). Returns the recorded data as-is — no
  * in-range/out-of-range flag or interpretation (guardrail #1).
  */
-export function labSeries(record: FamilyRecord, personId: string, title: string): LabPoint[] {
-  const key = title.trim().toLowerCase();
-  return record.timeline
-    .filter(
-      (e) =>
-        e.person === personId &&
-        e.type === 'lab' &&
-        e.lab !== undefined &&
-        e.title.trim().toLowerCase() === key,
-    )
-    .map((e) => {
-      const lab = e.lab as NonNullable<TimelineEvent['lab']>;
-      return {
-        eventId: e.id,
-        year: e.year,
-        value: lab.value,
-        unit: lab.unit,
-        refLow: lab.refLow,
-        refHigh: lab.refHigh,
-      };
-    })
-    .sort((a, b) => a.year - b.year);
+export function labSeries(
+  record: FamilyRecord,
+  personId: string,
+  title: string,
+): MeasurementPoint[] {
+  return measurementSeries(record, personId, title, 'lab');
 }
 
 /**
@@ -147,14 +203,92 @@ export function labSeries(record: FamilyRecord, personId: string, title: string)
  * `"HbA1c"` and `" hba1c "` collapse to the first spelling seen.
  */
 export function labTitles(record: FamilyRecord, personId: string): string[] {
-  const seen = new Set<string>();
-  const titles: string[] = [];
-  for (const e of record.timeline) {
-    if (e.person !== personId || e.type !== 'lab' || e.lab === undefined) continue;
-    const key = e.title.trim().toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    titles.push(e.title);
+  return measurementTitles(record, personId, 'lab');
+}
+
+/**
+ * Time series for one vital sign on one person, matched by trimmed case-insensitive title,
+ * sorted ascending by year. Structurally identical to {@link labSeries} but discriminates
+ * on `vital`-type events carrying a `vital` payload; a `lab` and a `vital` sharing an
+ * identical title never cross-contaminate (the event-type discriminant is explicit). Pure;
+ * returns the recorded data as-is — no interpretation (guardrail #1).
+ */
+export function vitalSeries(
+  record: FamilyRecord,
+  personId: string,
+  title: string,
+): MeasurementPoint[] {
+  return measurementSeries(record, personId, title, 'vital');
+}
+
+/**
+ * Distinct vital titles (original casing, first-seen) recorded for a person on `vital`-type
+ * events carrying a `vital` payload. Deduplicated by trimmed case-insensitive title, exactly
+ * as {@link labTitles}.
+ */
+export function vitalTitles(record: FamilyRecord, personId: string): string[] {
+  return measurementTitles(record, personId, 'vital');
+}
+
+/**
+ * One row of the printable "Labs & vitals" summary: the latest recorded sample of a single
+ * measurement series plus its span, a faithful restatement of the recorded facts only —
+ * no min/max, no in-range/out-of-range flag, no interpretation (guardrail #1).
+ */
+export interface MeasurementSeriesSummary {
+  title: string;
+  type: MeasurementEventType;
+  latestValue: number;
+  latestUnit: string;
+  latestYear: number;
+  refLow?: number;
+  refHigh?: number;
+  count: number;
+  firstYear: number;
+}
+
+/**
+ * Reduces one measurement series (as returned by {@link labSeries}/{@link vitalSeries},
+ * already ascending by year) to its summary row. "Latest" relies on that ascending-year
+ * invariant — the last point, no re-sort and no `max()`. `latestUnit`/`refLow`/`refHigh`
+ * come from the latest point; `firstYear` from the first; `count` is the point count.
+ * Returns `undefined` for an empty series. Pure; no interpretation (guardrail #1).
+ */
+export function seriesSummary(
+  title: string,
+  type: MeasurementEventType,
+  points: MeasurementPoint[],
+): MeasurementSeriesSummary | undefined {
+  if (points.length === 0) return undefined;
+  const latest = points[points.length - 1];
+  return {
+    title,
+    type,
+    latestValue: latest.value,
+    latestUnit: latest.unit,
+    latestYear: latest.year,
+    refLow: latest.refLow,
+    refHigh: latest.refHigh,
+    count: points.length,
+    firstYear: points[0].year,
+  };
+}
+
+/**
+ * Every distinct lab OR vital series for a person (per `type`), each reduced to its
+ * {@link seriesSummary} row, in the same first-seen order as {@link labTitles}/
+ * {@link vitalTitles}. A title exists only because at least one event carries it, so no
+ * series is empty and every title yields a row. Pure; faithful restatement only (guardrail #1).
+ */
+export function measurementSummaries(
+  record: FamilyRecord,
+  personId: string,
+  type: MeasurementEventType,
+): MeasurementSeriesSummary[] {
+  const out: MeasurementSeriesSummary[] = [];
+  for (const title of measurementTitles(record, personId, type)) {
+    const summary = seriesSummary(title, type, measurementSeries(record, personId, title, type));
+    if (summary !== undefined) out.push(summary);
   }
-  return titles;
+  return out;
 }

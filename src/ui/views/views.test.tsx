@@ -2364,10 +2364,14 @@ describe('PrintReports', () => {
   /** A proband diagnosed with breast cancer, plus four affected siblings sharing a
    * cardiovascular condition — degree-1 relatives via a shared parental union — so
    * Sheet 2's per-condition "who has it" sub-line has both a proband-diagnosed row
-   * (must show "You") and a >3-affected row (must cap at 3 with a "+N more" tail). */
+   * (must show "You") and a >3-affected row (must cap at 3 with a "+N more" tail).
+   * Sheet 2 now only lists `affCount > 0` findings (a proband-only diagnosis with no
+   * affected relative lives solely on Sheet 3), so `sib1` also carries `brca` — making
+   * breast cancer genuinely family-clustered (affCount 1) as well as proband-diagnosed,
+   * which is exactly the "both" case that still belongs on Sheet 2 with a "You" entry. */
   function recordWithManyAffected(): FamilyRecord {
     const proband = mkProband({ conds: [{ id: 'brca', onset: 41, prov: 'self' }] });
-    const mkSib = (id: string, onset: number): Person => ({
+    const mkSib = (id: string, onset: number, extraConds: Person['conds'] = []): Person => ({
       id,
       name: id,
       sab: 'u',
@@ -2377,7 +2381,7 @@ describe('PrintReports', () => {
       dead: false,
       birth: 1980,
       death: null,
-      conds: [{ id: 'cad', onset, prov: 'self' }],
+      conds: [{ id: 'cad', onset, prov: 'self' }, ...extraConds],
     });
     const parent = (id: string): Person => ({
       id,
@@ -2391,7 +2395,12 @@ describe('PrintReports', () => {
       death: null,
       conds: [],
     });
-    const sibs = [mkSib('sib1', 50), mkSib('sib2', 55), mkSib('sib3', 60), mkSib('sib4', 65)];
+    const sibs = [
+      mkSib('sib1', 50, [{ id: 'brca', onset: 45, prov: 'self' }]),
+      mkSib('sib2', 55),
+      mkSib('sib3', 60),
+      mkSib('sib4', 65),
+    ];
     return {
       people: [proband, parent('mom'), parent('dad'), ...sibs],
       unions: [{ parents: ['mom', 'dad'], children: [proband.id, ...sibs.map((s) => s.id)] }],
@@ -2410,8 +2419,11 @@ describe('PrintReports', () => {
     const brcaCell = within(findingsTable).getByText('Breast cancer').closest('td') as HTMLElement;
     const brcaAffected = brcaCell.querySelector('.print-affected');
     expect(brcaAffected).not.toBeNull();
-    // The proband is diagnosed — the sub-line must show "You" with her own onset.
+    // The proband is diagnosed — the sub-line must show "You" with her own onset — and
+    // sib1 (also affected, rel label "Sibling") keeps breast cancer family-clustered, so
+    // it still belongs here.
     expect(brcaAffected!.textContent).toContain('You (onset 41)');
+    expect(brcaAffected!.textContent).toContain('Sibling (45)');
 
     const cadCell = within(findingsTable)
       .getByText('Coronary heart disease')
@@ -2422,6 +2434,247 @@ describe('PrintReports', () => {
     expect(cadAffected.textContent).toMatch(/\+1 more/);
     const shownCount = (cadAffected.textContent!.match(/Sibling/g) ?? []).length;
     expect(shownCount).toBe(3);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sheet 2/Sheet 3 dedup (product change #1): "Conditions in the family" on Sheet 2
+  // is now `affCount > 0` only — a proband-only diagnosis with no affected relative no
+  // longer duplicates onto Sheet 2 and lives solely in Sheet 3's own "Conditions" table.
+  // A condition that is both family-clustered and proband-diagnosed still appears on
+  // both sheets (different lenses: "this runs in the family" vs. "your own history").
+  // ---------------------------------------------------------------------------
+
+  /** Proband diagnosed with two conditions: `brca` (no other affected relative — a
+   * proband-only diagnosis) and `cad` (also carried by `mom`, a degree-1 relative — so
+   * it's both family-clustered and proband-diagnosed). */
+  function recordWithProbandOnlyAndClustered(): FamilyRecord {
+    const proband = mkProband({
+      conds: [
+        { id: 'brca', onset: 41, prov: 'self' },
+        { id: 'cad', onset: 50, prov: 'self' },
+      ],
+    });
+    const mom: Person = {
+      id: 'mom',
+      name: 'Mom',
+      sab: 'f',
+      gender: 'woman',
+      gen: -1,
+      x: 0,
+      dead: false,
+      birth: 1950,
+      death: null,
+      conds: [{ id: 'cad', onset: 60, prov: 'self' }],
+    };
+    const dad: Person = {
+      id: 'dad',
+      name: 'Dad',
+      sab: 'm',
+      gender: 'man',
+      gen: -1,
+      x: 1,
+      dead: false,
+      birth: 1948,
+      death: null,
+      conds: [],
+    };
+    return {
+      people: [proband, mom, dad],
+      unions: [{ parents: ['mom', 'dad'], children: [proband.id] }],
+      timeline: [],
+      probandId: proband.id,
+    };
+  }
+
+  it('dedups Sheet 2 from Sheet 3: a proband-only diagnosis lives solely in Sheet 3’s Conditions table, while a family-clustered-and-diagnosed condition appears on both', () => {
+    act(() => useStore.getState().replaceRecord(recordWithProbandOnlyAndClustered()));
+    render(<PrintReports />);
+
+    const findingsTable = screen.getByRole('heading', { name: 'Conditions in the family' })
+      .nextElementSibling as HTMLElement;
+    // Breast cancer: proband-only (no affected relative) — must NOT appear on Sheet 2.
+    expect(within(findingsTable).queryByText('Breast cancer')).not.toBeInTheDocument();
+    // Coronary heart disease: proband-diagnosed AND mom is also affected — still on Sheet 2,
+    // and its "who has it" sub-line still shows the "You" entry.
+    const cadCell = within(findingsTable)
+      .getByText('Coronary heart disease')
+      .closest('td') as HTMLElement;
+    expect(cadCell.querySelector('.print-affected')?.textContent).toContain('You (onset 50)');
+
+    // Sheet 3's own "Conditions" table is the proband's raw condition list — both
+    // conditions appear there regardless of family clustering.
+    const sheet3ConditionsTable = screen.getByRole('heading', { name: 'Conditions', level: 3 })
+      .nextElementSibling as HTMLElement;
+    expect(within(sheet3ConditionsTable).getByText('Breast cancer')).toBeInTheDocument();
+    expect(within(sheet3ConditionsTable).getByText('Coronary heart disease')).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Health timeline exclusion + "Labs & vitals" (product changes #2 and #3): structured
+  // lab/vital measurement events (carrying a `lab`/`vital` payload) are excluded from the
+  // generic "Health timeline" table — their value is faithfully summarised in the new
+  // "Labs & vitals" section instead — while unstructured lab/vital events (value spelled
+  // out in the title, no payload) and all other event types still appear in the timeline.
+  // ---------------------------------------------------------------------------
+
+  function recordWithMeasurementsAndTimeline(): FamilyRecord {
+    const proband = mkProband();
+    const timeline: TimelineEvent[] = [
+      {
+        id: 'lab-structured',
+        person: proband.id,
+        year: 2021,
+        type: 'lab',
+        title: 'HbA1c',
+        detail: '',
+        lab: { value: 5.6, unit: '%', refLow: 4, refHigh: 5.6 },
+      },
+      {
+        id: 'vital-structured',
+        person: proband.id,
+        year: 2022,
+        type: 'vital',
+        title: 'Blood pressure',
+        detail: '',
+        vital: { value: 120, unit: 'mmHg', refLow: 90, refHigh: 120 },
+      },
+      {
+        id: 'lab-unstructured',
+        person: proband.id,
+        year: 2020,
+        type: 'lab',
+        title: 'Cholesterol 200 mg/dL (self-reported)',
+        detail: '',
+      },
+      {
+        id: 'proc1',
+        person: proband.id,
+        year: 2018,
+        type: 'procedure',
+        title: 'Appendectomy',
+        detail: '',
+      },
+    ];
+    return { people: [proband], unions: [], timeline, probandId: proband.id };
+  }
+
+  it('excludes structured lab/vital measurement events from the Health timeline, summarising them in "Labs & vitals" instead', () => {
+    act(() => useStore.getState().replaceRecord(recordWithMeasurementsAndTimeline()));
+    render(<PrintReports />);
+
+    // "Labs & vitals" sits between "Recommended screening" and "Health timeline".
+    const sheet3 = screen
+      .getByRole('heading', { name: /personal health summary/i })
+      .closest('.print-sheet') as HTMLElement;
+    const headings = Array.from(sheet3.querySelectorAll('.print-subhead')).map(
+      (h) => h.textContent,
+    );
+    expect(headings).toEqual([
+      'Screening-relevant organ inventory',
+      'Conditions',
+      'Recommended screening',
+      'Labs & vitals',
+      'Health timeline',
+    ]);
+
+    // (a) The structured lab/vital titles do not appear as rows in the Health timeline.
+    const timelineTable = screen.getByRole('heading', { name: 'Health timeline', level: 3 })
+      .nextElementSibling as HTMLElement;
+    expect(within(timelineTable).queryByText('HbA1c')).not.toBeInTheDocument();
+    expect(within(timelineTable).queryByText('Blood pressure')).not.toBeInTheDocument();
+
+    // (c) The unstructured lab event and the non-measurement procedure event still appear,
+    // with the Type column rendering the human-readable EVENT_META label.
+    expect(
+      within(timelineTable).getByText('Cholesterol 200 mg/dL (self-reported)'),
+    ).toBeInTheDocument();
+    expect(within(timelineTable).getByText('Appendectomy')).toBeInTheDocument();
+    const rows = within(timelineTable).getAllByRole('row');
+    const procRow = rows.find((r) => within(r).queryByText('Appendectomy'));
+    expect(within(procRow as HTMLElement).getByText('Procedure')).toBeInTheDocument();
+    const unstructuredLabRow = rows.find((r) =>
+      within(r).queryByText('Cholesterol 200 mg/dL (self-reported)'),
+    );
+    expect(within(unstructuredLabRow as HTMLElement).getByText('Lab')).toBeInTheDocument();
+
+    // (b) The "Labs & vitals" section renders the structured series' latest value/unit
+    // and reference range as recorded.
+    const labsVitalsHeading = screen.getByRole('heading', { name: 'Labs & vitals', level: 3 });
+    expect(labsVitalsHeading).toBeInTheDocument();
+    // The caption is now the table's first child (accessibility fix: it gives the table
+    // its accessible name), not a preceding sibling — resolve the table via the caption's
+    // enclosing <table>, and confirm the accessible name works too.
+    const labsTable = screen.getByRole('table', { name: 'Labs' });
+    const hba1cRow = within(labsTable).getByText('HbA1c').closest('tr') as HTMLElement;
+    expect(hba1cRow.textContent).toContain('5.6 %');
+    expect(hba1cRow.textContent).toContain('(2021)');
+    expect(hba1cRow.textContent).toContain('4–5.6 %');
+
+    const vitalsTable = screen.getByRole('table', { name: 'Vitals' });
+    const bpRow = within(vitalsTable).getByText('Blood pressure').closest('tr') as HTMLElement;
+    expect(bpRow.textContent).toContain('120 mmHg');
+    expect(bpRow.textContent).toContain('(2022)');
+    expect(bpRow.textContent).toContain('90–120 mmHg');
+
+    // (d) The safety note text is present.
+    expect(screen.getByText(/does not assess whether any value is normal/i)).toBeInTheDocument();
+  });
+
+  /** A structured lab event carrying a free-text `detail` note, alongside a note-less
+   * structured vital event and a non-measurement procedure event — covers the three
+   * branches of the Health-timeline filter (product change #3, clinical-safety must-fix). */
+  function recordWithDetailedAndDetaillessMeasurements(): FamilyRecord {
+    const proband = mkProband();
+    const timeline: TimelineEvent[] = [
+      {
+        id: 'lab-with-detail',
+        person: proband.id,
+        year: 2021,
+        type: 'lab',
+        title: 'HbA1c',
+        detail: 'Fasting sample',
+        lab: { value: 5.6, unit: '%', refLow: 4, refHigh: 5.6 },
+      },
+      {
+        id: 'vital-no-detail',
+        person: proband.id,
+        year: 2022,
+        type: 'vital',
+        title: 'Blood pressure',
+        detail: '',
+        vital: { value: 120, unit: 'mmHg', refLow: 90, refHigh: 120 },
+      },
+      {
+        id: 'proc1',
+        person: proband.id,
+        year: 2018,
+        type: 'procedure',
+        title: 'Appendectomy',
+        detail: '',
+      },
+    ];
+    return { people: [proband], unions: [], timeline, probandId: proband.id };
+  }
+
+  it('keeps a structured lab/vital event that carries a detail note in the Health timeline, rendering it with its value inline so the clinician note is not silently dropped (regression)', () => {
+    act(() => useStore.getState().replaceRecord(recordWithDetailedAndDetaillessMeasurements()));
+    render(<PrintReports />);
+
+    const timelineTable = screen.getByRole('heading', { name: 'Health timeline', level: 3 })
+      .nextElementSibling as HTMLElement;
+
+    // The detail-bearing structured lab event IS kept as a timeline row, with its value
+    // and note both rendered ("Title: value unit — detail") — the note is never dropped.
+    expect(within(timelineTable).getByText(/HbA1c: 5\.6 % — Fasting sample/)).toBeInTheDocument();
+
+    // The note-less structured vital event is still excluded from the timeline...
+    expect(within(timelineTable).queryByText(/Blood pressure/)).not.toBeInTheDocument();
+    // ...and instead appears in the "Labs & vitals" summary table.
+    const vitalsTable = screen.getByRole('table', { name: 'Vitals' });
+    expect(within(vitalsTable).getByText('Blood pressure')).toBeInTheDocument();
+
+    // A non-measurement event (procedure) still appears in the timeline as before.
+    expect(within(timelineTable).getByText('Appendectomy')).toBeInTheDocument();
   });
 });
 
