@@ -1452,7 +1452,11 @@ describe('PedigreeView — empty record', () => {
 
 describe('PedigreeView — SMART-on-FHIR callback error', () => {
   afterEach(() => {
-    useSmartConnectionStore.setState({ connections: [], callbackError: null });
+    useSmartConnectionStore.setState({
+      connections: [],
+      callbackError: null,
+      requestedSyncId: null,
+    });
   });
 
   // Regression: the OAuth redirect back from a provider is a full page reload, so a failed
@@ -1469,6 +1473,19 @@ describe('PedigreeView — SMART-on-FHIR callback error', () => {
       await screen.findByRole('heading', { name: /connect a health record \(smart on fhir\)/i }),
     ).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not be verified/i);
+  });
+
+  // DR-0016: the success-path counterpart of the test above — fixes the "redirected home,
+  // nothing happened" bug. A successful callback (or SmartSyncChip's manual re-sync) sets
+  // `requestedSyncId` instead of `callbackError`; PedigreeView's effect must open the same
+  // panel for THIS field too, not just the error one.
+  it('auto-opens the SMART-on-FHIR panel when requestedSyncId is set (a successful callback)', async () => {
+    useSmartConnectionStore.setState({ requestedSyncId: 'conn-just-connected' });
+    render(<PedigreeView />);
+
+    expect(
+      await screen.findByRole('heading', { name: /connect a health record \(smart on fhir\)/i }),
+    ).toBeInTheDocument();
   });
 });
 

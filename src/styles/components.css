@@ -618,6 +618,84 @@ input.field.mono {
   margin: 8px 0 0;
 }
 
+/* ---- Generic disclosure (any plain <details>/<summary> that isn't view-specific) ----
+   Same hide-the-UA-marker + custom ▸/▾ caret treatment as `.pedigree-guide__toggle` /
+   `.history-entry__summary`, factored out under a non-view-specific name for call sites
+   outside the pedigree (e.g. SmartFhirConnect's "enter a FHIR endpoint manually" fallback,
+   DR-0016) rather than borrowing a `pedigree-*` class in an unrelated component. */
+.disclosure {
+  margin-top: 4px;
+}
+.disclosure__toggle {
+  display: inline-block;
+  width: fit-content;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+.disclosure__toggle::-webkit-details-marker {
+  display: none;
+}
+.disclosure__toggle::before {
+  content: '▸ ';
+}
+.disclosure[open] .disclosure__toggle::before {
+  content: '▾ ';
+}
+.disclosure__body {
+  margin-top: 10px;
+}
+
+/* ---- SMART-on-FHIR Epic provider picker (EpicBrandPicker.tsx, DR-0016) ----
+   A filterable single-input combobox over the bundled brand-level provider directory,
+   lazy-loaded off the critical path. The dropdown is its own scoped class pair, kept
+   independent of the unrelated `.pedigree-hl-*` popover (PedigreeHighlight.tsx). */
+.epic-picker {
+  position: relative;
+}
+.epic-picker__listbox {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  list-style: none;
+}
+.epic-picker__option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+.epic-picker__option:hover {
+  background: var(--bg-hover);
+}
+/* The keyboard-highlighted option: `aria-activedescendant` on the input points here and
+   `aria-selected="true"` carries the same information to assistive tech, so the highlight
+   is never colour-only (WCAG 1.4.1) — the accent border is the non-colour cue. */
+.epic-picker__option--active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 /* ---- History (edit-audit trail) ----
    Each entry is its own <details>/<summary> disclosure (native keyboard operability,
    no custom toggle-state wiring needed) styled with the same hide-the-UA-marker +
@@ -685,6 +763,28 @@ input.field.mono {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+/* Applied alongside `.pedigree-body` (never in place of it — see PedigreeView's own
+   comment) while an import panel is open, so `.pedigree-import-scroll` below gets the
+   whole remaining column height instead of splitting it with the canvas. */
+.pedigree-body--hidden {
+  display: none;
+}
+/* The open GEDCOM/C-CDA/SMART-on-FHIR import panel's scroll region — a real flex child of
+   the same fixed-height (100vh-bounded), `overflow: hidden` column `.pedigree-header` and
+   `.pedigree-body` sit in, NOT a `max-height` hack: `flex: 1` claims exactly the space left
+   after the (flex: none) header, and `min-height: 0` is required for a flex child to be
+   allowed to shrink below its content's intrinsic height at all (the default `min-height:
+   auto` is what let a tall review card blow out the column and get clipped by the outer
+   `overflow: hidden` in the first place — this is the actual root cause, not the missing
+   `overflow-y`). `overflow-y: auto` then scrolls that bounded region by pointer, wheel,
+   touch, and keyboard alike (a plain overflow container needs no bespoke input handling,
+   unlike `.pedigree-scroll`'s app-driven pan/zoom below). */
+.pedigree-import-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 34px 28px;
 }
 /* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is a
    fixed-size, clipped window, and `.pedigree-canvas` inside it carries a single
@@ -1175,6 +1275,7 @@ input.field.mono {
 .field:focus-visible,
 .clinical-boundary__toggle:focus-visible,
 .pedigree-guide__toggle:focus-visible,
+.disclosure__toggle:focus-visible,
 .history-entry__summary:focus-visible,
 .pedigree-hl-row:focus-visible,
 .pedigree-scroll:focus-visible,

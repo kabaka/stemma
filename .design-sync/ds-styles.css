@@ -123,7 +123,6 @@ select option {
     scroll-behavior: auto !important;
   }
 }
-
 /* Component styles for the Stemma UI. Layout + reusable primitives; one-off styling
    stays inline in components. Colours come from theme.css variables so the palette
    toggle and print styles stay centralised. */
@@ -225,6 +224,20 @@ select option {
   flex-direction: column;
   gap: 14px;
 }
+.sidebar__legal {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.sidebar__legal a {
+  color: inherit;
+  text-decoration: none;
+}
+.sidebar__legal a:hover,
+.sidebar__legal a:focus-visible {
+  color: var(--text-dim);
+  text-decoration: underline;
+}
 .overline {
   font-family: var(--font-mono);
   font-size: 9px;
@@ -261,10 +274,25 @@ select option {
 }
 .page-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  flex-wrap: wrap;
   gap: 16px;
+  min-height: 36px;
+  margin: 0 0 16px;
+}
+.page-head__main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
 }
 .page-title {
   font-size: 23px;
@@ -275,7 +303,7 @@ select option {
 .lede {
   color: var(--text-dim);
   font-size: 13px;
-  margin: 0 0 24px;
+  margin: 0 0 20px;
   max-width: 680px;
   line-height: 1.5;
 }
@@ -551,6 +579,13 @@ textarea.field {
   font-size: 13px;
   width: 100%;
 }
+/* Monospace `.field` variant for a value the user copies verbatim rather than edits (e.g.
+   the SMART-on-FHIR redirect URI) — a `readOnly` input, not a `<code>` block, so it's
+   natively focusable and keyboard-selectable (see SmartFhirConnect.tsx). */
+input.field.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
 /* Not element-qualified: PersonForm labels its segmented-toggle / organ / conditions
    groups with a <span class="lbl"> (a group heading isn't a single control's <label>),
    and those must get the same small, dim caption styling as real <label class="lbl">s. */
@@ -708,6 +743,84 @@ textarea.field {
   margin: 8px 0 0;
 }
 
+/* ---- Generic disclosure (any plain <details>/<summary> that isn't view-specific) ----
+   Same hide-the-UA-marker + custom ▸/▾ caret treatment as `.pedigree-guide__toggle` /
+   `.history-entry__summary`, factored out under a non-view-specific name for call sites
+   outside the pedigree (e.g. SmartFhirConnect's "enter a FHIR endpoint manually" fallback,
+   DR-0016) rather than borrowing a `pedigree-*` class in an unrelated component. */
+.disclosure {
+  margin-top: 4px;
+}
+.disclosure__toggle {
+  display: inline-block;
+  width: fit-content;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+}
+.disclosure__toggle::-webkit-details-marker {
+  display: none;
+}
+.disclosure__toggle::before {
+  content: '▸ ';
+}
+.disclosure[open] .disclosure__toggle::before {
+  content: '▾ ';
+}
+.disclosure__body {
+  margin-top: 10px;
+}
+
+/* ---- SMART-on-FHIR Epic provider picker (EpicBrandPicker.tsx, DR-0016) ----
+   A filterable single-input combobox over the bundled brand-level provider directory,
+   lazy-loaded off the critical path. The dropdown is its own scoped class pair, kept
+   independent of the unrelated `.pedigree-hl-*` popover (PedigreeHighlight.tsx). */
+.epic-picker {
+  position: relative;
+}
+.epic-picker__listbox {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  list-style: none;
+}
+.epic-picker__option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+.epic-picker__option:hover {
+  background: var(--bg-hover);
+}
+/* The keyboard-highlighted option: `aria-activedescendant` on the input points here and
+   `aria-selected="true"` carries the same information to assistive tech, so the highlight
+   is never colour-only (WCAG 1.4.1) — the accent border is the non-colour cue. */
+.epic-picker__option--active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 /* ---- History (edit-audit trail) ----
    Each entry is its own <details>/<summary> disclosure (native keyboard operability,
    no custom toggle-state wiring needed) styled with the same hide-the-UA-marker +
@@ -760,14 +873,43 @@ textarea.field {
    header (title + Highlight controls) above a flexible body that either scrolls the
    canvas or shows the empty-state prompt, then a pinned footer for the category legend. */
 .pedigree-header {
-  padding: 22px 34px 16px;
+  padding: 28px 34px 16px;
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+.pedigree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .pedigree-body {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+/* Applied alongside `.pedigree-body` (never in place of it — see PedigreeView's own
+   comment) while an import panel is open, so `.pedigree-import-scroll` below gets the
+   whole remaining column height instead of splitting it with the canvas. */
+.pedigree-body--hidden {
+  display: none;
+}
+/* The open GEDCOM/C-CDA/SMART-on-FHIR import panel's scroll region — a real flex child of
+   the same fixed-height (100vh-bounded), `overflow: hidden` column `.pedigree-header` and
+   `.pedigree-body` sit in, NOT a `max-height` hack: `flex: 1` claims exactly the space left
+   after the (flex: none) header, and `min-height: 0` is required for a flex child to be
+   allowed to shrink below its content's intrinsic height at all (the default `min-height:
+   auto` is what let a tall review card blow out the column and get clipped by the outer
+   `overflow: hidden` in the first place — this is the actual root cause, not the missing
+   `overflow-y`). `overflow-y: auto` then scrolls that bounded region by pointer, wheel,
+   touch, and keyboard alike (a plain overflow container needs no bespoke input handling,
+   unlike `.pedigree-scroll`'s app-driven pan/zoom below). */
+.pedigree-import-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 34px 28px;
 }
 /* App-driven pan/zoom replaces native scroll (they don't compose): the viewport is a
    fixed-size, clipped window, and `.pedigree-canvas` inside it carries a single
@@ -1258,9 +1400,13 @@ textarea.field {
 .field:focus-visible,
 .clinical-boundary__toggle:focus-visible,
 .pedigree-guide__toggle:focus-visible,
+.disclosure__toggle:focus-visible,
 .history-entry__summary:focus-visible,
 .pedigree-hl-row:focus-visible,
-.pedigree-scroll:focus-visible {
+.pedigree-scroll:focus-visible,
+.overline:focus-visible,
+.page-title:focus-visible,
+.sidebar__legal a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -1293,8 +1439,10 @@ textarea.field {
 
 /* ---- Printable clinical one-pagers (GAP-ANALYSIS H1) ----
    The three sheets live in a sibling of `.app`, hidden on screen. In print we drop the
-   dark app chrome entirely and render these black-on-white, one sheet per page. Every
-   sheet ends with the clinical boundary as a first-class element (guardrail #3). */
+   dark app chrome entirely and render these black-on-white, one sheet per page. The
+   clinical boundary runs as a single fixed footer (`.print-footer`) repeated by the
+   browser at the bottom of every physical printed page — a first-class element
+   (guardrail #3), not incidental footer text. */
 .print-reports {
   display: none;
 }
@@ -1362,6 +1510,29 @@ textarea.field {
     line-height: 1.5;
     margin: 6px 0;
   }
+  .print-catkey {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    list-style: none;
+    margin: 2px 0 6px;
+    padding: 0;
+    font-size: 11px;
+    color: #333;
+  }
+  .print-catkey li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .print-catkey__swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border: 1px solid #111;
+    flex: none;
+  }
   .print-pedigree {
     text-align: center;
     margin: 8px 0;
@@ -1412,6 +1583,14 @@ textarea.field {
   .print-flag-rec {
     color: #333;
   }
+  .print-affected {
+    font-size: 11px;
+    color: #555;
+    line-height: 1.35;
+    margin-top: 2px;
+    font-weight: 400;
+    white-space: normal;
+  }
   .print-table {
     width: 100%;
     border-collapse: collapse;
@@ -1433,19 +1612,20 @@ textarea.field {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .print-boundary {
-    margin-top: 16px;
-    border: 1px solid #111;
-    border-radius: 4px;
-    padding: 8px 10px;
-    font-size: 10.5px;
-    line-height: 1.5;
+  .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
     color: #111;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    border-top: 1px solid #111;
+    padding: 4px 6px 0;
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   @page {
-    margin: 12mm;
+    margin: 12mm 12mm 24mm;
   }
 }

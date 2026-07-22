@@ -134,7 +134,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   window.localStorage.clear();
   setLocation();
-  useSmartConnectionStore.setState({ connections: [], callbackError: null });
+  useSmartConnectionStore.setState({ connections: [], callbackError: null, requestedSyncId: null });
   useStore.getState().resetRecord();
 });
 
@@ -228,8 +228,30 @@ describe('completeCallbackIfPresent — CSRF state verification', () => {
     expect(replaceStateSpy).toHaveBeenCalled();
     expect(useSmartConnectionStore.getState().callbackError).toBeNull();
     expect(useSmartConnectionStore.getState().connections.map((c) => c.id)).toContain(connectionId);
+    // DR-0016: fixes the "redirected home, nothing happened" bug — a successful callback
+    // now sets `requestedSyncId` to the new connection's id in the SAME `set` that adds the
+    // connection, so the UI has something to react to (App navigates, PedigreeView opens
+    // the panel, SmartFhirConnect auto-syncs) exactly the way a failed callback's
+    // `callbackError` already worked.
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBe(connectionId);
 
     replaceStateSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requestSync / clearRequestedSync (DR-0016)
+// ---------------------------------------------------------------------------
+
+describe('requestSync / clearRequestedSync', () => {
+  it('requestSync sets requestedSyncId and clearRequestedSync resets it to null', () => {
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull();
+
+    useSmartConnectionStore.getState().requestSync('conn-xyz');
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBe('conn-xyz');
+
+    useSmartConnectionStore.getState().clearRequestedSync();
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull();
   });
 });
 

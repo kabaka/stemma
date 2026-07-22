@@ -138,10 +138,7 @@ describe('encodeProviders / decodeProviders', () => {
   it('interns repeated URLs into the url table', () => {
     const { urls, rows } = encodeProviders(providers);
     // Alpha's URL and Beta's URL — Gamma reuses Beta's, so only two distinct URLs.
-    expect(urls).toEqual([
-      'https://alpha.example.org/fhir/r4',
-      'https://beta.example.org/fhir/r4',
-    ]);
+    expect(urls).toEqual(['https://alpha.example.org/fhir/r4', 'https://beta.example.org/fhir/r4']);
     // Beta Clinic and Gamma Medical both reference url index 1.
     expect(rows[1][1]).toBe(1);
     expect(rows[2][1]).toBe(1);
