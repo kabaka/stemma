@@ -196,6 +196,45 @@ function sanitizeConnections(input: unknown): SmartConnection[] {
   return Array.isArray(raw) ? raw.filter(isConnection) : [];
 }
 
+/**
+ * A CONSERVATIVE normalization of `fhirBaseUrl`, used ONLY to decide whether two connect attempts
+ * target the "same" portal — never to change what's stored. Retyping the same portal URL with a
+ * different trailing slash or host case (e.g. `HTTPS://Fhir.example.org/R4` vs
+ * `https://fhir.example.org/R4/`) would otherwise fail the exact-string match in
+ * {@link upsertConnection} / the `existing` lookup below and duplicate the card. Lowercases only
+ * the origin (scheme+host) — hostnames are case-insensitive by spec — and strips a single
+ * trailing slash from the path; the path's own case is left exactly as typed, since FHIR paths
+ * CAN be case-sensitive (unlike the host). Falls back to the raw string on anything that doesn't
+ * parse as a URL (shouldn't happen post-validation, but never guess).
+ */
+function connectionMatchKey(fhirBaseUrl: string): string {
+  try {
+    const u = new URL(fhirBaseUrl);
+    const origin = `${u.protocol}//${u.host}`.toLowerCase();
+    const pathname =
+      u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
+    return `${origin}${pathname}${u.search}${u.hash}`;
+  } catch {
+    return fhirBaseUrl;
+  }
+}
+
+/**
+ * Insert-or-replace by `fhirBaseUrl` (compared via {@link connectionMatchKey}) — the practical
+ * "one login per provider portal" key. Deliberately NOT keyed on `patientId`: it isn't known
+ * until the OAuth response comes back (can't match on it up front), and a single-proband tool has
+ * no need to track multiple distinct patients behind the same portal. A re-auth for a portal
+ * Stemma already has a card for replaces that card in place (reconnect flow, DR-0033) — storing
+ * the INCOMING connection's exact `fhirBaseUrl` (not a normalized form) so the latest connect's
+ * literal value is always what discovery/sync use going forward; a genuinely new portal appends.
+ */
+function upsertConnection(list: SmartConnection[], connection: SmartConnection): SmartConnection[] {
+  const key = connectionMatchKey(connection.fhirBaseUrl);
+  const idx = list.findIndex((c) => connectionMatchKey(c.fhirBaseUrl) === key);
+  if (idx === -1) return [...list, connection];
+  return list.map((c, i) => (i === idx ? connection : c));
+}
+
 // ---------------------------------------------------------------------------
 // sessionStorage helpers for the transient PKCE handshake.
 // ---------------------------------------------------------------------------
@@ -248,9 +287,22 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
           scope: response.scope,
           patientId: response.patient,
         });
-        if (response.refresh_token) {
-          tokenStore.saveRefreshToken(connectionId, response.refresh_token, stayConnected);
+        // The refresh-token CLEAR must NOT be gated on the response carrying one (security
+        // finding): `upsertConnection` reuses an existing connection id keyed on `fhirBaseUrl`
+        // (DR-0033), so a reconnect to a portal that previously had "Stay connected" ON — now
+        // reconnected with it OFF, and whose token response omits `refresh_token` (the common
+        // shape, since most providers only issue one on the FIRST grant of `offline_access`) —
+        // must still wipe the OLD refresh token lingering under the reused id. See
+        // `TokenStore.saveRefreshToken`'s own contract: `stayConnected=false` is unconditionally
+        // a clear, regardless of what's passed as the token.
+        if (!stayConnected) {
+          tokenStore.saveRefreshToken(connectionId, '', false);
+        } else if (response.refresh_token) {
+          tokenStore.saveRefreshToken(connectionId, response.refresh_token, true);
         }
+        // else: staying connected but this round's response didn't include a refresh_token (no
+        // rotation) — deliberately do nothing, so any existing valid token is left untouched
+        // rather than being overwritten with an empty string.
       };
 
       /** A currently-valid access token for a connection, refreshing if needed. */
@@ -372,7 +424,17 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
               clientId: pending.clientId,
             });
 
-            const id = newId();
+            // Reconnect-in-place (DR-0033): a callback for a `fhirBaseUrl` Stemma already has a
+            // connection for reuses that connection's `id` (tokens persist under the SAME id,
+            // and the card updates instead of duplicating) rather than always minting a new one.
+            // See `upsertConnection`'s own doc for why the match key is `fhirBaseUrl` alone, and
+            // `connectionMatchKey`'s doc for why the comparison is normalized (trailing slash /
+            // host case) while the stored value itself stays exactly what was typed.
+            const pendingKey = connectionMatchKey(pending.fhirBaseUrl);
+            const existing = get().connections.find(
+              (c) => connectionMatchKey(c.fhirBaseUrl) === pendingKey,
+            );
+            const id = existing?.id ?? newId();
             const scopesGranted = scopesFrom(response, pending.scope);
             const connection: SmartConnection = {
               id,
@@ -380,22 +442,25 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
               authorizeEndpoint: pending.endpoints.authorizeEndpoint,
               tokenEndpoint: pending.endpoints.tokenEndpoint,
               clientId: pending.clientId,
-              patientId: response.patient ?? null,
+              patientId: response.patient ?? existing?.patientId ?? null,
               scopesGranted,
               offlineAccessGranted: scopesGranted.includes('offline_access'),
               stayConnected: pending.stayConnected,
-              lastSyncAt: null,
-              createdAt: nowIso(),
+              // A reconnect shouldn't reset "last synced" — the auto-sync that follows (via
+              // `requestedSyncId` below) will update it for real once it actually succeeds.
+              lastSyncAt: existing?.lastSyncAt ?? null,
+              createdAt: existing?.createdAt ?? nowIso(),
             };
 
             persistTokens(id, response, pending.stayConnected);
-            // Setting `requestedSyncId` here (the SAME atomic `set` that adds the connection
-            // and clears `callbackError`) is what fixes the "redirected home, nothing
+            // Setting `requestedSyncId` here (the SAME atomic `set` that adds/updates the
+            // connection and clears `callbackError`) is what fixes the "redirected home, nothing
             // happened" bug: previously a successful callback left no trace for the UI to
             // react to at all, unlike a failed one (`callbackError`). This reuses that exact
-            // signal idiom instead of inventing a new toast/latch — see the field's own doc.
+            // signal idiom instead of inventing a new toast/latch — see the field's own doc. It
+            // resolves to `existing.id` on a reconnect so the auto-sync fires for the right card.
             set((s) => ({
-              connections: [...s.connections, connection],
+              connections: upsertConnection(s.connections, connection),
               callbackError: null,
               requestedSyncId: id,
             }));

@@ -441,6 +441,34 @@ describe('SmartFhirConnect — connected', () => {
     expect(screen.getByText(/ask you to sign in with them first/i)).toBeInTheDocument();
   });
 
+  // Regression for the a11y finding (WCAG 2.5.3, Label in Name): with two connection cards
+  // rendered, "Sync now"/"Sign in again"/"Disconnect" must each resolve to a UNIQUE, per-card
+  // accessible name so screen-reader element-list navigation doesn't hear three ambiguous,
+  // indistinguishable "Sync now" entries etc.
+  it('gives each Sync now / Sign in again / Disconnect button its own per-connection accessible name when two connections are rendered', () => {
+    const second: SmartConnection = {
+      ...CONNECTION,
+      id: 'conn-2',
+      fhirBaseUrl: 'https://fhir.other-provider.example/api/FHIR/R4',
+    };
+    useSmartConnectionStore.setState({ connections: [CONNECTION, second] });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    for (const conn of [CONNECTION, second]) {
+      expect(
+        screen.getByRole('button', { name: `Sync now for ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: `Sign in again to ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: `Disconnect ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+    }
+  });
+
   it('disconnecting calls the store action with the connection id', async () => {
     const user = userEvent.setup();
     const disconnect = vi.fn();
@@ -449,7 +477,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    await user.click(screen.getByRole('button', { name: /^disconnect/i }));
     expect(disconnect).toHaveBeenCalledWith('conn-1');
   });
 
@@ -473,7 +501,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={onImport} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     expect(await screen.findByText('Your conditions')).toBeInTheDocument();
     expect(screen.getByRole('note', { name: /clinical boundary/i })).toBeInTheDocument();
@@ -506,7 +534,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     // Must land on the review step (not the "nothing found" sync error) and surface the
     // health event for review.
@@ -538,7 +566,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     const heading = await screen.findByRole('heading', { name: 'Review synced health record' });
     expect(heading).toHaveFocus();
@@ -554,7 +582,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    const syncBtn = screen.getByRole('button', { name: 'Sync now' });
+    const syncBtn = screen.getByRole('button', { name: /^sync now/i });
     await user.click(syncBtn);
     await user.click(syncBtn); // still "Syncing…" — must be a no-op
 
@@ -570,12 +598,110 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /sign-in with this provider failed/i,
     );
     expect(screen.getByText(CONNECTION.fhirBaseUrl)).toBeInTheDocument();
+  });
+
+  // DR-0033: one-click re-authentication for an expired connection — "Sign in again" is always
+  // reachable on the card, and calls beginConnect with the connection's OWN endpoint/client
+  // id/stay-connected choice (no re-picking a provider needed).
+  describe('"Sign in again" (DR-0033)', () => {
+    it('is present on the connection card and calls beginConnect with this connection’s fhirBaseUrl, clientId, and stayConnected', async () => {
+      const user = userEvent.setup();
+      const beginConnect = vi.fn().mockResolvedValue(undefined);
+      useSmartConnectionStore.setState({
+        beginConnect,
+        connections: [{ ...CONNECTION, stayConnected: true }],
+      });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      const button = screen.getByRole('button', { name: /sign in again/i });
+      expect(button).toBeInTheDocument();
+      await user.click(button);
+
+      expect(beginConnect).toHaveBeenCalledWith(CONNECTION.fhirBaseUrl, CONNECTION.clientId, {
+        stayConnected: true,
+        redirectUri,
+      });
+    });
+
+    it('is a secondary action (not primary) while there is no sync error, leaving "Sync now" primary', () => {
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByRole('button', { name: /^sync now/i }).className).toContain(
+        'btn--primary',
+      );
+      expect(screen.getByRole('button', { name: /sign in again/i }).className).not.toContain(
+        'btn--primary',
+      );
+    });
+
+    it('is PROMOTED to the primary action once a sync fails with an expiry error, demoting "Sync now"', async () => {
+      const user = userEvent.setup();
+      useSmartConnectionStore.setState({
+        syncNow: vi
+          .fn()
+          .mockRejectedValue(
+            new Error('This connection has expired and needs to be reauthorized.'),
+          ),
+      });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /^sync now/i }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/sign in again/i);
+
+      expect(screen.getByRole('button', { name: /sign in again/i }).className).toContain(
+        'btn--primary',
+      );
+      expect(screen.getByRole('button', { name: /^sync now/i }).className).not.toContain(
+        'btn--primary',
+      );
+    });
+
+    it('surfaces a discovery/navigation failure on the connection’s own error slot rather than throwing', async () => {
+      const user = userEvent.setup();
+      useSmartConnectionStore.setState({
+        beginConnect: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+      });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /sign in again/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/CORS/i);
+      expect(screen.getByText(CONNECTION.fhirBaseUrl)).toBeInTheDocument();
+    });
   });
 
   // Regression suite for the `requestedSyncId` auto-sync latch (see SmartFhirConnect.tsx's
