@@ -41,7 +41,7 @@ graph TD
     end
     subgraph core["Pure core (no React, no I/O)"]
       DOMAIN["src/domain<br/>types · person · graph · record · patterns · screening · catalog"]
-      DATA["src/data<br/>conditions · categories · recommendations · seed"]
+      DATA["src/data<br/>conditions · smart-endpoints · categories · recommendations · seed"]
     end
 
     UI --> STORE
@@ -62,15 +62,15 @@ graph TD
 | Layer | Directory | Responsibility | Depends on |
 | --- | --- | --- | --- |
 | **Domain** | `src/domain/` | Pure, typed, tested engine: model, kinship math, pattern detection, screening, catalog search, partial-date parsing/formatting (`dates.ts`) | itself + curated `data` tables |
-| **Data** | `src/data/` | Curated, pure constants (catalog, categories, recommendations, seed family, FHIR terminology constants in `fhir-codes.ts`) | `domain` (types only) |
+| **Data** | `src/data/` | Curated, pure constants (catalog, the SMART-on-FHIR provider directory in `smart-endpoints.ts`, categories, recommendations, seed family, FHIR terminology constants in `fhir-codes.ts`) | `domain` (types only) |
 | **Integrations** | `src/integrations/` | Ports to external services: the vocabulary adapter, and the SMART-on-FHIR OAuth2+PKCE transport (`src/integrations/smart-fhir/`) | `domain` (types) |
 | **Export** | `src/export/` | Serialize the graph to open standards | `domain`, `data` |
 | **Import** | `src/import/` | Parse an external file/bundle into the graph (the inverse of Export) | `domain`, `data` |
 | **Store** | `src/store/` | Zustand state, mutations, `localStorage` persistence, catalog assembly | `domain`, `data`, `integrations` |
-| **UI** | `src/ui/` | React views over the store | everything below |
+| **UI** | `src/ui/` | React views over the store; the one layer allowed to read build-time env (`src/ui/config.ts`) | everything below |
 
 > **Current state.** All layers are implemented; the domain, store, export, import, and view layers
-> are covered by the test suite (1,114 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
+> are covered by the test suite (1,170 tests). The `@/` path alias maps to `src/` (see `vite.config.ts`
 > / `tsconfig.app.json`).
 
 The pure core is genuinely pure: `src/domain` imports no React, performs no I/O (`fetch`,
@@ -413,6 +413,57 @@ fetches the expanded resource set with one search per type via `Promise.all`; a 
 search degrades to a `fetchWarnings` entry (surfaced to the user) instead of aborting the sync — the
 mandatory `Patient` read is the only fetch that still fails closed.
 
+### The build-time env seam, the provider picker, and its generated directory (DR-0027)
+
+Connecting to a provider no longer requires hand-entering OAuth values. Three pieces, each landing
+in the layer the layering table already prescribes:
+
+- **`src/ui/config.ts`** is the *only* place in the app that reads `import.meta.env` — a Vite/build
+  concern the layering table restricts to the UI layer. `buildTimeSmartClientId()` returns the
+  `VITE_SMART_CLIENT_ID` value baked in by [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+  (sourced from a GitHub Actions repository **Variable**, `vars.SMART_CLIENT_ID` — not a Secret,
+  since a public-client `client_id` isn't confidential, RFC 6749 §2.1) or `null` when unset. The
+  value flows straight into the existing `beginConnect(baseUrl, clientId, opts)` call; neither
+  `src/store/` nor `src/integrations/` gained a new dependency. When `null` (a fork, or any build
+  without the variable), `SmartFhirConnect` renders its manual **Client ID** field unchanged.
+- **`src/data/smart-endpoints.ts`** is a second **generated, do-not-hand-edit** data table
+  alongside `conditions.ts` — same contract: pure, typed against `domain` only, regenerate rather
+  than edit. [`scripts/gen-endpoints.mjs`](../scripts/gen-endpoints.mjs) (`npm run gen:endpoints`)
+  slims Epic's published "User-access Brands" FHIR bundle to a brand-level index (~1,243 entries:
+  name, FHIR base URL, city/state) with a compact interned-URL encoding to keep the committed file
+  small. Unlike `gen-conditions.mjs`, there is **no CI staleness gate** — re-fetching Epic's ~92 MB
+  source bundle on every CI run isn't proportionate, so freshness is a documented manual cadence
+  (see [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#maintainer-setup--connecting-a-shared-epic-app));
+  `tsc` still enforces the generated file's shape via the picker's typed import. The directory is
+  **built into the app, never fetched at runtime** — preserving local-first exactly as the curated
+  catalog does.
+- **`EpicBrandPicker.tsx`**, the searchable combobox over that directory, is **lazy-loaded**
+  (`React.lazy` + dynamic `import('@/data/smart-endpoints')`) from `SmartFhirConnect.tsx` so neither
+  the component nor the ~102 KB provider table touch the app's critical-path bundle — the cost is
+  paid only once someone opens the connect panel. A manual FHIR-endpoint field remains as an
+  explicit fallback (a provider not in the directory, or a non-Epic portal), reusing the same
+  `beginConnect` call the picker's `onSelect` does.
+
+The redirect URI is no longer a form field either: `SmartFhirConnect`'s `redirectUri()` still
+computes `window.location.origin + import.meta.env.BASE_URL` (unchanged since ADR-010) and passes
+it to `beginConnect`, but Epic fixes redirect URIs at app-registration time — an out-of-band,
+one-time step for whoever registers the app, not a per-user runtime concern — so displaying it to
+every visitor was misleading rather than merely informational.
+
+**Closing the "redirected home, nothing happened" gap.** `useSmartConnectionStore` gained a small,
+non-persisted signal, `requestedSyncId: string | null` (plus `requestSync`/`clearRequestedSync`),
+following the exact idiom the store's existing `callbackError` field already established for the
+failure path. On a successful OAuth callback the store sets `requestedSyncId` to the new
+connection's id in the same atomic `set` that adds the connection; `App.tsx` — the one legal
+mediator between the record store and the SMART connection store — navigates to the pedigree once
+(gated by its existing `smartCallbackFired` latch); `PedigreeView` opens the connect panel on the
+signal; `SmartFhirConnect` auto-fires its own existing `handleSync` exactly once, clearing the
+signal synchronously before the first `await` (mirroring the store's `callbackInFlight` discipline
+against React 18 StrictMode's dev double-invoke). The same signal powers re-sync: `SmartSyncChip.tsx`,
+a small unobtrusive chip in `Sidebar.tsx`'s foot (rendered only when at least one connection exists),
+calls `requestSync(mostStaleId)` on click — no duplicated sync-and-open-panel logic anywhere. No new
+store↔UI dependency was introduced; `requestedSyncId` is plain data, like `callbackError` before it.
+
 ## 10. Determinism
 
 The engine is deterministic so it can be unit-tested against known pedigrees. The one source of
@@ -751,6 +802,72 @@ gate (`code-reviewer` + `clinical-safety-reviewer` + `security-privacy-reviewer`
 [DR-0023](../.ai-dlc/records/DR-0023-smart-fhir-timeline-import-inception.md) and
 [DR-0024](../.ai-dlc/records/DR-0024-smart-fhir-timeline-import-design-fork.md) for the full
 decision record. (roadmap Phase 3.)
+
+### ADR-012 — SMART-on-FHIR connect flow redesign: build-time client ID, a generated provider directory, and callback auto-sync
+
+**Context:** ADR-010/ADR-011 shipped a working client-side SMART-on-FHIR importer, but every user
+still had to register their own app with their provider and hand-type a FHIR base URL, a client ID,
+and (implicitly) confirm a displayed redirect URI — friction disproportionate to what a public
+OAuth client actually needs to keep secret (nothing). Two further rough edges: a successful OAuth
+callback silently returned the user home with no visible next step (only a *failed* callback
+surfaced anything, via `callbackError`), and there was no way to re-sync an existing connection
+without reopening the full connect panel.
+
+**Decision — build-time client ID with a manual fallback.** Since a browser SPA is an OAuth
+**public client** and `client_id` is not a secret (RFC 6749 §2.1) — security rests on PKCE (already
+shipped, ADR-010) plus the registered redirect URI — a single production client ID can be baked
+into the deployed build. `src/ui/config.ts`'s `buildTimeSmartClientId()` reads
+`VITE_SMART_CLIENT_ID`, sourced in [`deploy.yml`](../.github/workflows/deploy.yml) from a GitHub
+Actions repository **Variable** (`vars.SMART_CLIENT_ID`), never a Secret. `import.meta.env` is read
+in exactly this one UI-layer file — never `store`/`integrations` — preserving the layering table.
+When unset (a fork, local dev without the variable), `SmartFhirConnect`'s manual Client ID field
+renders exactly as before; nothing breaks.
+
+**Decision — remove the redirect-URI field; keep deriving it internally.** Epic (and SMART
+generally) fixes redirect URIs at app-registration time, an exact-match, out-of-band, one-time step
+— not a per-user runtime concern. The field was removed from the UI; `redirectUri()` still computes
+`origin + BASE_URL` internally and passes it to `beginConnect` unchanged. Whoever registers the app
+(the maintainer, or a fork owner) now needs the value from documentation
+([`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#registering-stemma-as-an-app-with-your-provider)), not from
+a UI field.
+
+**Decision — a generated, brand-level provider directory + lazy-loaded picker.** See
+[§9](#9-the-import-layer) above for the full design: `scripts/gen-endpoints.mjs` slims Epic's
+published Brands bundle to `src/data/smart-endpoints.ts` (~1,243 entries), a second generated,
+do-not-hand-edit data table beside `conditions.ts`; `EpicBrandPicker.tsx` is a lazy-loaded,
+accessible combobox over it, with a manual-entry fallback preserved for anything not listed.
+**Scope is brand-level, not the full ~89k-organization union**: every one of Epic's 94,131 orgs
+resolves to one of only 764 distinct FHIR base URLs, all already reachable through the ~1,243 brand
+entries — the excluded facility orgs contribute only alternate search aliases, not additional
+connectable endpoints, so the brand-level cut loses no reachability for a ~20x smaller committed
+artifact (~85 KB raw / ~20 KB gzip vs. ~4 MB / ~0.85 MB).
+
+**Decision — close the "nothing happened" gap with a plain-data signal, not a new primitive.**
+`useSmartConnectionStore` gained `requestedSyncId: string | null` (`requestSync`/
+`clearRequestedSync`), reusing the exact non-persisted-signal idiom `callbackError` already
+established for the failure path — no new toast, no new re-entrancy primitive. `App.tsx` (the one
+legal mediator between the record store and the SMART store) navigates to the pedigree on a
+successful callback; `PedigreeView` opens the panel; `SmartFhirConnect` auto-fires its existing
+`handleSync` once. `SmartSyncChip.tsx`, a small chip in the sidebar foot shown only when a
+connection exists, drives the identical signal for on-demand re-sync of the most-overdue
+connection — one seam, two triggers.
+
+**Decision — explain "Needs review" in place.** `CcdaReview.tsx` (shared by the C-CDA and FHIR
+importers) gained a collapsed-by-default, plain-language legend explaining the amber "Needs
+review" badge and the three reasons a checkbox can be disabled (already recorded; no medical code
+to safely attach; the relative it belongs to isn't selected yet) — additive, no prop or API change.
+
+**Consequence.** Registering Stemma with a provider is now a one-time, maintainer-side (or
+fork-owner-side) act, not something every visitor repeats; the common case (a hosted build with the
+Variable set, connecting to a listed Epic brand) needs no manually-entered OAuth values at all.
+Accepted risk: the picker can surface an Epic organization the registered app isn't necessarily
+enabled for — a connect attempt against a non-enabled org fails at Epic's own authorize step,
+surfaced through the existing `callbackError` path, with no data exposure. Guardrails intact: no
+manufactured risk numbers; review-before-merge for record data unchanged; local-first preserved (no
+new runtime network call — the directory is build-time data); the standing `ClinicalBoundary` notice
+is unchanged on the connect/review surfaces. See
+[DR-0027](../.ai-dlc/records/DR-0027-fhir-epic-import-flow-design.md) for the full decision record,
+and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for the updated setup guide. (roadmap Phase 3.)
 
 ---
 

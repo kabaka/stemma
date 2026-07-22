@@ -1,6 +1,7 @@
 import { useStore, type View } from '@/store/useStore';
 import { genderSymbol } from '@/domain/person';
 import { CURRENT_YEAR } from '@/store/useStore';
+import { SmartSyncChip } from './components/SmartSyncChip';
 
 const NAV: { id: View; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -62,6 +63,8 @@ export function Sidebar() {
         >
           {palette === 'colorblind' ? 'Colorblind-safe: on' : 'Colorblind-safe: off'}
         </button>
+
+        <SmartSyncChip />
 
         {proband && (
           <div>

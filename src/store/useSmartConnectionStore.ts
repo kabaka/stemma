@@ -127,6 +127,14 @@ interface SmartConnectionState {
    * exchange/persist error), else `null`. The UI reads this to surface a failed sign-in; it is a
    * RAW message string only — the store never imports a UI helper (layering). Not persisted. */
   callbackError: string | null;
+  /** The id of a connection that just succeeded (fresh from a callback) or was otherwise asked
+   * to sync (the sidebar's {@link SmartSyncChip}), else `null` (DR-0016). Plain data only — no
+   * DOM/env dependency, so the store still never imports `ui`. `App.tsx` is the one legal
+   * mediator that reads this to navigate to the pedigree view; `PedigreeView` reads it to
+   * auto-open the import panel (generalizing the existing `callbackError`-driven effect); and
+   * `SmartFhirConnect` reads it to auto-fire the existing `handleSync` once. Not persisted —
+   * it's a one-shot signal, not connection state. */
+  requestedSyncId: string | null;
   /** Injectable transport (default: the real fetch gateway). Not persisted. */
   gateway: SmartFhirGateway;
   /** Injectable token store (default: the real browser store). Not persisted. */
@@ -147,6 +155,12 @@ interface SmartConnectionActions {
   completeCallbackIfPresent: () => Promise<string | null>;
   /** Dismiss a surfaced {@link SmartConnectionState.callbackError} (sets it back to `null`). */
   clearCallbackError: () => void;
+  /** Set {@link SmartConnectionState.requestedSyncId} — asks the UI layer to open the import
+   * panel and run a sync for this connection (used by both the OAuth-success path and
+   * {@link SmartSyncChip}'s manual re-sync). */
+  requestSync: (id: string) => void;
+  /** Clear {@link SmartConnectionState.requestedSyncId} back to `null`. */
+  clearRequestedSync: () => void;
   /** Fetch the patient's raw FHIR {@link FhirImportBundle} (refreshing the access token as needed).
    * The store deliberately does NOT parse or write it — the UI runs `parseFhirImport` +
    * `stageHealthRecordImport` and applies the reviewed subset (keeps the store→import edge out of
@@ -264,10 +278,14 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
       return {
         connections: [],
         callbackError: null,
+        requestedSyncId: null,
         gateway: new FetchSmartFhirGateway(),
         tokenStore: defaultTokenStore,
 
         clearCallbackError: () => set({ callbackError: null }),
+
+        requestSync: (id) => set({ requestedSyncId: id }),
+        clearRequestedSync: () => set({ requestedSyncId: null }),
 
         configure: (deps) =>
           set((s) => ({
@@ -371,7 +389,16 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
             };
 
             persistTokens(id, response, pending.stayConnected);
-            set((s) => ({ connections: [...s.connections, connection], callbackError: null }));
+            // Setting `requestedSyncId` here (the SAME atomic `set` that adds the connection
+            // and clears `callbackError`) is what fixes the "redirected home, nothing
+            // happened" bug: previously a successful callback left no trace for the UI to
+            // react to at all, unlike a failed one (`callbackError`). This reuses that exact
+            // signal idiom instead of inventing a new toast/latch — see the field's own doc.
+            set((s) => ({
+              connections: [...s.connections, connection],
+              callbackError: null,
+              requestedSyncId: id,
+            }));
             return id;
           } catch (err) {
             // Surface a human-readable message for the UI to render (state mismatch or an

@@ -27,9 +27,19 @@ something doesn't work.
   directly from your browser to the FHIR server you register below — the same server your
   provider's own patient-portal app talks to. No third party, no analytics, no Stemma-operated
   infrastructure sees your data in transit.
-- **You choose the endpoint.** Stemma never bundles or defaults to a provider directory; you
-  supply (or paste) the FHIR base URL yourself, so a connection only ever reaches a server you
-  named.
+- **You choose the endpoint.** Stemma ships a built-in, offline directory of Epic brand/
+  organization FHIR endpoints (about 1,243 entries, generated from Epic's own published directory —
+  see [Finding your provider](#finding-your-provider-the-built-in-directory) below) so you can search
+  for your provider by name instead of hunting for a URL. The directory is never fetched at
+  runtime — it's part of the static build, refreshed periodically and committed like any other
+  source file — and a manual FHIR base URL field remains for any provider not listed (or a non-Epic
+  portal). Either way, a connection only ever reaches the one server you selected or typed.
+- **A client ID may already be built in.** The hosted app can ship with a single, shared OAuth
+  client ID baked in at build time — a public-client `client_id` isn't a secret (RFC 6749 §2.1;
+  PKCE and the registered redirect URI are the real controls), so this doesn't weaken anything. When
+  it's configured you don't need to obtain or paste a client ID yourself; a build without one (a
+  fork, or local dev without the variable set) falls back to the manual **Client ID** field
+  described below, exactly as before.
 - **Tokens and PHI stay in the browser.** The OAuth access token lives in `sessionStorage`
   (cleared when the tab/browser session ends). The refresh token — and only the refresh token —
   is written to `localStorage`, and **only** if you check "Stay connected on this device"; leaving
@@ -150,9 +160,61 @@ is nothing to import without it.
 
 ## Registering Stemma as an app with your provider
 
-SMART on FHIR requires you to register an app with each provider before you can connect. Stemma
-is a **public client** — there is no client secret, because a static browser app can't keep one.
-Registration is per-provider; you'll do this once for each portal you want to connect.
+SMART on FHIR requires an app registration with each provider before anyone can connect. Stemma is
+a **public client** — there is no client secret, because a static browser app can't keep one. Who
+does this registration depends on how you're running Stemma:
+
+- **Using the hosted app** ([kabaka.github.io/stemma](https://kabaka.github.io/stemma/))? The
+  maintainer registers one shared production app and bakes its client ID into the build (see
+  [Maintainer setup](#maintainer-setup--connecting-a-shared-epic-app) below) — you just pick your
+  provider from the picker and sign in. Skip ahead to
+  [Connecting, syncing, and disconnecting](#connecting-syncing-and-disconnecting).
+- **Running a fork, local dev build, or connecting a provider the shared app isn't enabled for?**
+  You (or whoever runs that build) register your own app and enter its client ID manually — see
+  [Registering your own app](#registering-your-own-app-forks-local-dev-or-an-unlisted-provider)
+  below.
+
+### Maintainer setup — connecting a shared Epic app
+
+This is a one-time setup for whoever deploys Stemma (e.g. to GitHub Pages), so every visitor to the
+hosted app can connect without registering anything themselves:
+
+1. **Register a SMART-on-FHIR app on Epic** at [fhir.epic.com](https://fhir.epic.com) as a
+   **patient-facing / public client (PKCE)** app — **not** a confidential/backend client, since
+   Stemma has no way to hold a secret. Request a **standalone patient launch**. Obtain the
+   **production** client ID (not the non-production/sandbox one used for the walkthrough below).
+2. **Register the exact redirect URI** the deployed app will use:
+
+   | Deployment | Redirect URI to register |
+   | --- | --- |
+   | Hosted app (GitHub Pages) | `https://kabaka.github.io/stemma/` |
+   | Local dev (`npm run dev`) | `http://localhost:5173/` |
+
+   Registration requires an **exact match**, including the trailing slash. Stemma derives this URI
+   itself from wherever it's running (its own origin + base path) — it is no longer shown as a
+   field in the app, so register the value from this table for the deployment you're setting up
+   (if you're testing locally against the same Epic app, register the local dev URI too).
+3. **Set a GitHub Actions repository Variable named `SMART_CLIENT_ID`** to that production client
+   ID: repo **Settings → Secrets and variables → Actions → Variables**. This must be a **Variable**,
+   not a Secret — a public-client `client_id` isn't confidential (RFC 6749 §2.1), and
+   [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) reads it as
+   `VITE_SMART_CLIENT_ID` at build time (`src/ui/config.ts`'s `buildTimeSmartClientId()`). Once
+   set, every subsequent deploy ships with the client ID baked in and hides the manual Client ID
+   field for visitors.
+4. **Refresh the provider directory periodically.** The picker's provider list
+   (`src/data/smart-endpoints.ts`) is generated, not fetched at runtime — re-run
+   `npm run gen:endpoints` occasionally (Epic asks consumers of its directory to refresh roughly
+   weekly; there's no CI gate enforcing this, since it would mean re-fetching Epic's ~92 MB bundle
+   on every build) and review + commit the regenerated diff. See
+   [Finding your provider](#finding-your-provider-the-built-in-directory) below.
+5. **No-config fallback.** Forget the Variable, fork the repo, or build locally without it? Nothing
+   breaks — the app falls back to the manual **Client ID** field described below, exactly like
+   before this change.
+
+### Registering your own app (forks, local dev, or an unlisted provider)
+
+Registration is per-provider; do this once for each portal you want to connect without the shared
+client ID above.
 
 1. Find your provider's SMART/FHIR developer program. Most large US EHR vendors run one:
    [Epic on FHIR](https://fhir.epic.com), [Cerner Code](https://code.cerner.com), and similar
@@ -162,17 +224,16 @@ Registration is per-provider; you'll do this once for each portal you want to co
    / backend client, since Stemma has no way to hold a secret. Request a **standalone patient
    launch** (Stemma always performs a standalone launch — you start it from inside Stemma, not
    from inside the portal — and never sends a `launch` parameter).
-3. Register the **exact redirect URI** Stemma shows you in its connect panel — this is the app's
-   own root URL, computed from wherever you're running it:
+3. Register the **exact redirect URI** for wherever you're running Stemma — the app's own root URL:
 
    | Deployment | Redirect URI to register |
    | --- | --- |
    | Hosted app (GitHub Pages) | `https://kabaka.github.io/stemma/` |
    | Local dev (`npm run dev`) | `http://localhost:5173/` |
 
-   Registration requires an **exact match**, including the trailing slash. Stemma's connect panel
-   always displays and lets you copy the exact value for wherever you're currently running it, so
-   copy that instead of retyping it from this table.
+   Registration requires an **exact match**, including the trailing slash. Stemma computes this
+   value internally and no longer shows it as a field in the connect panel, so use the value from
+   this table for wherever you're running it.
 4. Request these scopes:
 
    | Scope | Why Stemma needs it |
@@ -199,13 +260,27 @@ Registration is per-provider; you'll do this once for each portal you want to co
    was actually granted, so a registration that grants fewer than these will show up as "Couldn't
    retrieve …" warnings for the missing ones on every sync.
 5. Save the registration and copy the **client ID** it issues — you'll paste this into Stemma's
-   connect panel along with your provider's FHIR base URL. Stemma doesn't ship a client ID of its
-   own; every install is a separate registration you control.
+   manual **Client ID** field (which only appears when no shared build-time client ID is
+   configured — see [Maintainer setup](#maintainer-setup--connecting-a-shared-epic-app) above)
+   along with your provider's FHIR base URL.
 
 Stemma discovers the authorization and token endpoints itself from your provider's
 `.well-known/smart-configuration` document (falling back to the `CapabilityStatement`
 `/metadata` `oauth-uris` extension on older servers) — you only ever need the FHIR base URL and
 the client ID, never the raw OAuth endpoints.
+
+## Finding your provider (the built-in directory)
+
+The connect panel's **Find your provider** search box is a combobox over a bundled, brand-level
+index of Epic organizations (~1,243 entries: name, FHIR base URL, and city/state where available),
+generated by [`scripts/gen-endpoints.mjs`](../scripts/gen-endpoints.mjs) (`npm run gen:endpoints`)
+from Epic's published "User-access Brands" directory. It's built into the app at compile time — no
+runtime request to Epic or anywhere else — and lazy-loaded so it only downloads once the connect
+panel is actually opened. The panel shows the directory's generation date so it's clear this is a
+periodically-refreshed snapshot, not a live lookup. If your provider isn't listed (a facility not
+carried at brand level, a non-Epic portal, or a stale snapshot), use the **"Can't find your
+provider? Enter a FHIR endpoint URL manually"** disclosure to type the base URL directly — the same
+path forks/local dev without the shared client ID use for the Client ID field.
 
 ## Walkthrough: Epic's sandbox (a concrete example)
 
@@ -244,12 +319,17 @@ SMART apps for their organization).
    commonly cited example is the patient "Camila Lopez" (username `fhircamila`), but confirm the
    current credentials on that page before use.
 7. In Stemma, open **Connect a health record (SMART on FHIR)** from the pedigree view's import
-   menu, paste the sandbox FHIR base URL and your non-production client ID, and click **Connect**.
-   You're redirected to Epic's sandbox sign-in — sign in with the test-patient credentials from
-   step 6 and approve the requested scopes.
-8. Epic redirects back to Stemma, which completes the token exchange automatically and shows a
-   connection card. Click **Sync now** to fetch and stage the sandbox patient's conditions,
-   family history, and timeline data (medications, labs, etc.) for review.
+   menu. The sandbox endpoint isn't a real Epic organization, so it won't appear in the built-in
+   provider picker — open **"Can't find your provider? Enter a FHIR endpoint URL manually"** and
+   paste the sandbox FHIR base URL there. If the build you're testing against doesn't have a
+   shared client ID configured (the usual case for local dev), a **Client ID** field appears too —
+   paste your non-production client ID into it. Click **Connect**. You're redirected to Epic's
+   sandbox sign-in — sign in with the test-patient credentials from step 6 and approve the
+   requested scopes.
+8. Epic redirects back to Stemma, which completes the token exchange automatically, returns you to
+   the pedigree with a new connection card visible, and **runs a sync automatically** — no extra
+   click needed — landing you straight on the review screen with the sandbox patient's conditions,
+   family history, and timeline data (medications, labs, etc.) staged for review.
 
 **For a real Epic organization** (not the sandbox): each health system runs its own FHIR endpoint,
 and patients typically locate theirs through Epic's organization/endpoint directory rather than a
@@ -262,24 +342,33 @@ than assuming the sandbox steps transfer unchanged.
 ## Connecting, syncing, and disconnecting
 
 1. From the pedigree view's import menu, choose **Connect a health record (SMART on FHIR)**.
-2. Enter the **FHIR base URL** and **client ID** from your provider registration, optionally check
-   **Stay connected on this device**, and click **Connect**. You're redirected to your provider's
-   sign-in page.
-3. Sign in and approve the requested scopes. You're redirected back to Stemma, which completes the
-   exchange and shows a connection card (provider, patient, last-synced time, whether unattended
-   sync is available).
-4. Click **Sync now**. Stemma searches your `Condition`, `FamilyMemberHistory`, and the full
-   timeline resource set (medications, labs, vitals, immunizations, allergies, procedures,
-   encounters — see [What gets imported](#what-gets-imported--and-what-doesnt) above), paging
-   through the server's own result pages automatically for each, and opens the same staged-review
-   screen the C-CDA importer uses — grouped into "Your conditions," "Family members," and (new)
-   "Health events" sections, the latter broken out by type (Medications, Labs, Vitals,
-   Immunizations, Allergies, Procedures, Visits, Genetic). Check the items you want, leave
+2. Start typing your hospital or clinic's name in **Find your provider** and pick it from the
+   matches (see [Finding your provider](#finding-your-provider-the-built-in-directory) above), or
+   use the manual FHIR-endpoint fallback if it isn't listed. If no shared client ID is configured
+   for this build, also enter the **Client ID** from your own provider registration. Optionally
+   check **Stay connected on this device**, then click **Connect**. You're redirected to your
+   provider's sign-in page — you're signing in with your provider, not with Stemma.
+3. Sign in and approve the requested scopes. You're redirected back to the pedigree with a new
+   connection card visible (provider, patient, last-synced time, whether unattended sync is
+   available) — **and a sync runs automatically**, no extra click required.
+4. Stemma searches your `Condition`, `FamilyMemberHistory`, and the full timeline resource set
+   (medications, labs, vitals, immunizations, allergies, procedures, encounters — see
+   [What gets imported](#what-gets-imported--and-what-doesnt) above), paging through the server's
+   own result pages automatically for each, and opens the same staged-review screen the C-CDA
+   importer uses — grouped into "Your conditions," "Family members," and "Health events" sections,
+   the latter broken out by type (Medications, Labs, Vitals, Immunizations, Allergies, Procedures,
+   Visits, Genetic). The review screen's own **"What do these labels mean?"** disclosure explains
+   the amber "Needs review" badge and any checkbox that's greyed out (already recorded, no medical
+   code to safely attach, or a family member not yet selected). Check the items you want, leave
    unchecked anything you don't, and confirm. This **merges** into your existing record; nothing
-   already there is removed.
+   already there is removed, and nothing is added unless you check it.
 5. You can connect more than one provider — click **+ Connect another provider** — and sync each
    independently.
-6. **Disconnect** on a connection card forgets it and wipes its tokens immediately (both the
+6. **Re-syncing later:** click **Sync now** on a connection's own card, or use the connection
+   status chip in the sidebar's footer — it shows your most-overdue connection ("Health record
+   connected · synced …" or "N health records connected · …") and, when clicked, jumps to the
+   pedigree and re-syncs that connection in one click, landing you back on the review screen.
+7. **Disconnect** on a connection card forgets it and wipes its tokens immediately (both the
    session-scoped access token and any persisted refresh token).
 
 ## Ongoing sync and refresh tokens — the honest limits
@@ -311,7 +400,7 @@ providers grant real refresh tokens, but that requires a backend Stemma doesn't 
 | "Couldn't reach that server from your browser" | Either the FHIR base URL is wrong, or the provider hasn't enabled browser-based (CORS) access for SMART apps. Stemma has no server to route around this. | Double-check the URL; ask the provider/IT admin whether CORS is enabled for patient-facing SMART apps. |
 | "This doesn't look like a SMART-on-FHIR server" | Neither `.well-known/smart-configuration` nor a `CapabilityStatement` `oauth-uris` fallback was found at that base URL. | Confirm the FHIR base URL is the R4 base your provider's developer docs give you, not a portal login page or a different API version. |
 | "The sign-in could not be verified for safety and was cancelled" | The `state` value returned by the provider didn't match what Stemma sent (CSRF protection) — often caused by starting a second connect attempt in another tab, or the browser clearing session storage mid-flow. | Try connecting again from a single tab. |
-| "Sign-in with this provider failed…" | The token exchange was rejected. | Confirm the redirect URI registered with your provider is *exactly* the one Stemma showed you, including the trailing slash, and that the client ID is correct. |
+| "Sign-in with this provider failed…" | The token exchange was rejected. | Confirm the redirect URI registered with your provider is *exactly* the one for this deployment (see the table under [Registering Stemma as an app with your provider](#registering-stemma-as-an-app-with-your-provider)), including the trailing slash, and that the client ID is correct. |
 | "The server rejected the data request…" | A FHIR read failed, most often an expired access token. | Try **Sync now** again; if it keeps failing, disconnect and reconnect. |
 | "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or disconnect and reconnect — this is the expected shape for a provider (like Epic) that doesn't grant public-client refresh tokens. |
 | "No conditions, family history, or health events were found for this patient." | The sync succeeded but the server returned nothing across every resource type it searched. | Real EHR `FamilyMemberHistory` is often empty or thin — this can be a genuinely empty record, not an error. |

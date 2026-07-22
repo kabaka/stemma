@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import {
   applyHealthRecordImport,
@@ -8,10 +8,26 @@ import {
   type StagedHealthRecordImport,
 } from '@/import';
 import { useDisclosureFocus } from '../hooks';
+import { buildTimeSmartClientId } from '../config';
 import { CcdaReview } from './CcdaReview';
 import { ClinicalBoundary } from './ClinicalBoundary';
 import type { Catalog } from '@/domain/catalog';
 import type { Condition, FamilyRecord } from '@/domain/types';
+import type { SmartProvider } from '@/data/smart-endpoints';
+
+// Lazy-loaded so neither this component nor the ~102 KB bundled provider directory
+// (`src/data/smart-endpoints.ts`) touch the app's critical-path bundle — only paid for
+// once someone actually opens this panel (DR-0016). Verify with `npm run build` that it
+// emits its own chunk.
+const EpicBrandPicker = lazy(() =>
+  import('./EpicBrandPicker').then((m) => ({ default: m.EpicBrandPicker })),
+);
+
+// Read once, at module load — `import.meta.env` is static per build, so there's nothing to
+// gain by recomputing it on every render (see `src/ui/config.ts`, the only other place this
+// is read). `null` on a fork/local build without `VITE_SMART_CLIENT_ID` set, in which case
+// the manual Client ID field below renders exactly as before.
+const BUILD_TIME_CLIENT_ID = buildTimeSmartClientId();
 
 interface SmartFhirConnectProps {
   /** A snapshot of the live record + catalog to reconcile against, taken from the parent —
@@ -30,7 +46,10 @@ interface SmartFhirConnectProps {
 /** The exact redirect URI a provider registration must match — the app's own origin plus its
  * deployed base path (so a GitHub Pages subpath deployment still registers correctly), computed
  * fresh on every render rather than cached, since it depends only on where the page is served
- * from. Passed explicitly to `beginConnect` so what's displayed here is exactly what's sent. */
+ * from. Passed explicitly to `beginConnect`. No longer surfaced as its own UI field (DR-0016):
+ * Epic fixes redirect URIs at app-registration time (an out-of-band, one-time step for whoever
+ * registers Stemma with a provider, not a per-user runtime concern), so displaying it to every
+ * end user was misleading rather than merely informational. */
 function redirectUri(): string {
   return `${window.location.origin}${import.meta.env.BASE_URL}`;
 }
@@ -57,7 +76,7 @@ function friendlyError(err: unknown, context: 'connect' | 'sync'): string {
     return 'The sign-in could not be verified for safety and was cancelled. Try connecting again.';
   }
   if (/Token request failed/i.test(message)) {
-    return `Sign-in with this provider failed (${message}). Try connecting again, and confirm the redirect URI above is registered with your provider exactly as shown.`;
+    return `Sign-in with this provider failed (${message}). Try connecting again, or ask your provider/IT admin to confirm Stemma's redirect URI is registered correctly.`;
   }
   if (/FHIR read failed/i.test(message)) {
     return `The server rejected the data request (${message}). Your access may have expired — try syncing again, or disconnect and reconnect.`;
@@ -204,14 +223,18 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   // to carry it. `PedigreeView` reads the same field to auto-open this panel on mount.
   const callbackError = useSmartConnectionStore((s) => s.callbackError);
   const clearCallbackError = useSmartConnectionStore((s) => s.clearCallbackError);
+  // Set on a successful OAuth callback (the new connection's id) or by `SmartSyncChip`'s
+  // manual re-sync — see the store field's own doc. Consumed below to auto-fire the
+  // existing `handleSync` exactly once (DR-0016).
+  const requestedSyncId = useSmartConnectionStore((s) => s.requestedSyncId);
+  const clearRequestedSync = useSmartConnectionStore((s) => s.clearRequestedSync);
 
   const [fhirBaseUrl, setFhirBaseUrl] = useState('');
-  const [clientId, setClientId] = useState('');
+  const [manualClientId, setManualClientId] = useState('');
   const [stayConnectedOptIn, setStayConnectedOptIn] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [addingAnother, setAddingAnother] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncErrors, setSyncErrors] = useState<Record<string, string>>({});
@@ -234,31 +257,13 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   const baseUrlHintId = useId();
   const clientIdId = useId();
   const clientIdHintId = useId();
-  const redirectInputId = useId();
   const connectErrorId = useId();
-
-  const copyTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (copyTimer.current != null) window.clearTimeout(copyTimer.current);
-    },
-    [],
-  );
 
   const showConnectForm = connections.length === 0 || addingAnother;
   const uri = redirectUri();
-
-  const copyRedirectUri = async (): Promise<void> => {
-    try {
-      await navigator.clipboard?.writeText(uri);
-      setCopied(true);
-      if (copyTimer.current != null) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API unavailable (permissions, insecure context) — the value is still
-      // visible and selectable in the field, so this is a soft failure, not an error state.
-    }
-  };
+  // The build-time id (from a GitHub Actions Variable, DR-0016) always wins when present;
+  // the manual field only exists (see the render below) for a fork/local build without one.
+  const effectiveClientId = BUILD_TIME_CLIENT_ID ?? manualClientId;
 
   const closeConnectForm = (): void => {
     if (connections.length > 0) {
@@ -276,9 +281,13 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
     if (connecting) return;
     setConnectError(null);
     const trimmedBase = fhirBaseUrl.trim();
-    const trimmedClient = clientId.trim();
+    const trimmedClient = effectiveClientId.trim();
     if (!trimmedBase || !trimmedClient) {
-      setConnectError('Enter both the FHIR base URL and the client ID your provider issued.');
+      setConnectError(
+        BUILD_TIME_CLIENT_ID
+          ? 'Pick your provider above, or enter its FHIR base URL manually.'
+          : 'Enter both the FHIR base URL and the client ID your provider issued.',
+      );
       return;
     }
     let parsedUrl: URL;
@@ -359,6 +368,56 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
       setSyncingId(null);
     }
   };
+
+  // Auto-fire `handleSync` once for a connection a callback success (or `SmartSyncChip`)
+  // just asked for — the success-path counterpart to `callbackError` above.
+  //
+  // `handleSync`/`clearRequestedSync`/`connections` are all recreated every render (not
+  // memoized), so the triggering effect below reads them through this ref instead of
+  // closing over them directly — that keeps its own dependency array honestly exhaustive
+  // (just `requestedSyncId`, the one value that should actually refire it) rather than
+  // needing a lint-suppressed dependency list that would refire on every unrelated render.
+  // This second effect has no dependency array by design — it's meant to run after every
+  // render, purely to keep the ref current, mirroring React's own documented pattern for
+  // reading "the latest" value of something inside an effect without depending on it.
+  const latestRef = useRef({ connections, handleSync, clearRequestedSync });
+  useEffect(() => {
+    latestRef.current = { connections, handleSync, clearRequestedSync };
+  });
+
+  // `autoSyncedRef` is a per-SIGNAL-EPISODE latch, mirroring `App.tsx`'s own
+  // `smartCallbackFired` ref: it stops React 18 StrictMode's dev double-invoke from firing
+  // `handleSync` twice for the SAME episode (the effect body runs twice against the same
+  // closed-over `requestedSyncId` before any state update from the first run can flow back
+  // in). It must NOT latch forever, though — connection ids are stable UUIDs, so a later,
+  // genuinely distinct `requestSync(sameId)` (e.g. `SmartSyncChip`'s re-sync, which targets
+  // the most-stale connection and is often the only one) would otherwise match the same
+  // `=== requestedSyncId` check and silently no-op. So the latch is reset back to `null` the
+  // moment `requestedSyncId` returns to `null` (below) — the store's own one-shot-signal
+  // discipline — meaning each new episode starts with a clear latch and gets honored.
+  // `clearRequestedSync()` still runs synchronously as this effect's first statement for a
+  // NEW episode — before `handleSync`'s first `await` — so the signal never lingers to be
+  // picked up again later; this now runs unconditionally (including when the referenced
+  // connection isn't found), so a stale/bogus id can never strand `requestedSyncId` non-null.
+  // `handleSync` itself still guards re-entrancy via `syncingId` as a second, independent
+  // layer.
+  const autoSyncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSyncId) {
+      autoSyncedRef.current = null;
+      return;
+    }
+    if (autoSyncedRef.current === requestedSyncId) return;
+    autoSyncedRef.current = requestedSyncId;
+    const {
+      connections: latestConnections,
+      handleSync: sync,
+      clearRequestedSync: clear,
+    } = latestRef.current;
+    clear();
+    if (!latestConnections.some((c) => c.id === requestedSyncId)) return;
+    void sync(requestedSyncId);
+  }, [requestedSyncId]);
 
   const handleConfirm = (selections: HealthRecordSelections): void => {
     if (!staged) return;
@@ -469,89 +528,78 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               Connect another provider
             </h3>
           )}
-          <div>
-            <label className="lbl" htmlFor={baseUrlId}>
-              FHIR base URL
-            </label>
-            <input
-              id={baseUrlId}
-              className="field"
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              placeholder="https://fhir.myprovider.example/api/FHIR/R4"
-              aria-describedby={connectError ? `${baseUrlHintId} ${connectErrorId}` : baseUrlHintId}
-              aria-invalid={Boolean(connectError)}
-              value={fhirBaseUrl}
-              onChange={(e) => setFhirBaseUrl(e.target.value)}
+          {/* Primary path (DR-0016): search the bundled Epic brand directory instead of
+              hand-typing a FHIR endpoint. Lazy-loaded (see the top-of-file `lazy()` call) so
+              the ~102 KB provider table only loads once this panel is actually open. */}
+          <Suspense fallback={<p className="mono-dim">Loading the provider directory…</p>}>
+            <EpicBrandPicker
+              onSelect={(provider: SmartProvider) => {
+                setFhirBaseUrl(provider.fhirBaseUrl);
+                setConnectError(null);
+              }}
             />
-            <p id={baseUrlHintId} className="mono-dim" style={{ marginTop: 6 }}>
-              Your provider&rsquo;s FHIR <strong>base</strong> URL — the one ending in the version
-              path (e.g. <code>&hellip;/api/FHIR/R4/</code>), not their login or OAuth URL. Find it
-              on their developer portal (e.g. Epic on FHIR, Cerner Code) or from when you registered
-              Stemma as an app.
-            </p>
-          </div>
+          </Suspense>
 
-          <div>
-            <label className="lbl" htmlFor={clientIdId}>
-              Client ID
-            </label>
-            <input
-              id={clientIdId}
-              className="field"
-              type="text"
-              autoComplete="off"
-              aria-describedby={
-                connectError ? `${clientIdHintId} ${connectErrorId}` : clientIdHintId
-              }
-              aria-invalid={Boolean(connectError)}
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-            />
-            <p id={clientIdHintId} className="mono-dim" style={{ marginTop: 6 }}>
-              Issued when you register Stemma with your provider — Stemma has no client ID of its
-              own since every install is a separate registration you control.
-            </p>
-          </div>
-
-          <div>
-            <label className="lbl" htmlFor={redirectInputId}>
-              Redirect URI to register with your provider
-            </label>
-            <div className="row" style={{ gap: 8 }}>
-              {/* A `readOnly` text input, not a `<code>` block — natively focusable and
-                  keyboard-selectable (Tab to it, Ctrl/Cmd+A or the auto-select-on-focus
-                  below), unlike a `<code>` element which a keyboard user can't reach or
-                  select text from at all. The Copy button remains as the one-step
-                  convenience path. */}
+          {/* Only rendered when there's no build-time client id (a fork/local build without
+              `VITE_SMART_CLIENT_ID` set) — Epic issues one client id across every org that
+              enables the app, so a deployed build ships it once and skips asking. */}
+          {!BUILD_TIME_CLIENT_ID && (
+            <div>
+              <label className="lbl" htmlFor={clientIdId}>
+                Client ID
+              </label>
               <input
-                id={redirectInputId}
-                className="field mono"
+                id={clientIdId}
+                className="field"
                 type="text"
-                readOnly
-                aria-label="Redirect URI to register with your provider"
-                onFocus={(e) => e.currentTarget.select()}
-                value={uri}
+                autoComplete="off"
+                aria-describedby={
+                  connectError ? `${clientIdHintId} ${connectErrorId}` : clientIdHintId
+                }
+                aria-invalid={Boolean(connectError)}
+                value={manualClientId}
+                onChange={(e) => setManualClientId(e.target.value)}
               />
-              <button type="button" className="btn btn--sm" onClick={() => void copyRedirectUri()}>
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <p id={clientIdHintId} className="mono-dim" style={{ marginTop: 6 }}>
+                Issued when you register Stemma with your provider — Stemma has no client ID of its
+                own since every install is a separate registration you control.
+              </p>
             </div>
-            {/* Visually-hidden confirmation — the "Copied" button-label swap above is
-                sighted-only feedback; a screen-reader user gets nothing from a button
-                label mutating on its own (WCAG 4.1.3). Always rendered (never
-                mounted/unmounted) so the mutation is announced rather than possibly
-                missed as an already-populated region. */}
-            <span role="status" className="visually-hidden">
-              {copied ? 'Copied' : ''}
-            </span>
-            <p className="mono-dim" style={{ marginTop: 6 }}>
-              When registering Stemma as an app, this exact URL must be entered as the
-              redirect/callback URI — registration requires an exact match, including the trailing
-              slash.
-            </p>
-          </div>
+          )}
+
+          {/* Fallback for a provider not in the picker above (not Epic, or a brand the
+              directory snapshot doesn't carry) — collapsed by default so it doesn't compete
+              with the picker as the form's primary affordance. */}
+          <details className="disclosure">
+            <summary className="disclosure__toggle">
+              Can&rsquo;t find your provider? Enter a FHIR endpoint URL manually
+            </summary>
+            <div className="disclosure__body">
+              <label className="lbl" htmlFor={baseUrlId}>
+                FHIR base URL
+              </label>
+              <input
+                id={baseUrlId}
+                className="field"
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                placeholder="https://fhir.myprovider.example/api/FHIR/R4"
+                aria-describedby={
+                  connectError ? `${baseUrlHintId} ${connectErrorId}` : baseUrlHintId
+                }
+                aria-invalid={Boolean(connectError)}
+                value={fhirBaseUrl}
+                onChange={(e) => setFhirBaseUrl(e.target.value)}
+              />
+              <p id={baseUrlHintId} className="mono-dim" style={{ marginTop: 6 }}>
+                Your provider&rsquo;s FHIR <strong>base</strong> URL — the one ending in the version
+                path (e.g. <code>&hellip;/api/FHIR/R4/</code>), not their login or OAuth URL. Find
+                it on their developer portal (e.g. Epic on FHIR, Cerner Code) or from when you
+                registered Stemma as an app.
+              </p>
+            </div>
+          </details>
 
           <label className="row" style={{ gap: 8 }}>
             <input

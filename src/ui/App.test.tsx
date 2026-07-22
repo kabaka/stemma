@@ -231,4 +231,21 @@ describe('App — SMART-on-FHIR OAuth callback effect (StrictMode double-mount s
     );
     expect(gateway.exchangeCode).not.toHaveBeenCalled();
   });
+
+  // DR-0016 regression: fixes the "redirected home, nothing happened" bug — a successful
+  // callback used to leave the user on whatever view they started on with no visible sign
+  // anything happened. App's callback effect must now navigate to the pedigree once the
+  // callback resolves with a connection id.
+  it('a successful callback navigates to the pedigree view', async () => {
+    useStore.getState().setView('overview');
+    const gateway = fakeGateway();
+    const state = await establishPendingCallback(gateway);
+    setLocation({ search: `?code=AUTH-CODE&state=${state}` });
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore: fakeTokenStore() });
+
+    render(<App />);
+
+    await waitFor(() => expect(useStore.getState().view).toBe('tree'));
+    expect(useSmartConnectionStore.getState().connections).toHaveLength(1);
+  });
 });

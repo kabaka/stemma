@@ -35,9 +35,17 @@ export function App() {
   useEffect(() => {
     if (smartCallbackFired.current) return;
     smartCallbackFired.current = true;
-    completeSmartCallback().catch((err: unknown) => {
-      console.error('SMART-on-FHIR callback failed:', err);
-    });
+    completeSmartCallback()
+      .then((connectionId) => {
+        // A successful callback resolves with the new connection's id (see
+        // `completeCallbackIfPresent`); navigate to the pedigree so the panel it just
+        // asked to open (`requestedSyncId`, read by `PedigreeView`) is actually visible —
+        // this is the one legal place that mediates between the two stores (DR-0016).
+        if (connectionId) useStore.getState().setView('tree');
+      })
+      .catch((err: unknown) => {
+        console.error('SMART-on-FHIR callback failed:', err);
+      });
   }, [completeSmartCallback]);
   // Each view swap unmounts the old view and mounts the new one (see the conditional
   // renders below), but nothing was moving keyboard/screen-reader focus to the new

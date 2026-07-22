@@ -551,6 +551,46 @@ export function CcdaReview({
 
       <ClinicalBoundary />
 
+      {/* Plain-language legend for the badges/disabled states below — collapsed by default
+          (native <details>, keyboard-operable for free) so it never dominates the checklist,
+          one click away for anyone confused by an amber badge or a greyed-out checkbox. Text
+          only, no colour-alone meaning (WCAG 1.4.1): each bullet names the actual badge text
+          in quotes rather than relying on the reader recognising a colour. Shares the same
+          `.disclosure`/`.disclosure__toggle`/`.disclosure__body` treatment SmartFhirConnect's
+          "enter a FHIR endpoint manually" disclosure uses, rather than a bespoke inline-styled
+          one-off, for a consistent caret/disclosure look across the two importers. */}
+      <details className="disclosure">
+        <summary className="disclosure__toggle">What do these labels mean?</summary>
+        <ul
+          className="disclosure__body mono-dim"
+          role="list"
+          style={{
+            paddingLeft: 18,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            lineHeight: 1.5,
+          }}
+        >
+          <li>
+            An amber &ldquo;Needs review&rdquo; badge means we couldn&rsquo;t confidently match this
+            item to Stemma&rsquo;s condition list, or your health record didn&rsquo;t mark it as
+            confirmed. It&rsquo;s left unchecked to be safe &mdash; check it if you want to include
+            it.
+          </li>
+          <li>
+            An &ldquo;Already recorded&rdquo; badge means this item is already in your record, so it
+            can&rsquo;t be added again &mdash; its checkbox is turned off.
+          </li>
+          <li>
+            A checkbox that&rsquo;s greyed out and can&rsquo;t be checked either has no medical code
+            we can safely add (a free-text entry from the record), or belongs to a family member who
+            isn&rsquo;t selected yet &mdash; select the family member first, then their conditions
+            can be checked.
+          </li>
+        </ul>
+      </details>
+
       {staged.warnings.length > 0 && (
         <div className="disclaimer">
           <ul style={{ margin: 0, paddingLeft: 18 }}>

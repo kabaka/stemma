@@ -12,7 +12,7 @@
  * parse→stage pipeline rather than fabricating a `ParsedHealthRecord` by hand.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
@@ -63,34 +63,46 @@ const CONNECTION: SmartConnection = {
 };
 
 describe('SmartFhirConnect — not connected', () => {
-  it('renders the connect form with the exact registrable redirect URI and the clinical boundary', () => {
+  // DR-0016: the provider picker is the primary path (lazy-loaded — awaited via `findBy`
+  // since it only mounts once its dynamic import resolves), the manual FHIR base URL /
+  // Client ID fields remain as the collapsed fallback, and the clinical boundary is intact.
+  it('renders the provider picker primary, the manual fallback fields, and the clinical boundary', async () => {
     render(
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
+    // A generous timeout: this waits on the picker's own `React.lazy` dynamic import
+    // resolving, which can take longer than testing-library's 1000ms default under a
+    // busy full-suite run (many test files/workers competing for CPU) even though it's
+    // near-instant in isolation.
+    expect(
+      await screen.findByLabelText('Find your provider', {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('FHIR base URL')).toBeInTheDocument();
     expect(screen.getByLabelText('Client ID')).toBeInTheDocument();
-    expect(
-      screen.getByRole('textbox', { name: 'Redirect URI to register with your provider' }),
-    ).toHaveValue(redirectUri);
     expect(screen.getByRole('note', { name: /clinical boundary/i })).toBeInTheDocument();
   });
 
-  // Regression for the reviewer-identified BLOCKER: the redirect URI used to render as a
-  // <code> block, which a keyboard user can neither focus nor select text from. It must now
-  // be a real, read-only, natively-focusable/selectable textbox — the Copy button stays as
-  // the one-step convenience path, not the only way to get the value.
-  it('renders the redirect URI as a read-only, keyboard-focusable textbox (not a <code> block)', () => {
+  // Regression for DR-0016: Epic fixes redirect URIs at app-registration time (an
+  // out-of-band, one-time step for whoever registers Stemma with a provider, not a
+  // per-user runtime concern) — the field that used to display/copy it was misleading and
+  // is gone. `redirectUri` is still computed internally and still passed to `beginConnect`
+  // (see the "calls beginConnect with the entered values…" test below) — only the UI field
+  // is removed.
+  it('does not render a Redirect URI field', async () => {
     render(
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    const input = screen.getByRole('textbox', {
-      name: 'Redirect URI to register with your provider',
-    });
-    expect(input.tagName).toBe('INPUT');
-    expect(input).toHaveAttribute('readonly');
-    expect(input).toHaveValue(redirectUri);
+    // A generous timeout: this waits on the picker's own `React.lazy` dynamic import
+    // resolving, which can take longer than testing-library's 1000ms default under a
+    // busy full-suite run (many test files/workers competing for CPU) even though it's
+    // near-instant in isolation.
+    expect(
+      await screen.findByLabelText('Find your provider', {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/redirect uri/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(redirectUri)).not.toBeInTheDocument();
   });
 
   // Regression for the reviewer-identified re-entrancy bug: `aria-disabled` doesn't stop a
@@ -351,5 +363,87 @@ describe('SmartFhirConnect — connected', () => {
       /sign-in with this provider failed/i,
     );
     expect(screen.getByText(CONNECTION.fhirBaseUrl)).toBeInTheDocument();
+  });
+
+  // Regression suite for the `requestedSyncId` auto-sync latch (see SmartFhirConnect.tsx's
+  // `autoSyncedRef` comment): the signal is the seam both a successful OAuth callback AND
+  // `SmartSyncChip`'s manual re-sync use, so these assert the sync path is actually invoked
+  // by the signal — not just that a piece of state got set — which is the gap that let the
+  // stuck-latch bug through originally.
+  describe('requestedSyncId auto-sync signal', () => {
+    beforeEach(() => {
+      useSmartConnectionStore.setState({ requestedSyncId: null });
+    });
+
+    it('invokes the sync path exactly once for a valid connection id, and clears the signal', async () => {
+      const bundle = fhirBundle([patientResource({ id: 'pat-1' })]);
+      const syncNow = vi.fn().mockResolvedValue(bundle);
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
+      expect(syncNow).toHaveBeenCalledWith('conn-1');
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+    });
+
+    // The actual regression: before the fix, `autoSyncedRef` latched onto the connection id
+    // forever, so a SECOND `requestSync` for the SAME (stable, UUID) connection id — exactly
+    // what `SmartSyncChip`'s retry click fires — silently no-opped instead of syncing again.
+    it('invokes the sync path again on a second requestSync for the same connection id (chip retry)', async () => {
+      const bundle = fhirBundle([patientResource({ id: 'pat-1' })]);
+      const syncNow = vi.fn().mockResolvedValue(bundle);
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('conn-1');
+      });
+
+      await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(2));
+    });
+
+    it('clears a requestedSyncId that names a connection which no longer exists, without syncing', async () => {
+      const syncNow = vi.fn();
+      useSmartConnectionStore.setState({ syncNow });
+      render(
+        <SmartFhirConnect
+          record={record}
+          catalog={catalog}
+          onImport={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      act(() => {
+        useSmartConnectionStore.getState().requestSync('does-not-exist');
+      });
+
+      await waitFor(() => expect(useSmartConnectionStore.getState().requestedSyncId).toBeNull());
+      expect(syncNow).not.toHaveBeenCalled();
+    });
   });
 });

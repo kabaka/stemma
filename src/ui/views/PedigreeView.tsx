@@ -250,6 +250,11 @@ export function PedigreeView() {
   // the panel so `SmartFhirConnect`'s own callbackError rendering (role="alert") is
   // immediately visible rather than silently sitting in the store.
   const callbackError = useSmartConnectionStore((s) => s.callbackError);
+  // Set by `completeCallbackIfPresent` on SUCCESS (the new connection's id) or by
+  // `SmartSyncChip`'s manual re-sync — the success-side counterpart of `callbackError`
+  // above, fixing the "redirected home, nothing happened" bug (DR-0016). `SmartFhirConnect`
+  // consumes/clears it to auto-run its existing `handleSync` once.
+  const requestedSyncId = useSmartConnectionStore((s) => s.requestedSyncId);
 
   const [importing, setImporting] = useState(false);
   const [importingCcda, setImportingCcda] = useState(false);
@@ -262,15 +267,16 @@ export function PedigreeView() {
   // instead of something every setter has to remember to uphold.
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Auto-open the SMART-on-FHIR panel when a callback error is waiting to be shown —
-  // covers both the common case (it's already set by the time this view first mounts,
-  // since App.tsx resolves the callback before routing here) and the rarer case where
-  // resolution finishes just after mount. Only reacts to callbackError itself flipping
-  // from null to a message (dependency array), so it never fights a user who closes the
-  // panel afterward while the same error is still sitting in the store.
+  // Auto-open the SMART-on-FHIR panel when a callback error is waiting to be shown, OR a
+  // sync was requested (a successful callback, or SmartSyncChip's manual re-sync) — covers
+  // both the common case (already set by the time this view first mounts, since App.tsx
+  // resolves the callback before routing here) and the rarer case where resolution finishes
+  // just after mount. Only reacts to these two fields flipping to a non-null value
+  // (dependency array), so it never fights a user who closes the panel afterward while the
+  // same value is still sitting in the store.
   useEffect(() => {
-    if (callbackError) setImportingSmart(true);
-  }, [callbackError]);
+    if (callbackError || requestedSyncId) setImportingSmart(true);
+  }, [callbackError, requestedSyncId]);
 
   // A fresh install (and resetRecord()) now yields a record holding only the proband —
   // no fictional relatives. Show a friendly prompt instead of an empty tree.
@@ -753,26 +759,6 @@ export function PedigreeView() {
         </div>
         <ClinicalBoundary />
 
-        {importing && (
-          <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
-        )}
-        {importingCcda && (
-          <CcdaImport
-            record={record}
-            catalog={catalog}
-            onImport={handleCcdaImport}
-            onCancel={() => setImportingCcda(false)}
-          />
-        )}
-        {importingSmart && (
-          <SmartFhirConnect
-            record={record}
-            catalog={catalog}
-            onImport={handleSmartImport}
-            onCancel={() => setImportingSmart(false)}
-          />
-        )}
-
         {/* The notation key and the Highlight controls share one row — two small pieces
             of chart chrome that both fit comfortably alongside each other, rather than
             each claiming a full-width row of their own before the canvas even starts. */}
@@ -812,7 +798,46 @@ export function PedigreeView() {
         )}
       </div>
 
-      <div className="pedigree-body">
+      {/* `.pedigree-header` above is `flex: none` (sized to its own content) and this whole
+          view is a fixed-height (100vh-bounded), `overflow: hidden` flex column — a tall
+          review card rendered inside the header used to overflow that column with no scroll
+          container to catch it (pointer, touch, wheel, AND keyboard — clipped outright). Any
+          open import panel now renders here instead: its own proper flex child, sized to the
+          column's remaining height (`flex: 1; min-height: 0`) with its own `overflow-y: auto`,
+          so it scrolls by every input method rather than being clipped. `.pedigree-body`
+          below is CSS-hidden (not unmounted — see its own comment) while a panel is open, so
+          this region gets the full remaining height instead of splitting it awkwardly. */}
+      {anyImporting && (
+        <div className="pedigree-import-scroll">
+          {importing && (
+            <GedcomImport onImport={handleGedcomImport} onCancel={() => setImporting(false)} />
+          )}
+          {importingCcda && (
+            <CcdaImport
+              record={record}
+              catalog={catalog}
+              onImport={handleCcdaImport}
+              onCancel={() => setImportingCcda(false)}
+            />
+          )}
+          {importingSmart && (
+            <SmartFhirConnect
+              record={record}
+              catalog={catalog}
+              onImport={handleSmartImport}
+              onCancel={() => setImportingSmart(false)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Hidden via a CSS class (`display: none`), not conditionally unmounted, while a panel
+          is open above — EmptyState's own import/connect toggle buttons live inside this
+          subtree and must stay mounted so their `aria-expanded` state keeps tracking
+          `importing*` correctly; unmounting would freeze it at whatever it was the instant
+          before the panel opened. Staying mounted-but-hidden also preserves the canvas's
+          pan/zoom position across an open/close of the panel. */}
+      <div className={anyImporting ? 'pedigree-body pedigree-body--hidden' : 'pedigree-body'}>
         {isEmpty ? (
           <EmptyState
             onAdd={() => setFormState({ mode: 'add', anchor: record.probandId, relation: 'child' })}
