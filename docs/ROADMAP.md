@@ -185,6 +185,18 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
     access to everything a sync fetches. See
     [ADR-011](./ARCHITECTURE.md#adr-011--full-timeline-smart-on-fhir-import-and-the-partialdate--coding--event-provenance-uplift)
     and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#registering-stemma-as-an-app-with-your-provider).
+  - ✅ **Connect-flow redesign** (DR-0016). Registering Stemma with a provider no longer needs to
+    happen per-user: a build-time `VITE_SMART_CLIENT_ID` (a GitHub Actions repository Variable, not
+    a Secret — a public-client id isn't confidential) lets the hosted app ship one shared client ID,
+    and a generated, brand-level directory of Epic organizations
+    (`src/data/smart-endpoints.ts`, `npm run gen:endpoints`) backs a searchable provider picker in
+    place of hand-typing a FHIR base URL — both fall back to the original manual-entry fields for a
+    fork, local dev, or an unlisted provider. The no-longer-shown redirect-URI field is still
+    computed internally and just needs registering once, out of band. A successful connection now
+    lands back on the pedigree with a sync already running (previously silent), and a sidebar chip
+    re-syncs the most-overdue connection in one click. See
+    [ADR-012](./ARCHITECTURE.md#adr-012--smart-on-fhir-connect-flow-redesign-build-time-client-id-a-generated-provider-directory-and-callback-auto-sync)
+    and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md).
 - **Record OCR/parse** for uploaded documents (ideation §6).
 - **Consumer DNA raw-file parse**, heavily caveated (ideation §3).
 

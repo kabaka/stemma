@@ -71,6 +71,15 @@ npm run check
 Editing `src/data/conditions.ts` directly will be silently reverted the next time anyone runs the
 generator — so don't.
 
+The same pattern applies to `src/data/smart-endpoints.ts`, the SMART-on-FHIR provider picker's
+directory: it's **generated** by [`scripts/gen-endpoints.mjs`](scripts/gen-endpoints.mjs)
+(`npm run gen:endpoints`) from Epic's published "User-access Brands" bundle and carries the same
+`DO NOT EDIT BY HAND` banner. Unlike the condition catalog, CI does **not** gate on its staleness
+(re-fetching Epic's ~92 MB source bundle on every run isn't proportionate) — refreshing it is a
+manual, periodic step; review the diff before committing. See
+[`docs/SMART-ON-FHIR.md`](docs/SMART-ON-FHIR.md#maintainer-setup--connecting-a-shared-epic-app) and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-build-time-env-seam-the-provider-picker-and-its-generated-directory-dr-0016).
+
 ## How to extend Stemma
 
 ### Add a curated condition
@@ -78,6 +87,14 @@ Add it to `scripts/conditions.source.json`; if it is high-signal, add its ICD-10
 the maps in `scripts/gen-conditions.mjs` and (optionally) to the `COMMON` list. Run
 `npm run gen:conditions`. Use a valid `CategoryKey` (the generator asserts this at module load).
 The long tail of ICD-10 does **not** go here — it is reached at runtime via the vocabulary port.
+
+### Refresh the SMART-on-FHIR provider directory
+Run `npm run gen:endpoints` to re-derive `src/data/smart-endpoints.ts` from Epic's live "User-access
+Brands" bundle (or point `STEMMA_BRANDS_CACHE`/`argv[2]` at a local cache of it during development
+to avoid the ~92 MB download each time). Review the diff — provider names/URLs/locations churn over
+time — then commit the regenerated file alongside `npm run check`. There is no CI staleness gate for
+this one (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-build-time-env-seam-the-provider-picker-and-its-generated-directory-dr-0016)),
+so refreshing it is a manual, periodic maintainer task, not something the gate will remind you of.
 
 ### Add a pattern rule
 Extend `detectPatterns` in `src/domain/patterns.ts`. A rule inspects the affected blood relatives
