@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import {
   applyHealthRecordImport,
@@ -8,26 +8,36 @@ import {
   type StagedHealthRecordImport,
 } from '@/import';
 import { useDisclosureFocus } from '../hooks';
-import { buildTimeSmartClientId } from '../config';
+import { buildTimeClientId } from '../config';
 import { CcdaReview } from './CcdaReview';
 import { ClinicalBoundary } from './ClinicalBoundary';
 import type { Catalog } from '@/domain/catalog';
 import type { Condition, FamilyRecord } from '@/domain/types';
-import type { SmartProvider } from '@/data/smart-endpoints';
+import type { SmartProvider, SmartVendor } from '@/data/smart-endpoints';
 
-// Lazy-loaded so neither this component nor the ~102 KB bundled provider directory
+// Lazy-loaded so neither this component nor the ~292 KB bundled provider directory
 // (`src/data/smart-endpoints.ts`) touch the app's critical-path bundle — only paid for
 // once someone actually opens this panel (DR-0016). Verify with `npm run build` that it
 // emits its own chunk.
-const EpicBrandPicker = lazy(() =>
-  import('./EpicBrandPicker').then((m) => ({ default: m.EpicBrandPicker })),
+const ProviderPicker = lazy(() =>
+  import('./ProviderPicker').then((m) => ({ default: m.ProviderPicker })),
 );
 
-// Read once, at module load — `import.meta.env` is static per build, so there's nothing to
-// gain by recomputing it on every render (see `src/ui/config.ts`, the only other place this
-// is read). `null` on a fork/local build without `VITE_SMART_CLIENT_ID` set, in which case
-// the manual Client ID field below renders exactly as before.
-const BUILD_TIME_CLIENT_ID = buildTimeSmartClientId();
+/** Cerner/Oracle Health FHIR base URLs are always hosted under a `cerner.com` origin (e.g.
+ * `https://fhir-myrecord.cerner.com/r4/<tenant>/`) — used to infer the vendor for a
+ * manually-typed URL, since it carries no explicit `source` the way a picked `SmartProvider`
+ * does. `(^|[./])` requires `cerner.com` to start the string or follow a `.`/`/`, so it
+ * matches the host (or a subdomain of it) and not an unrelated path/query substring. */
+const CERNER_HOST_RE = /(^|[./])cerner\.com/i;
+
+/** The active vendor drives which build-time client id (see `src/ui/config.ts`) applies. A
+ * picked directory provider is authoritative (`selectedSource`); for a manually-typed FHIR
+ * base URL there is no such tag, so it's inferred from the host, defaulting to `epic` — Epic
+ * is Stemma's original, still-most-common path, so an unrecognized host degrading to it is
+ * the least surprising fallback. */
+function inferVendor(selectedSource: SmartVendor | null, fhirBaseUrl: string): SmartVendor {
+  return selectedSource ?? (CERNER_HOST_RE.test(fhirBaseUrl) ? 'cerner' : 'epic');
+}
 
 interface SmartFhirConnectProps {
   /** A snapshot of the live record + catalog to reconcile against, taken from the parent —
@@ -230,6 +240,10 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
   const clearRequestedSync = useSmartConnectionStore((s) => s.clearRequestedSync);
 
   const [fhirBaseUrl, setFhirBaseUrl] = useState('');
+  // Set by the picker's `onSelect` alongside `fhirBaseUrl`; cleared the moment the user edits
+  // the manual FHIR base URL field instead (that's no longer a directory pick). `null` means
+  // "infer from the URL" — see `inferVendor` above and `activeVendor` below.
+  const [selectedSource, setSelectedSource] = useState<SmartVendor | null>(null);
   const [manualClientId, setManualClientId] = useState('');
   const [stayConnectedOptIn, setStayConnectedOptIn] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -261,9 +275,19 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
 
   const showConnectForm = connections.length === 0 || addingAnother;
   const uri = redirectUri();
-  // The build-time id (from a GitHub Actions Variable, DR-0016) always wins when present;
-  // the manual field only exists (see the render below) for a fork/local build without one.
-  const effectiveClientId = BUILD_TIME_CLIENT_ID ?? manualClientId;
+  // Which vendor's build-time client id (see `src/ui/config.ts`) applies — a picked directory
+  // provider is authoritative; a manually-typed URL is inferred from its host. Recomputed
+  // whenever the picked provider or the manual URL changes, never a module-level constant,
+  // since which vendor is "active" now varies per connection attempt.
+  const activeVendor = useMemo(
+    () => inferVendor(selectedSource, fhirBaseUrl),
+    [selectedSource, fhirBaseUrl],
+  );
+  const resolvedClientId = useMemo(() => buildTimeClientId(activeVendor), [activeVendor]);
+  // The active vendor's build-time id (from a GitHub Actions Variable, DR-0016) always wins
+  // when present; the manual field only exists (see the render below) for a vendor whose
+  // Variable isn't set on this build (a fork, or a deploy that's only configured one vendor).
+  const effectiveClientId = resolvedClientId ?? manualClientId;
 
   const closeConnectForm = (): void => {
     if (connections.length > 0) {
@@ -284,7 +308,7 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
     const trimmedClient = effectiveClientId.trim();
     if (!trimmedBase || !trimmedClient) {
       setConnectError(
-        BUILD_TIME_CLIENT_ID
+        resolvedClientId
           ? 'Pick your provider above, or enter its FHIR base URL manually.'
           : 'Enter both the FHIR base URL and the client ID your provider issued.',
       );
@@ -463,9 +487,9 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
         {syncStatus}
       </p>
       <p className="mono-dim" style={{ margin: 0, lineHeight: 1.5 }}>
-        Connect directly to your patient portal&rsquo;s FHIR server (Epic MyChart, Cerner, and most
-        US portals support this) using the SMART-on-FHIR standard. You sign in with your provider,
-        not Stemma, and choose exactly what to bring in before anything is added.
+        Connect directly to your patient portal&rsquo;s FHIR server (Epic MyChart, Cerner/Oracle
+        Health, and most US portals support this) using the SMART-on-FHIR standard. You sign in with
+        your provider, not Stemma, and choose exactly what to bring in before anything is added.
       </p>
 
       <ClinicalBoundary />
@@ -528,22 +552,28 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
               Connect another provider
             </h3>
           )}
-          {/* Primary path (DR-0016): search the bundled Epic brand directory instead of
-              hand-typing a FHIR endpoint. Lazy-loaded (see the top-of-file `lazy()` call) so
-              the ~102 KB provider table only loads once this panel is actually open. */}
+          {/* Primary path (DR-0016): search the bundled, multi-vendor (Epic + Cerner/Oracle
+              Health) provider directory instead of hand-typing a FHIR endpoint. Lazy-loaded
+              (see the top-of-file `lazy()` call) so the ~292 KB provider table only loads once
+              this panel is actually open. A pick is authoritative for which vendor is active
+              (`selectedSource`), overriding whatever the manual URL below might otherwise
+              infer. */}
           <Suspense fallback={<p className="mono-dim">Loading the provider directory…</p>}>
-            <EpicBrandPicker
+            <ProviderPicker
               onSelect={(provider: SmartProvider) => {
                 setFhirBaseUrl(provider.fhirBaseUrl);
+                setSelectedSource(provider.source);
                 setConnectError(null);
               }}
             />
           </Suspense>
 
-          {/* Only rendered when there's no build-time client id (a fork/local build without
-              `VITE_SMART_CLIENT_ID` set) — Epic issues one client id across every org that
-              enables the app, so a deployed build ships it once and skips asking. */}
-          {!BUILD_TIME_CLIENT_ID && (
+          {/* Only rendered when the ACTIVE vendor (see `activeVendor` above) has no build-time
+              client id on this build — each vendor issues one client id across every org/tenant
+              it hosts, so a deployed build with that vendor's Variable set ships it once and
+              skips asking; a build with only one vendor's Variable set still asks the moment
+              the user picks (or types a URL inferred as) the other vendor. */}
+          {!resolvedClientId && (
             <div>
               <label className="lbl" htmlFor={clientIdId}>
                 Client ID
@@ -567,9 +597,9 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
             </div>
           )}
 
-          {/* Fallback for a provider not in the picker above (not Epic, or a brand the
-              directory snapshot doesn't carry) — collapsed by default so it doesn't compete
-              with the picker as the form's primary affordance. */}
+          {/* Fallback for a provider not in the picker above (a brand the directory snapshot
+              doesn't carry) — collapsed by default so it doesn't compete with the picker as
+              the form's primary affordance. */}
           <details className="disclosure">
             <summary className="disclosure__toggle">
               Can&rsquo;t find your provider? Enter a FHIR endpoint URL manually
@@ -590,7 +620,13 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
                 }
                 aria-invalid={Boolean(connectError)}
                 value={fhirBaseUrl}
-                onChange={(e) => setFhirBaseUrl(e.target.value)}
+                onChange={(e) => {
+                  setFhirBaseUrl(e.target.value);
+                  // Editing this field by hand means it's no longer a directory pick — fall
+                  // back to inferring the vendor from whatever host the user types (see
+                  // `inferVendor` above).
+                  setSelectedSource(null);
+                }}
               />
               <p id={baseUrlHintId} className="mono-dim" style={{ marginTop: 6 }}>
                 Your provider&rsquo;s FHIR <strong>base</strong> URL — the one ending in the version

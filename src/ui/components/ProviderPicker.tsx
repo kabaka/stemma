@@ -10,21 +10,33 @@ import {
   SMART_ENDPOINTS_GENERATED_AT,
   SMART_PROVIDERS,
   type SmartProvider,
+  type SmartVendor,
 } from '@/data/smart-endpoints';
 
-/** Cap on rendered matches — the directory is 1,243 entries; nothing about the UI or the
- * ARIA wiring below needs more than a first page shown at once, and rendering all matches
- * for a broad query (e.g. "health") would be needless DOM weight. */
+/** Cap on rendered matches — the directory is 2,566 entries (1,243 Epic + 1,323 Cerner/Oracle
+ * Health); nothing about the UI or the ARIA wiring below needs more than a first page shown at
+ * once, and rendering all matches for a broad query (e.g. "health") would be needless DOM
+ * weight. */
 const MAX_RESULTS = 50;
 
-/** Must match `.epic-picker__listbox`'s `max-height` in components.css — used only to
+/** Must match `.provider-picker__listbox`'s `max-height` in components.css — used only to
  * decide whether to flip the popup upward (below), never to size anything itself. */
 const LISTBOX_MAX_HEIGHT_PX = 280;
 
+/** The patient-facing label for each vendor's system, shown per-result so a unified search
+ * still discloses which system a match belongs to — text, never colour-alone (WCAG 1.4.1),
+ * and folded into the option's own accessible name (see the `aria-label` below) so a screen
+ * reader announces it too. */
+const VENDOR_LABEL: Record<SmartVendor, string> = {
+  epic: 'Epic',
+  cerner: 'Oracle Health',
+};
+
 /** Precomputed once when this (lazily-loaded) module evaluates, not per keystroke: each
- * provider's lowercased "name city state" search key. Filtering 1,243 short strings per
+ * provider's lowercased "name city state" search key. Filtering 2,566 short strings per
  * keystroke is cheap; precomputing the key once avoids repeating the string-join/lowercase
- * work on every render too. */
+ * work on every render too. Deliberately excludes `source` — the search stays unified across
+ * both vendors, never filterable to one system (see the component doc below). */
 const SEARCHABLE: { provider: SmartProvider; key: string }[] = SMART_PROVIDERS.map((p) => ({
   provider: p,
   key: `${p.name} ${p.city ?? ''} ${p.state ?? ''}`.toLowerCase(),
@@ -37,26 +49,38 @@ function providerKey(p: SmartProvider): string {
   return `${p.name}|${p.fhirBaseUrl}|${p.city ?? ''}|${p.state ?? ''}`;
 }
 
-interface EpicBrandPickerProps {
+/** The full accessible name for one option — the visible "name — city, state" text plus the
+ * vendor system, so "Kaiser Permanente — Colorado · Epic" is what a screen reader announces,
+ * not just the name. */
+function optionAccessibleName(p: SmartProvider): string {
+  const place = [p.city, p.state].filter(Boolean).join(', ');
+  return `${p.name}${place ? ` — ${place}` : ''} · ${VENDOR_LABEL[p.source]}`;
+}
+
+interface ProviderPickerProps {
   /** Fired when the user picks a provider — the caller (SmartFhirConnect) feeds
-   * `provider.fhirBaseUrl` into the SAME `beginConnect` call the manual fallback uses. */
+   * `provider.fhirBaseUrl` (and `provider.source`) into the SAME `beginConnect` call the
+   * manual fallback uses. */
   onSelect: (provider: SmartProvider) => void;
 }
 
 /**
- * Searchable provider picker over Stemma's bundled, brand-level SMART-on-FHIR endpoint
- * directory (`src/data/smart-endpoints.ts`, generated from Epic's User-access Brands
- * bundle — DR-0016). This is the primary connect path in `SmartFhirConnect`; the manual
- * FHIR base URL field remains as an explicit fallback for anyone whose provider isn't
- * listed (or isn't Epic).
+ * Searchable provider picker over Stemma's bundled, brand/facility-level SMART-on-FHIR
+ * endpoint directory (`src/data/smart-endpoints.ts`, generated from Epic's User-access Brands
+ * bundle AND Oracle Health/Cerner's Ignite endpoints bundle — DR-0016). This is the primary
+ * connect path in `SmartFhirConnect`; the manual FHIR base URL field remains as an explicit
+ * fallback for anyone whose provider isn't listed. Search is intentionally UNIFIED across both
+ * vendors — there is no Epic-vs-Cerner toggle; each result simply discloses its own system
+ * inline (see `VENDOR_LABEL`) so the user never has to know which system their provider runs
+ * before finding it.
  *
  * A single-input ARIA combobox (WAI-ARIA "editable combobox with list autocomplete"):
  * the text input carries `role="combobox"` and never loses DOM focus, a sibling
  * `role="listbox"` holds the filtered matches, and `aria-activedescendant` tracks the
  * keyboard-highlighted option. Loaded via `React.lazy` by the caller so this component
- * AND the ~102 KB provider table ship in their own chunk, off the app's critical path.
+ * AND the ~292 KB provider table ship in their own chunk, off the app's critical path.
  */
-export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
+export function ProviderPicker({ onSelect }: ProviderPickerProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   // `null` means "not manually navigated" — the effective index (below) then defaults to
@@ -177,7 +201,7 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
         : `${matches.length} match${matches.length === 1 ? '' : 'es'}.`;
 
   return (
-    <div className="epic-picker">
+    <div className="provider-picker">
       <label className="lbl" htmlFor={inputId}>
         Find your provider
       </label>
@@ -214,7 +238,9 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
           role="listbox"
           aria-label="Matching providers"
           className={
-            openUpward ? 'epic-picker__listbox epic-picker__listbox--above' : 'epic-picker__listbox'
+            openUpward
+              ? 'provider-picker__listbox provider-picker__listbox--above'
+              : 'provider-picker__listbox'
           }
         >
           {shown.map((p, i) => (
@@ -223,10 +249,16 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
               id={`${optionIdBase}-${i}`}
               role="option"
               aria-selected={i === activeIndex}
+              // The visible text alone ("name — city, state · System") would otherwise BE the
+              // accessible name via the option's text content, but an explicit `aria-label`
+              // keeps that computation reliable regardless of how the child nodes below are
+              // marked up (e.g. if the system tag ever needs `aria-hidden` for a purely visual
+              // reason) — a screen reader always announces the vendor system this way.
+              aria-label={optionAccessibleName(p)}
               className={
                 i === activeIndex
-                  ? 'epic-picker__option epic-picker__option--active'
-                  : 'epic-picker__option'
+                  ? 'provider-picker__option provider-picker__option--active'
+                  : 'provider-picker__option'
               }
               // Selecting via pointer must not blur the input first (that would close the
               // listbox before the click's onClick fires) — preventDefault on mousedown keeps
@@ -239,6 +271,11 @@ export function EpicBrandPicker({ onSelect }: EpicBrandPickerProps) {
               {(p.city || p.state) && (
                 <span className="mono-dim"> — {[p.city, p.state].filter(Boolean).join(', ')}</span>
               )}
+              {/* Per-result system tag — a dim, subordinate label reusing the same `.mono-dim`
+                  treatment as the city/state span above (never a colour-alone cue: it's real
+                  text, also folded into the option's `aria-label` so assistive tech announces
+                  it). */}
+              <span className="mono-dim"> · {VENDOR_LABEL[p.source]}</span>
             </li>
           ))}
         </ul>

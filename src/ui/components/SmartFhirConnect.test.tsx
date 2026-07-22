@@ -18,6 +18,7 @@ import { SmartFhirConnect } from './SmartFhirConnect';
 import { useSmartConnectionStore, type SmartConnection } from '@/store/useSmartConnectionStore';
 import { buildCatalog } from '@/domain/catalog';
 import { emptyRecord } from '@/data/seed';
+import { SMART_PROVIDERS } from '@/data/smart-endpoints';
 import {
   conditionResource,
   fhirBundle,
@@ -46,6 +47,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   useSmartConnectionStore.setState({ connections: [], callbackError: null, ...realActions });
+  // `vi.stubEnv` (used by the vendor-aware client id tests below) must not leak between
+  // tests — `buildTimeClientId` (see src/ui/config.ts) is called fresh on every render, not
+  // cached at module load, so a lingering stub would silently affect unrelated tests.
+  vi.unstubAllEnvs();
 });
 
 const CONNECTION: SmartConnection = {
@@ -209,6 +214,116 @@ describe('SmartFhirConnect — not connected', () => {
 
     await user.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(clearCallbackError).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Multi-vendor (Epic + Cerner/Oracle Health) client id resolution: each vendor has its own
+// build-time client id (see src/ui/config.ts), resolved from whichever provider is ACTIVE —
+// a directory pick is authoritative, a manually-typed URL is inferred from its host — so the
+// same build can serve both vendors, each with the right id, and the manual Client ID field
+// only appears for whichever vendor's Variable this build doesn't have set.
+describe('SmartFhirConnect — vendor-aware client id', () => {
+  const epicTarget = SMART_PROVIDERS.find((p) => p.source === 'epic')!;
+  const cernerTarget = SMART_PROVIDERS.find((p) => p.source === 'cerner')!;
+
+  async function pick(
+    user: ReturnType<typeof userEvent.setup>,
+    input: HTMLElement,
+    target: (typeof SMART_PROVIDERS)[number],
+  ): Promise<void> {
+    // Clear first — a prior pick leaves the input holding the FULL selected name (see
+    // `select()` in ProviderPicker.tsx), and userEvent.type appends rather than replacing.
+    await user.clear(input);
+    await user.type(input, target.name.slice(0, 8));
+    const options = await screen.findAllByRole('option');
+    const option = options.find((o) => o.textContent?.includes(target.name));
+    expect(option).toBeDefined();
+    await user.click(option!);
+  }
+
+  it('picking an Epic provider calls beginConnect with the build-time Epic client id', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    await pick(user, input, epicTarget);
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(epicTarget.fhirBaseUrl, 'epic-build-id', {
+      stayConnected: false,
+      redirectUri,
+    });
+  });
+
+  it('picking a Cerner provider calls beginConnect with the build-time Cerner client id', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    await pick(user, input, cernerTarget);
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(cernerTarget.fhirBaseUrl, 'cerner-build-id', {
+      stayConnected: false,
+      redirectUri,
+    });
+  });
+
+  it('a manually-typed cerner.com FHIR base URL infers the Cerner vendor and its client id', async () => {
+    vi.stubEnv('VITE_CERNER_CLIENT_ID', 'cerner-build-id');
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    const user = userEvent.setup();
+    const beginConnect = vi.fn().mockResolvedValue(undefined);
+    useSmartConnectionStore.setState({ beginConnect });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+
+    await user.type(
+      screen.getByLabelText('FHIR base URL'),
+      'https://fhir-myrecord.cerner.com/r4/some-tenant/',
+    );
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(beginConnect).toHaveBeenCalledWith(
+      'https://fhir-myrecord.cerner.com/r4/some-tenant/',
+      'cerner-build-id',
+      { stayConnected: false, redirectUri },
+    );
+  });
+
+  it('shows the manual Client ID field only for the active vendor when its Variable is unset, and hides it once that vendor has one', async () => {
+    vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-build-id');
+    // VITE_CERNER_CLIENT_ID intentionally left unset.
+    const user = userEvent.setup();
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    const input = await screen.findByLabelText('Find your provider', {}, { timeout: 5000 });
+    // No provider picked yet and no URL typed — the active vendor defaults to Epic, whose
+    // Variable IS set here, so the manual field must not appear.
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+
+    // Picking a Cerner provider flips the active vendor to Cerner, whose Variable is unset —
+    // the manual field must now appear.
+    await pick(user, input, cernerTarget);
+    expect(await screen.findByLabelText('Client ID')).toBeInTheDocument();
+
+    // Picking an Epic provider next flips back — the field must hide again.
+    await pick(user, input, epicTarget);
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
   });
 });
 

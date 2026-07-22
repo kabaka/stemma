@@ -1,29 +1,69 @@
 /**
- * Oracle for `buildTimeSmartClientId` — the sole `import.meta.env` read for DR-0016's
- * build-time SMART client id seam. `vi.stubEnv` overrides `import.meta.env.*` for the
- * duration of a test (restored by `vi.unstubAllEnvs` below), so this exercises the real
- * trim/empty/undefined branches without needing a real build.
+ * Oracle for `buildTimeClientId` — the sole `import.meta.env` read for DR-0016's build-time
+ * SMART client id seam, now resolved per vendor. `vi.stubEnv` overrides `import.meta.env.*`
+ * for the duration of a test (restored by `vi.unstubAllEnvs` below), so this exercises the
+ * real trim/empty/undefined branches without needing a real build.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildTimeSmartClientId } from './config';
+import { buildTimeClientId } from './config';
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('buildTimeSmartClientId', () => {
-  it('returns null when VITE_SMART_CLIENT_ID is unset (the fork/local-dev path)', () => {
-    vi.stubEnv('VITE_SMART_CLIENT_ID', undefined);
-    expect(buildTimeSmartClientId()).toBeNull();
+describe('buildTimeClientId', () => {
+  describe('epic', () => {
+    it('returns the trimmed VITE_EPIC_CLIENT_ID when set', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', '  my-epic-client-id  ');
+      expect(buildTimeClientId('epic')).toBe('my-epic-client-id');
+    });
+
+    it('falls back to VITE_SMART_CLIENT_ID (back-compat alias) when VITE_EPIC_CLIENT_ID is unset', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', undefined);
+      vi.stubEnv('VITE_SMART_CLIENT_ID', '  legacy-client-id  ');
+      expect(buildTimeClientId('epic')).toBe('legacy-client-id');
+    });
+
+    it('prefers VITE_EPIC_CLIENT_ID over the VITE_SMART_CLIENT_ID alias when both are set', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-id');
+      vi.stubEnv('VITE_SMART_CLIENT_ID', 'legacy-id');
+      expect(buildTimeClientId('epic')).toBe('epic-id');
+    });
+
+    it('returns null when both VITE_EPIC_CLIENT_ID and VITE_SMART_CLIENT_ID are unset (the fork/local-dev path)', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', undefined);
+      vi.stubEnv('VITE_SMART_CLIENT_ID', undefined);
+      expect(buildTimeClientId('epic')).toBeNull();
+    });
+
+    it('returns null for an empty or whitespace-only value', () => {
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', '   ');
+      vi.stubEnv('VITE_SMART_CLIENT_ID', undefined);
+      expect(buildTimeClientId('epic')).toBeNull();
+    });
   });
 
-  it('returns null for an empty or whitespace-only value', () => {
-    vi.stubEnv('VITE_SMART_CLIENT_ID', '   ');
-    expect(buildTimeSmartClientId()).toBeNull();
-  });
+  describe('cerner', () => {
+    it('returns the trimmed VITE_CERNER_CLIENT_ID when set', () => {
+      vi.stubEnv('VITE_CERNER_CLIENT_ID', '  my-cerner-client-id  ');
+      expect(buildTimeClientId('cerner')).toBe('my-cerner-client-id');
+    });
 
-  it('returns the trimmed value when set', () => {
-    vi.stubEnv('VITE_SMART_CLIENT_ID', '  my-epic-client-id  ');
-    expect(buildTimeSmartClientId()).toBe('my-epic-client-id');
+    it('returns null when unset', () => {
+      vi.stubEnv('VITE_CERNER_CLIENT_ID', undefined);
+      expect(buildTimeClientId('cerner')).toBeNull();
+    });
+
+    it('returns null for an empty or whitespace-only value', () => {
+      vi.stubEnv('VITE_CERNER_CLIENT_ID', '   ');
+      expect(buildTimeClientId('cerner')).toBeNull();
+    });
+
+    it('never falls back to VITE_EPIC_CLIENT_ID or VITE_SMART_CLIENT_ID', () => {
+      vi.stubEnv('VITE_CERNER_CLIENT_ID', undefined);
+      vi.stubEnv('VITE_EPIC_CLIENT_ID', 'epic-id');
+      vi.stubEnv('VITE_SMART_CLIENT_ID', 'legacy-id');
+      expect(buildTimeClientId('cerner')).toBeNull();
+    });
   });
 });

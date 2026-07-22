@@ -27,19 +27,24 @@ something doesn't work.
   directly from your browser to the FHIR server you register below — the same server your
   provider's own patient-portal app talks to. No third party, no analytics, no Stemma-operated
   infrastructure sees your data in transit.
-- **You choose the endpoint.** Stemma ships a built-in, offline directory of Epic brand/
-  organization FHIR endpoints (about 1,243 entries, generated from Epic's own published directory —
-  see [Finding your provider](#finding-your-provider-the-built-in-directory) below) so you can search
-  for your provider by name instead of hunting for a URL. The directory is never fetched at
+- **You choose the endpoint.** Stemma ships a built-in, offline directory spanning **both Epic and
+  Oracle Health (Cerner)** — 2,566 entries (~1,243 Epic brand/organization endpoints plus ~1,323
+  Oracle Health facility endpoints), generated from each vendor's own published endpoint list — see
+  [Finding your provider](#finding-your-provider-the-built-in-directory) below — so you can search
+  for your provider by name instead of hunting for a URL or knowing which vendor runs it; each
+  result is labeled with its system ("Epic" / "Oracle Health"). The directory is never fetched at
   runtime — it's part of the static build, refreshed periodically and committed like any other
-  source file — and a manual FHIR base URL field remains for any provider not listed (or a non-Epic
-  portal). Either way, a connection only ever reaches the one server you selected or typed.
-- **A client ID may already be built in.** The hosted app can ship with a single, shared OAuth
-  client ID baked in at build time — a public-client `client_id` isn't a secret (RFC 6749 §2.1;
-  PKCE and the registered redirect URI are the real controls), so this doesn't weaken anything. When
-  it's configured you don't need to obtain or paste a client ID yourself; a build without one (a
-  fork, or local dev without the variable set) falls back to the manual **Client ID** field
-  described below, exactly as before.
+  source file — and a manual FHIR base URL field remains for any provider not listed. Either way, a
+  connection only ever reaches the one server you selected or typed.
+- **A client ID may already be built in — one per vendor.** Epic and Oracle Health each require
+  their own, separate app registration, so the hosted app can ship with up to two shared OAuth
+  client IDs baked in at build time, one per vendor — a public-client `client_id` isn't a secret
+  (RFC 6749 §2.1; PKCE and the registered redirect URI are the real controls), so this doesn't
+  weaken anything. Which one applies is resolved from the provider you picked (or, for a manually
+  entered URL, the vendor you select). When a vendor's client ID is configured you don't need to
+  obtain or paste one yourself for that vendor; picking a provider from a vendor that isn't
+  configured for this build falls back to the manual **Client ID** field described below, exactly
+  as before.
 - **Tokens and PHI stay in the browser.** The OAuth access token lives in `sessionStorage`
   (cleared when the tab/browser session ends). The refresh token — and only the refresh token —
   is written to `localStorage`, and **only** if you check "Stay connected on this device"; leaving
@@ -160,30 +165,44 @@ is nothing to import without it.
 
 ## Registering Stemma as an app with your provider
 
-SMART on FHIR requires an app registration with each provider before anyone can connect. Stemma is
-a **public client** — there is no client secret, because a static browser app can't keep one. Who
-does this registration depends on how you're running Stemma:
+SMART on FHIR requires an app registration with each **vendor** before anyone can connect through
+it — Epic and Oracle Health each issue their own client ID, and one registration with a vendor
+covers every organization that vendor hosts. Stemma is a **public client** with each vendor — there
+is no client secret, because a static browser app can't keep one. Who does this registration
+depends on how you're running Stemma:
 
 - **Using the hosted app** ([kabaka.github.io/stemma](https://kabaka.github.io/stemma/))? The
-  maintainer registers one shared production app and bakes its client ID into the build (see
-  [Maintainer setup](#maintainer-setup--connecting-a-shared-epic-app) below) — you just pick your
-  provider from the picker and sign in. Skip ahead to
+  maintainer registers a shared production app with Epic and/or Oracle Health and bakes each
+  vendor's client ID into the build (see
+  [Maintainer setup](#maintainer-setup--connecting-shared-epic-and-cerner-apps) below) — you just
+  pick your provider from the picker and sign in. Skip ahead to
   [Connecting, syncing, and disconnecting](#connecting-syncing-and-disconnecting).
-- **Running a fork, local dev build, or connecting a provider the shared app isn't enabled for?**
-  You (or whoever runs that build) register your own app and enter its client ID manually — see
+- **Running a fork, local dev build, or connecting a provider from a vendor the shared app isn't
+  configured for?** You (or whoever runs that build) register your own app with that vendor and
+  enter its client ID manually — see
   [Registering your own app](#registering-your-own-app-forks-local-dev-or-an-unlisted-provider)
   below.
 
-### Maintainer setup — connecting a shared Epic app
+### Maintainer setup — connecting shared Epic and Cerner apps
 
 This is a one-time setup for whoever deploys Stemma (e.g. to GitHub Pages), so every visitor to the
-hosted app can connect without registering anything themselves:
+hosted app can connect without registering anything themselves. Epic and Oracle Health (Cerner) are
+independent app registrations — do either one, or both; a vendor with no client ID configured just
+falls back to the manual Client ID field for providers of that vendor.
 
-1. **Register a SMART-on-FHIR app on Epic** at [fhir.epic.com](https://fhir.epic.com) as a
-   **patient-facing / public client (PKCE)** app — **not** a confidential/backend client, since
-   Stemma has no way to hold a secret. Request a **standalone patient launch**. Obtain the
-   **production** client ID (not the non-production/sandbox one used for the walkthrough below).
-2. **Register the exact redirect URI** the deployed app will use:
+1. **Register a SMART-on-FHIR app with each vendor you want to support:**
+
+   - **Epic**, at [fhir.epic.com](https://fhir.epic.com), as a **patient-facing / public client
+     (PKCE)** app — **not** a confidential/backend client, since Stemma has no way to hold a
+     secret. Request a **standalone patient launch**. Obtain the **production** client ID (not the
+     non-production/sandbox one used for the walkthrough below).
+   - **Oracle Health (Cerner)**, at the [code
+     Console](https://code.cerner.com/developer/smart-on-fhir) (the Oracle Health developer
+     program), as a patient-facing **public client (PKCE S256)** app. One registration issues a
+     single client ID that works across every Oracle Health patient organization — the same model
+     as Epic's.
+
+2. **Register the exact redirect URI** the deployed app will use, on **each** vendor's app:
 
    | Deployment | Redirect URI to register |
    | --- | --- |
@@ -193,23 +212,51 @@ hosted app can connect without registering anything themselves:
    Registration requires an **exact match**, including the trailing slash. Stemma derives this URI
    itself from wherever it's running (its own origin + base path) — it is no longer shown as a
    field in the app, so register the value from this table for the deployment you're setting up
-   (if you're testing locally against the same Epic app, register the local dev URI too).
-3. **Set a GitHub Actions repository Variable named `SMART_CLIENT_ID`** to that production client
-   ID: repo **Settings → Secrets and variables → Actions → Variables**. This must be a **Variable**,
-   not a Secret — a public-client `client_id` isn't confidential (RFC 6749 §2.1), and
-   [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) reads it as
-   `VITE_SMART_CLIENT_ID` at build time (`src/ui/config.ts`'s `buildTimeSmartClientId()`). Once
-   set, every subsequent deploy ships with the client ID baked in and hides the manual Client ID
-   field for visitors.
+   (if you're testing locally against the same app, register the local dev URI too).
+3. **Set a GitHub Actions repository Variable for each vendor you registered:**
+
+   | Vendor | Variable | Read at build time as |
+   | --- | --- | --- |
+   | Epic | `EPIC_CLIENT_ID` (the legacy `SMART_CLIENT_ID` name still works) | `VITE_EPIC_CLIENT_ID` / `VITE_SMART_CLIENT_ID` |
+   | Oracle Health (Cerner) | `CERNER_CLIENT_ID` | `VITE_CERNER_CLIENT_ID` |
+
+   Set these under repo **Settings → Secrets and variables → Actions → Variables**. These must be
+   **Variables**, not Secrets — a public-client `client_id` isn't confidential (RFC 6749 §2.1).
+   [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) sources them into the build,
+   and `src/ui/config.ts`'s `buildTimeClientId(vendor)` resolves the right one per vendor at build
+   time (`VITE_SMART_CLIENT_ID` remains a back-compat alias for Epic's id, so a deploy that only
+   ever set the old name keeps working unchanged). Once set, every subsequent deploy ships with
+   that vendor's client ID baked in and hides the manual Client ID field for providers of that
+   vendor.
 4. **Refresh the provider directory periodically.** The picker's provider list
-   (`src/data/smart-endpoints.ts`) is generated, not fetched at runtime — re-run
-   `npm run gen:endpoints` occasionally (Epic asks consumers of its directory to refresh roughly
-   weekly; there's no CI gate enforcing this, since it would mean re-fetching Epic's ~92 MB bundle
-   on every build) and review + commit the regenerated diff. See
-   [Finding your provider](#finding-your-provider-the-built-in-directory) below.
-5. **No-config fallback.** Forget the Variable, fork the repo, or build locally without it? Nothing
-   breaks — the app falls back to the manual **Client ID** field described below, exactly like
-   before this change.
+   (`src/data/smart-endpoints.ts`) is generated, not fetched at runtime, from **both** vendors'
+   published endpoint lists — re-run `npm run gen:endpoints` occasionally. Epic asks consumers of
+   its directory to refresh roughly weekly; Oracle Health publishes no fixed cadence for its
+   endpoint list, so watch the
+   [`oracle-samples/ignite-endpoints`](https://github.com/oracle-samples/ignite-endpoints)
+   repository's git history for updates instead. There's no CI gate enforcing either refresh, since
+   it would mean re-fetching Epic's ~92 MB bundle on every build. Review + commit the regenerated
+   diff. See [Finding your provider](#finding-your-provider-the-built-in-directory) below.
+5. **No-config fallback, per vendor.** Skip a vendor's Variable, fork the repo, or build locally
+   without it? Nothing breaks — picking a provider from that vendor falls back to the manual
+   **Client ID** field described below, exactly like before this change; any other vendor that *is*
+   configured is unaffected.
+
+**Oracle Health specifics worth knowing:**
+
+- Scopes must be **enumerated per resource type** — Oracle rejects a `patient/*.read` wildcard.
+  Stemma already requests the enumerated scope list in
+  [Registering your own app](#registering-your-own-app-forks-local-dev-or-an-unlisted-provider)
+  below, so no extra registration step is needed for this.
+- `patient/FamilyMemberHistory.read` **is supported** by Oracle Health patient access — family
+  history syncs the same way it does against Epic.
+- Oracle Health may only grant **public clients like Stemma a short-lived access token** —
+  historically, `offline_access`/refresh tokens have been gated to confidential (server-side)
+  clients. Where that's the case, "Stay connected on this device" won't carry a Cerner connection
+  across sessions the way it can for a server that does grant one; see [Ongoing sync and refresh
+  tokens](#ongoing-sync-and-refresh-tokens--the-honest-limits) below — the connection degrades
+  gracefully to asking you to sign in again, the same behavior Epic's own refresh-token limit
+  already produces.
 
 ### Registering your own app (forks, local dev, or an unlisted provider)
 
@@ -217,7 +264,8 @@ Registration is per-provider; do this once for each portal you want to connect w
 client ID above.
 
 1. Find your provider's SMART/FHIR developer program. Most large US EHR vendors run one:
-   [Epic on FHIR](https://fhir.epic.com), [Cerner Code](https://code.cerner.com), and similar
+   [Epic on FHIR](https://fhir.epic.com), [Oracle Health's code
+   Console](https://code.cerner.com/developer/smart-on-fhir) (formerly Cerner Code), and similar
    programs for other EHR platforms. Smaller practices may point you at their EHR vendor's
    program instead of running their own.
 2. Register a **public** (sometimes called "browser-based" or "SPA") app — **not** a confidential
@@ -256,13 +304,16 @@ client ID above.
    confirm against your provider's own scope documentation if registration rejects them. This list
    is intentionally in lockstep with every resource type a sync fetches (see
    [What gets imported](#what-gets-imported--and-what-doesnt) above) — a provider that enforces
-   per-resource scopes strictly (Epic among them) only returns data for a resource type whose scope
-   was actually granted, so a registration that grants fewer than these will show up as "Couldn't
-   retrieve …" warnings for the missing ones on every sync.
+   per-resource scopes strictly (Epic and Oracle Health among them — Oracle Health additionally
+   **rejects a `patient/*.read` wildcard outright**, so each resource type must be requested by
+   name) only returns data for a resource type whose scope was actually granted, so a registration
+   that grants fewer than these will show up as "Couldn't retrieve …" warnings for the missing ones
+   on every sync.
 5. Save the registration and copy the **client ID** it issues — you'll paste this into Stemma's
-   manual **Client ID** field (which only appears when no shared build-time client ID is
-   configured — see [Maintainer setup](#maintainer-setup--connecting-a-shared-epic-app) above)
-   along with your provider's FHIR base URL.
+   manual **Client ID** field (which only appears when no shared build-time client ID is configured
+   for that vendor — see
+   [Maintainer setup](#maintainer-setup--connecting-shared-epic-and-cerner-apps) above) along with
+   your provider's FHIR base URL.
 
 Stemma discovers the authorization and token endpoints itself from your provider's
 `.well-known/smart-configuration` document (falling back to the `CapabilityStatement`
@@ -271,16 +322,21 @@ the client ID, never the raw OAuth endpoints.
 
 ## Finding your provider (the built-in directory)
 
-The connect panel's **Find your provider** search box is a combobox over a bundled, brand-level
-index of Epic organizations (~1,243 entries: name, FHIR base URL, and city/state where available),
-generated by [`scripts/gen-endpoints.mjs`](../scripts/gen-endpoints.mjs) (`npm run gen:endpoints`)
-from Epic's published "User-access Brands" directory. It's built into the app at compile time — no
-runtime request to Epic or anywhere else — and lazy-loaded so it only downloads once the connect
-panel is actually opened. The panel shows the directory's generation date so it's clear this is a
-periodically-refreshed snapshot, not a live lookup. If your provider isn't listed (a facility not
-carried at brand level, a non-Epic portal, or a stale snapshot), use the **"Can't find your
-provider? Enter a FHIR endpoint URL manually"** disclosure to type the base URL directly — the same
-path forks/local dev without the shared client ID use for the Client ID field.
+The connect panel's **Find your provider** search box is a single, unified combobox spanning
+**both vendors** — 2,566 entries total (~1,243 Epic brand/organization endpoints, ~1,323 Oracle
+Health facility endpoints: name, FHIR base URL, and city/state where available), generated by
+[`scripts/gen-endpoints.mjs`](../scripts/gen-endpoints.mjs) (`npm run gen:endpoints`) from Epic's
+published "User-access Brands" directory and Oracle Health's
+[`ignite-endpoints`](https://github.com/oracle-samples/ignite-endpoints) patient endpoint list.
+Every result is labeled with its system ("Epic" / "Oracle Health") so you never need to know which
+vendor your provider runs before searching for it — there's no vendor to pick first. It's built
+into the app at compile time — no runtime request to either vendor or anywhere else — and
+lazy-loaded so it only downloads once the connect panel is actually opened. The panel shows the
+directory's generation date so it's clear this is a periodically-refreshed snapshot, not a live
+lookup. If your provider isn't listed (a facility not carried in either source, or a stale
+snapshot), use the **"Can't find your provider? Enter a FHIR endpoint URL manually"** disclosure to
+type the base URL directly — the same path forks/local dev without a shared client ID for that
+vendor use for the Client ID field.
 
 ## Walkthrough: Epic's sandbox (a concrete example)
 
@@ -339,6 +395,13 @@ redirect-URI/CORS acceptance rules are, and which registration checkboxes apply 
 organization-specific; verify directly with that organization or Epic's live documentation rather
 than assuming the sandbox steps transfer unchanged.
 
+**Trying Oracle Health instead?** Oracle Health runs its own sandbox and test-patient program
+through the same [code Console](https://code.cerner.com/developer/smart-on-fhir) used for
+production registration above; follow their current documentation for sandbox app registration,
+the sandbox FHIR base URL, and test-patient credentials — the connect steps in Stemma are
+otherwise identical to the walkthrough above once you have a non-production client ID and a
+sandbox base URL to paste into the manual-entry path.
+
 ## Connecting, syncing, and disconnecting
 
 1. From the pedigree view's import menu, choose **Connect a health record (SMART on FHIR)**.
@@ -386,6 +449,13 @@ this to a browser app**, and the difference matters:
   is requested. When that access token expires, **Sync now** will ask you to sign in again — this
   is expected, not a bug, and the connection card's "Unattended sync: Not granted" badge tells you
   which of your connections work this way.
+- **Oracle Health (Cerner) has historically gated refresh tokens the same way** — reserving
+  `offline_access` for confidential (server-side) clients and granting a public client like Stemma
+  only a short-lived access token. Confirm against your own registration's granted scopes, but
+  expect the same "Unattended sync: Not granted" badge and re-login-on-expiry behavior an Epic
+  connection shows. The sync itself works identically either way — it just may not persist across
+  browser sessions on its own, and Stemma degrades to asking you to reconnect rather than failing
+  silently.
 - There is currently **no unattended background sync** — every sync is a user-initiated click,
   refresh token or not. Don't rely on Stemma to silently pick up new records on a schedule.
 
@@ -402,7 +472,7 @@ providers grant real refresh tokens, but that requires a backend Stemma doesn't 
 | "The sign-in could not be verified for safety and was cancelled" | The `state` value returned by the provider didn't match what Stemma sent (CSRF protection) — often caused by starting a second connect attempt in another tab, or the browser clearing session storage mid-flow. | Try connecting again from a single tab. |
 | "Sign-in with this provider failed…" | The token exchange was rejected. | Confirm the redirect URI registered with your provider is *exactly* the one for this deployment (see the table under [Registering Stemma as an app with your provider](#registering-stemma-as-an-app-with-your-provider)), including the trailing slash, and that the client ID is correct. |
 | "The server rejected the data request…" | A FHIR read failed, most often an expired access token. | Try **Sync now** again; if it keeps failing, disconnect and reconnect. |
-| "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or disconnect and reconnect — this is the expected shape for a provider (like Epic) that doesn't grant public-client refresh tokens. |
+| "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or disconnect and reconnect — this is the expected shape for a provider (Epic and, historically, Oracle Health among them) that doesn't grant public-client refresh tokens. |
 | "No conditions, family history, or health events were found for this patient." | The sync succeeded but the server returned nothing across every resource type it searched. | Real EHR `FamilyMemberHistory` is often empty or thin — this can be a genuinely empty record, not an error. |
 | "Couldn't retrieve *&lt;labs / medication requests / immunizations / …&gt;* from this provider (…)." (in the review screen's warnings, not a failed sync) | That one resource type's search failed — an unsupported search, an expired token mid-sync, or (see the scope note above) a resource your app registration wasn't granted read access to — but every other resource type still synced normally. | Try **Sync now** again later; if it's consistently one resource type, check whether your provider grants that resource's read scope to your registration. |
 

@@ -38,10 +38,12 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: 'true'
-          # A public-client OAuth id is not confidential (RFC 6749 §2.1) — sourced from a
-          # repository *Variable*, not a Secret. Unset (empty `vars.SMART_CLIENT_ID`) falls
-          # back to SmartFhirConnect's manual Client ID field; see src/ui/config.ts + DR-0016.
-          VITE_SMART_CLIENT_ID: ${{ vars.SMART_CLIENT_ID }}
+          # A public-client OAuth id is not confidential (RFC 6749 §2.1) — sourced from
+          # repository *Variables*, not Secrets. Unset falls back to SmartFhirConnect's manual
+          # Client ID field for that vendor; see src/ui/config.ts + DR-0016.
+          VITE_SMART_CLIENT_ID: ${{ vars.SMART_CLIENT_ID }} # existing, back-compat (Epic)
+          VITE_EPIC_CLIENT_ID: ${{ vars.EPIC_CLIENT_ID }}
+          VITE_CERNER_CLIENT_ID: ${{ vars.CERNER_CLIENT_ID }}
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
