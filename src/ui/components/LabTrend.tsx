@@ -2,13 +2,13 @@
  * A plain lab-value trend for one test on one person: year, value, and the user's own
  * transcribed reference range. Deliberately NOT a chart with threshold shading and NOT a
  * computed in-range/out-of-range flag — interpreting a value against a range is a
- * clinician's job, not this table's (guardrail #1). Carries its own {@link ClinicalBoundary}
- * because a trend, more than most surfaces, invites a self-read diagnosis (guardrail #3).
+ * clinician's job, not this table's (guardrail #1). Renders no clinical boundary of its
+ * own: it is always embedded in a surface (the timeline) that already carries the
+ * page-level {@link ClinicalBoundary}, so a second one here would only duplicate it.
  */
 import { useId, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { labSeries, labTitles } from '@/domain/timeline';
-import { ClinicalBoundary } from './ClinicalBoundary';
 
 function formatRange(low: number | undefined, high: number | undefined): string {
   if (low == null && high == null) return '—';
@@ -35,7 +35,6 @@ export function LabTrend({ personId }: { personId: string }) {
       <h2 className="section-label" id={headingId}>
         Lab trend
       </h2>
-      <ClinicalBoundary />
       <label className="row" style={{ gap: 8, marginBottom: 10 }} htmlFor={pickerId}>
         <span className="mono-dim">Test</span>
         <select
