@@ -223,6 +223,14 @@ function ConnectionCard({
           className={expired ? 'btn btn--sm' : 'btn btn--primary btn--sm'}
           onClick={() => onSync(connection.id)}
           aria-disabled={syncing}
+          // The visible label switches to "Syncing…" while in flight — the accessible name must
+          // switch with it (WCAG 2.5.3 Label in Name requires the visible text stay CONTAINED in
+          // the accessible name; a static "Sync now for <url>" would stop containing "Syncing…").
+          aria-label={
+            syncing
+              ? `Syncing for ${connection.fhirBaseUrl}`
+              : `Sync now for ${connection.fhirBaseUrl}`
+          }
         >
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
@@ -243,7 +251,12 @@ function ConnectionCard({
           />
           Stay connected on this device
         </label>
-        <button type="button" className="btn btn--sm" onClick={() => onDisconnect(connection.id)}>
+        <button
+          type="button"
+          className="btn btn--sm"
+          onClick={() => onDisconnect(connection.id)}
+          aria-label={`Disconnect ${connection.fhirBaseUrl}`}
+        >
           Disconnect
         </button>
       </div>

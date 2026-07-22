@@ -286,6 +286,29 @@ describe('completeCallbackIfPresent — reconnect-in-place (DR-0033)', () => {
     expect(useSmartConnectionStore.getState().requestedSyncId).toBe(existing.id);
   });
 
+  it('a reconnect for the same portal differing only by trailing slash / host case updates the SAME card, not a duplicate (FIX 3)', async () => {
+    const gateway = fakeGateway();
+    const tokenStore = fakeTokenStore();
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore });
+    // Stored under a different case + trailing slash than what `beginAndCaptureState` below
+    // targets ('https://ehr.example.org/fhir') — the match must be normalized, not exact-string.
+    const existing = seedConnection({
+      id: 'conn-existing',
+      fhirBaseUrl: 'HTTPS://EHR.example.org/fhir/',
+    });
+
+    const state = await beginAndCaptureState(gateway, tokenStore);
+    withCallbackQuery('AUTH-CODE-NORMALIZED', state);
+    const resolvedId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
+
+    expect(resolvedId).toBe(existing.id);
+    const connections = useSmartConnectionStore.getState().connections;
+    expect(connections).toHaveLength(1);
+    // The stored `fhirBaseUrl` becomes the LATEST connect's exact value — normalization is used
+    // only for the match comparison, never to rewrite what's persisted/used for discovery.
+    expect(connections[0].fhirBaseUrl).toBe('https://ehr.example.org/fhir');
+  });
+
   it('a callback for a NEW fhirBaseUrl still appends rather than colliding with an unrelated existing connection', async () => {
     const gateway = fakeGateway();
     const tokenStore = fakeTokenStore();
@@ -420,13 +443,12 @@ describe('token persistence policy', () => {
 
     const connectionId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
 
-    // The setter DOES get called (a refresh_token was present) but with persist=false — a wrong
-    // implementation that ignores stayConnected and persists anyway must fail this.
-    expect(tokenStore.saveRefreshToken).toHaveBeenCalledWith(
-      connectionId,
-      'RT-should-not-persist',
-      false,
-    );
+    // The setter DOES get called (`stayConnected=false` always clears — FIX 1) but with an
+    // explicit empty-string clear, NEVER the response's actual refresh token value — a wrong
+    // implementation that ignores stayConnected and persists the real token anyway, or that
+    // skips the call entirely and leaves a stale token behind, must both fail this.
+    expect(tokenStore.saveRefreshToken).toHaveBeenCalledWith(connectionId, '', false);
+    expect(tokenStore.getRefreshToken(connectionId!)).toBeNull();
     const connection = useSmartConnectionStore
       .getState()
       .connections.find((c) => c.id === connectionId);
@@ -454,6 +476,51 @@ describe('token persistence policy', () => {
       'RT-should-persist',
       true,
     );
+  });
+
+  // Regression for the security-blocking finding (FIX 1): `upsertConnection` reuses an existing
+  // connection id keyed on `fhirBaseUrl` (DR-0033), so a reconnect to a portal that previously
+  // had "Stay connected" ON — now reconnected with it OFF, whose token response omits
+  // `refresh_token` entirely (the common shape: most providers only issue one on the FIRST grant
+  // of `offline_access`) — used to leave the OLD refresh token lingering under the reused id,
+  // because the old code only ever called `saveRefreshToken` inside an `if (response.refresh_token)`
+  // guard. The clear must happen regardless of what the response carries.
+  it('a stayConnected=false reconnect ALWAYS clears a stale refresh token, even when the response omits refresh_token (FIX 1)', async () => {
+    const gateway = fakeGateway(); // default exchangeCode resolves with no refresh_token field
+    const tokenStore = fakeTokenStore();
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore });
+    const existing = seedConnection({ id: 'conn-existing', stayConnected: true });
+    tokenStore._seedRefresh(existing.id, 'RT-old-stale');
+
+    const state = await beginAndCaptureState(gateway, tokenStore, { stayConnected: false });
+    withCallbackQuery('AUTH-CODE-RECONNECT-OFF', state);
+    const resolvedId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
+
+    expect(resolvedId).toBe(existing.id);
+    expect(tokenStore.saveRefreshToken).toHaveBeenCalledWith(existing.id, '', false);
+    expect(tokenStore.getRefreshToken(existing.id)).toBeNull();
+    expect(
+      useSmartConnectionStore.getState().connections.find((c) => c.id === existing.id)
+        ?.stayConnected,
+    ).toBe(false);
+  });
+
+  // Companion case (FIX 1): staying connected but this round's exchange didn't rotate the
+  // refresh token must NOT blank out a still-valid one — the fix must not just unconditionally
+  // clear on every path, only when `stayConnected` is actually false.
+  it('a stayConnected=true reconnect whose response omits refresh_token KEEPS the existing refresh token (FIX 1)', async () => {
+    const gateway = fakeGateway(); // default exchangeCode resolves with no refresh_token field
+    const tokenStore = fakeTokenStore();
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore });
+    const existing = seedConnection({ id: 'conn-existing', stayConnected: true });
+    tokenStore._seedRefresh(existing.id, 'RT-still-valid');
+
+    const state = await beginAndCaptureState(gateway, tokenStore, { stayConnected: true });
+    withCallbackQuery('AUTH-CODE-RECONNECT-ON', state);
+    const resolvedId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
+
+    expect(resolvedId).toBe(existing.id);
+    expect(tokenStore.getRefreshToken(existing.id)).toBe('RT-still-valid');
   });
 
   it('disconnect calls tokenStore.clear and removes the connection', () => {

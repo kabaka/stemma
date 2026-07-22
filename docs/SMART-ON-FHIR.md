@@ -454,8 +454,8 @@ this to a browser app**, and the difference matters:
   only a short-lived access token. Confirm against your own registration's granted scopes, but
   expect the same "Unattended sync: Not granted" badge and re-login-on-expiry behavior an Epic
   connection shows. The sync itself works identically either way — it just may not persist across
-  browser sessions on its own, and Stemma degrades to asking you to reconnect rather than failing
-  silently.
+  browser sessions on its own, and Stemma degrades to asking you to use the connection card's
+  **Sign in again** button rather than failing silently.
 - There is currently **no unattended background sync** — every sync is a user-initiated click,
   refresh token or not. Don't rely on Stemma to silently pick up new records on a schedule.
 
@@ -471,8 +471,8 @@ providers grant real refresh tokens, but that requires a backend Stemma doesn't 
 | "This doesn't look like a SMART-on-FHIR server" | Neither `.well-known/smart-configuration` nor a `CapabilityStatement` `oauth-uris` fallback was found at that base URL. | Confirm the FHIR base URL is the R4 base your provider's developer docs give you, not a portal login page or a different API version. |
 | "The sign-in could not be verified for safety and was cancelled" | The `state` value returned by the provider didn't match what Stemma sent (CSRF protection) — often caused by starting a second connect attempt in another tab, or the browser clearing session storage mid-flow. | Try connecting again from a single tab. |
 | "Sign-in with this provider failed…" | The token exchange was rejected. | Confirm the redirect URI registered with your provider is *exactly* the one for this deployment (see the table under [Registering Stemma as an app with your provider](#registering-stemma-as-an-app-with-your-provider)), including the trailing slash, and that the client ID is correct. |
-| "The server rejected the data request…" | A FHIR read failed, most often an expired access token. | Try **Sync now** again; if it keeps failing, disconnect and reconnect. |
-| "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or disconnect and reconnect — this is the expected shape for a provider (Epic and, historically, Oracle Health among them) that doesn't grant public-client refresh tokens. |
+| "The server rejected the data request…" | A FHIR read failed, most often an expired access token. | Try **Sync now** again; if it keeps failing, use the connection card's **Sign in again** button. |
+| "This connection has expired and needs to be reauthorized." | No valid access token and no usable refresh token. | Click **Sync now** anyway to be prompted, or use **Sign in again** on the connection card — this is the expected shape for a provider (Epic and, historically, Oracle Health among them) that doesn't grant public-client refresh tokens. |
 | "No conditions, family history, or health events were found for this patient." | The sync succeeded but the server returned nothing across every resource type it searched. | Real EHR `FamilyMemberHistory` is often empty or thin — this can be a genuinely empty record, not an error. |
 | "Couldn't retrieve *&lt;labs / medication requests / immunizations / …&gt;* from this provider (…)." (in the review screen's warnings, not a failed sync) | That one resource type's search failed — an unsupported search, an expired token mid-sync, or (see the scope note above) a resource your app registration wasn't granted read access to — but every other resource type still synced normally. | Try **Sync now** again later; if it's consistently one resource type, check whether your provider grants that resource's read scope to your registration. |
 

@@ -441,6 +441,34 @@ describe('SmartFhirConnect — connected', () => {
     expect(screen.getByText(/ask you to sign in with them first/i)).toBeInTheDocument();
   });
 
+  // Regression for the a11y finding (WCAG 2.5.3, Label in Name): with two connection cards
+  // rendered, "Sync now"/"Sign in again"/"Disconnect" must each resolve to a UNIQUE, per-card
+  // accessible name so screen-reader element-list navigation doesn't hear three ambiguous,
+  // indistinguishable "Sync now" entries etc.
+  it('gives each Sync now / Sign in again / Disconnect button its own per-connection accessible name when two connections are rendered', () => {
+    const second: SmartConnection = {
+      ...CONNECTION,
+      id: 'conn-2',
+      fhirBaseUrl: 'https://fhir.other-provider.example/api/FHIR/R4',
+    };
+    useSmartConnectionStore.setState({ connections: [CONNECTION, second] });
+    render(
+      <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    for (const conn of [CONNECTION, second]) {
+      expect(
+        screen.getByRole('button', { name: `Sync now for ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: `Sign in again to ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: `Disconnect ${conn.fhirBaseUrl}` }),
+      ).toBeInTheDocument();
+    }
+  });
+
   it('disconnecting calls the store action with the connection id', async () => {
     const user = userEvent.setup();
     const disconnect = vi.fn();
@@ -449,7 +477,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+    await user.click(screen.getByRole('button', { name: /^disconnect/i }));
     expect(disconnect).toHaveBeenCalledWith('conn-1');
   });
 
@@ -473,7 +501,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={onImport} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     expect(await screen.findByText('Your conditions')).toBeInTheDocument();
     expect(screen.getByRole('note', { name: /clinical boundary/i })).toBeInTheDocument();
@@ -506,7 +534,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     // Must land on the review step (not the "nothing found" sync error) and surface the
     // health event for review.
@@ -538,7 +566,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     const heading = await screen.findByRole('heading', { name: 'Review synced health record' });
     expect(heading).toHaveFocus();
@@ -554,7 +582,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    const syncBtn = screen.getByRole('button', { name: 'Sync now' });
+    const syncBtn = screen.getByRole('button', { name: /^sync now/i });
     await user.click(syncBtn);
     await user.click(syncBtn); // still "Syncing…" — must be a no-op
 
@@ -570,7 +598,7 @@ describe('SmartFhirConnect — connected', () => {
       <SmartFhirConnect record={record} catalog={catalog} onImport={vi.fn()} onCancel={vi.fn()} />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Sync now' }));
+    await user.click(screen.getByRole('button', { name: /^sync now/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /sign-in with this provider failed/i,
@@ -618,7 +646,9 @@ describe('SmartFhirConnect — connected', () => {
         />,
       );
 
-      expect(screen.getByRole('button', { name: 'Sync now' }).className).toContain('btn--primary');
+      expect(screen.getByRole('button', { name: /^sync now/i }).className).toContain(
+        'btn--primary',
+      );
       expect(screen.getByRole('button', { name: /sign in again/i }).className).not.toContain(
         'btn--primary',
       );
@@ -642,13 +672,13 @@ describe('SmartFhirConnect — connected', () => {
         />,
       );
 
-      await user.click(screen.getByRole('button', { name: 'Sync now' }));
+      await user.click(screen.getByRole('button', { name: /^sync now/i }));
       expect(await screen.findByRole('alert')).toHaveTextContent(/sign in again/i);
 
       expect(screen.getByRole('button', { name: /sign in again/i }).className).toContain(
         'btn--primary',
       );
-      expect(screen.getByRole('button', { name: 'Sync now' }).className).not.toContain(
+      expect(screen.getByRole('button', { name: /^sync now/i }).className).not.toContain(
         'btn--primary',
       );
     });

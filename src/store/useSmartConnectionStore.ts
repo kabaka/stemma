@@ -197,14 +197,40 @@ function sanitizeConnections(input: unknown): SmartConnection[] {
 }
 
 /**
- * Insert-or-replace by `fhirBaseUrl` — the practical "one login per provider portal" key.
- * Deliberately NOT keyed on `patientId`: it isn't known until the OAuth response comes back
- * (can't match on it up front), and a single-proband tool has no need to track multiple distinct
- * patients behind the same portal. A re-auth for a portal Stemma already has a card for replaces
- * that card in place (reconnect flow, DR-0033); a genuinely new portal appends.
+ * A CONSERVATIVE normalization of `fhirBaseUrl`, used ONLY to decide whether two connect attempts
+ * target the "same" portal — never to change what's stored. Retyping the same portal URL with a
+ * different trailing slash or host case (e.g. `HTTPS://Fhir.example.org/R4` vs
+ * `https://fhir.example.org/R4/`) would otherwise fail the exact-string match in
+ * {@link upsertConnection} / the `existing` lookup below and duplicate the card. Lowercases only
+ * the origin (scheme+host) — hostnames are case-insensitive by spec — and strips a single
+ * trailing slash from the path; the path's own case is left exactly as typed, since FHIR paths
+ * CAN be case-sensitive (unlike the host). Falls back to the raw string on anything that doesn't
+ * parse as a URL (shouldn't happen post-validation, but never guess).
+ */
+function connectionMatchKey(fhirBaseUrl: string): string {
+  try {
+    const u = new URL(fhirBaseUrl);
+    const origin = `${u.protocol}//${u.host}`.toLowerCase();
+    const pathname =
+      u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
+    return `${origin}${pathname}${u.search}${u.hash}`;
+  } catch {
+    return fhirBaseUrl;
+  }
+}
+
+/**
+ * Insert-or-replace by `fhirBaseUrl` (compared via {@link connectionMatchKey}) — the practical
+ * "one login per provider portal" key. Deliberately NOT keyed on `patientId`: it isn't known
+ * until the OAuth response comes back (can't match on it up front), and a single-proband tool has
+ * no need to track multiple distinct patients behind the same portal. A re-auth for a portal
+ * Stemma already has a card for replaces that card in place (reconnect flow, DR-0033) — storing
+ * the INCOMING connection's exact `fhirBaseUrl` (not a normalized form) so the latest connect's
+ * literal value is always what discovery/sync use going forward; a genuinely new portal appends.
  */
 function upsertConnection(list: SmartConnection[], connection: SmartConnection): SmartConnection[] {
-  const idx = list.findIndex((c) => c.fhirBaseUrl === connection.fhirBaseUrl);
+  const key = connectionMatchKey(connection.fhirBaseUrl);
+  const idx = list.findIndex((c) => connectionMatchKey(c.fhirBaseUrl) === key);
   if (idx === -1) return [...list, connection];
   return list.map((c, i) => (i === idx ? connection : c));
 }
@@ -261,9 +287,22 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
           scope: response.scope,
           patientId: response.patient,
         });
-        if (response.refresh_token) {
-          tokenStore.saveRefreshToken(connectionId, response.refresh_token, stayConnected);
+        // The refresh-token CLEAR must NOT be gated on the response carrying one (security
+        // finding): `upsertConnection` reuses an existing connection id keyed on `fhirBaseUrl`
+        // (DR-0033), so a reconnect to a portal that previously had "Stay connected" ON — now
+        // reconnected with it OFF, and whose token response omits `refresh_token` (the common
+        // shape, since most providers only issue one on the FIRST grant of `offline_access`) —
+        // must still wipe the OLD refresh token lingering under the reused id. See
+        // `TokenStore.saveRefreshToken`'s own contract: `stayConnected=false` is unconditionally
+        // a clear, regardless of what's passed as the token.
+        if (!stayConnected) {
+          tokenStore.saveRefreshToken(connectionId, '', false);
+        } else if (response.refresh_token) {
+          tokenStore.saveRefreshToken(connectionId, response.refresh_token, true);
         }
+        // else: staying connected but this round's response didn't include a refresh_token (no
+        // rotation) — deliberately do nothing, so any existing valid token is left untouched
+        // rather than being overwritten with an empty string.
       };
 
       /** A currently-valid access token for a connection, refreshing if needed. */
@@ -388,8 +427,13 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
             // Reconnect-in-place (DR-0033): a callback for a `fhirBaseUrl` Stemma already has a
             // connection for reuses that connection's `id` (tokens persist under the SAME id,
             // and the card updates instead of duplicating) rather than always minting a new one.
-            // See `upsertConnection`'s own doc for why the match key is `fhirBaseUrl` alone.
-            const existing = get().connections.find((c) => c.fhirBaseUrl === pending.fhirBaseUrl);
+            // See `upsertConnection`'s own doc for why the match key is `fhirBaseUrl` alone, and
+            // `connectionMatchKey`'s doc for why the comparison is normalized (trailing slash /
+            // host case) while the stored value itself stays exactly what was typed.
+            const pendingKey = connectionMatchKey(pending.fhirBaseUrl);
+            const existing = get().connections.find(
+              (c) => connectionMatchKey(c.fhirBaseUrl) === pendingKey,
+            );
             const id = existing?.id ?? newId();
             const scopesGranted = scopesFrom(response, pending.scope);
             const connection: SmartConnection = {
