@@ -185,7 +185,7 @@ Real app, tested engine, exports, CI/CD, deploy, docs.
     access to everything a sync fetches. See
     [ADR-011](./ARCHITECTURE.md#adr-011--full-timeline-smart-on-fhir-import-and-the-partialdate--coding--event-provenance-uplift)
     and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md#registering-stemma-as-an-app-with-your-provider).
-  - ✅ **Connect-flow redesign** (DR-0016). Registering Stemma with a provider no longer needs to
+  - ✅ **Connect-flow redesign** (DR-0027). Registering Stemma with a provider no longer needs to
     happen per-user: a build-time `VITE_SMART_CLIENT_ID` (a GitHub Actions repository Variable, not
     a Secret — a public-client id isn't confidential) lets the hosted app ship one shared client ID,
     and a generated, brand-level directory of Epic organizations

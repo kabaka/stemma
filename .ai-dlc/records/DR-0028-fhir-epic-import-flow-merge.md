@@ -6,7 +6,7 @@
 
 | Field          | Value |
 | -------------- | ----- |
-| `decision_id`  | DR-0017 |
+| `decision_id`  | DR-0028 |
 | `transition`   | `construction-to-merge` |
 | `chosen_option`| `approve` |
 | `target`       | `main` |
@@ -18,7 +18,7 @@
 
 ## Rationale
 
-Implements DR-0016 across the layers on branch `claude/fhir-epic-import-flow-glkih6`.
+Implements DR-0027 across the layers on branch `claude/fhir-epic-import-flow-glkih6`.
 All units of work delivered: build-time public client id (`VITE_SMART_CLIENT_ID` via a
 GitHub Actions Variable) with a manual fallback; redirect-URI field removed; a
 lazy-loaded searchable Epic provider picker over a generated brand-level index
@@ -52,7 +52,7 @@ and hides the manual field, a build without it keeps the fallback. In-app (dev,
 Playwright): the connect panel shows the searchable picker with state-disambiguated
 results and no redirect-URI field; clinical boundary present. Not verifiable here:
 live Epic OAuth (needs the maintainer's real client id + the GitHub Pages redirect URI
-registered on the Epic app — the one maintainer prerequisite, confirmed at DR-0016).
+registered on the Epic app — the one maintainer prerequisite, confirmed at DR-0027).
 
 ### Maintainer follow-ups to activate the shipped feature
 1. Register a patient-facing public/PKCE Epic app; register `https://kabaka.github.io/stemma/`

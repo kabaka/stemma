@@ -413,7 +413,7 @@ fetches the expanded resource set with one search per type via `Promise.all`; a 
 search degrades to a `fetchWarnings` entry (surfaced to the user) instead of aborting the sync — the
 mandatory `Patient` read is the only fetch that still fails closed.
 
-### The build-time env seam, the provider picker, and its generated directory (DR-0016)
+### The build-time env seam, the provider picker, and its generated directory (DR-0027)
 
 Connecting to a provider no longer requires hand-entering OAuth values. Three pieces, each landing
 in the layer the layering table already prescribes:
@@ -866,7 +866,7 @@ surfaced through the existing `callbackError` path, with no data exposure. Guard
 manufactured risk numbers; review-before-merge for record data unchanged; local-first preserved (no
 new runtime network call — the directory is build-time data); the standing `ClinicalBoundary` notice
 is unchanged on the connect/review surfaces. See
-[DR-0016](../.ai-dlc/records/DR-0016-fhir-epic-import-flow-design.md) for the full decision record,
+[DR-0027](../.ai-dlc/records/DR-0027-fhir-epic-import-flow-design.md) for the full decision record,
 and [`SMART-ON-FHIR.md`](./SMART-ON-FHIR.md) for the updated setup guide. (roadmap Phase 3.)
 
 ---
