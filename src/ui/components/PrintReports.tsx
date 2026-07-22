@@ -23,15 +23,18 @@
  *
  * Rendered once as a sibling of the app shell (see App.tsx) and hidden on screen; the
  * `@media print` stylesheet hides the dark app chrome and reveals these black-on-white
- * sheets, one per page. The clinical boundary runs as a `<tfoot>` running table footer
- * repeated by the browser on every physical printed page (guardrail #3) — a first-class
- * element, not incidental footer text. A `<tfoot>` rather than a `position: fixed` element:
- * Chromium paints a fixed element's box over flowed content instead of reserving space for
- * it, which let table rows (and once, a table's own header row) render behind/under the
- * footer at a page bottom no matter how much `@page` margin was budgeted for it. A
- * `<tfoot>` reserves its height in normal flow on every page its `<table>` spans, so
- * content is laid out to leave room for it — see the `.print-doc` table wrapping the three
- * `.print-sheet`s below.
+ * sheets, one per page. The clinical boundary (guardrail #3) is a HYBRID of two
+ * mechanisms, each doing only the one thing it's good at — see the inline comment above
+ * `.print-footer` below for the full rationale:
+ *  - A `position: fixed` `.print-footer` PINS the visible boundary text to the bottom of
+ *    every physical page, including a short record, a single-page print, or the last page
+ *    of a multi-page print — cases where a `<tfoot>` alone floats up right after the
+ *    content instead of reaching the page bottom (the regression this hybrid fixes).
+ *  - An invisible, fixed-height `<tfoot>` SPACER (no boundary text) reserves that same
+ *    height in normal flow on every page the `.print-doc` table spans, which is what stops
+ *    the fixed footer from painting over flowed content — the occlusion bug a bare
+ *    `position: fixed` footer caused previously (table rows, and once a table's own header
+ *    row, rendered behind/under it no matter how much `@page` margin was budgeted).
  *
  * Presentational only: it reads the proband's computed engine outputs (never re-deriving
  * a number the engine didn't produce, guardrail #1) and renders them.
@@ -233,34 +236,51 @@ export function PrintReports() {
     // Hidden on screen via `display:none` (see components.css), which already removes it
     // from the accessibility tree — no `aria-hidden` needed. It reappears only in print.
     <div className="print-reports">
+      {/* The VISIBLE half of the hybrid clinical-boundary footer (guardrail #3):
+          `position: fixed; bottom: 0`, which is what PINS it to the bottom of every
+          physical printed page — including a short record, a single-page print, or the
+          last page of a multi-page print, where the `<tfoot>` spacer below (which only
+          reserves in-flow space) floats up right after the content instead of reaching the
+          page bottom on its own. Deliberately placed FIRST in the DOM, before the
+          `.print-doc` table and even before the root `<h1>` below: a fixed element placed
+          AFTER the sheets caused a spurious trailing blank page in Chromium's print
+          pagination (empirically verified via PDF render), whereas first-in-DOM does not.
+          Its `height` is one half of a coupled invariant with `.print-doc__foot-spacer`'s
+          `height` in components.css — see the comment there for the full hybrid rationale
+          and why both are needed together (this half alone repaints over flowed content;
+          the spacer alone doesn't reach the page bottom on a short/last page). */}
+      <div className="print-footer" role="note">
+        <b>Clinical boundary.</b> {CLINICAL_BOUNDARY_TEXT}
+      </div>
       {/* The printed document's root heading: `.app` (which holds the on-screen <h1>) is
           hidden in print, so without this the outline would start at <h2>. Visually hidden
           — the per-sheet <h2> titles carry the visible headers. */}
       <h1 className="visually-hidden">Stemma clinical print reports for {proband.name}</h1>
-      {/* The running clinical-boundary footer (guardrail #3), implemented as a `<tfoot>`
-          repeating table footer rather than a `position: fixed` element. `position: fixed`
-          paints its box OVER flowed content instead of reserving space for it in Chromium's
-          print pagination, which let table rows (and once, a table's own header row) render
-          behind/under the fixed footer at a page bottom no matter how much `@page` margin
-          was budgeted for it. A `<tfoot>` reserves its height in normal flow instead, so
-          content is laid out to leave room for it — but ONLY when Chromium's per-page
-          `<thead>`/`<tfoot>` repetition actually engages, and that turns out to need row-
-          level fragmentation: repeated rendering via isolated repro (see
-          `PrintReports.tsx` git history / PR notes) showed a `<tfoot>` repeats on every
-          page when the `<tbody>` breaks across pages at `<tr>` boundaries — even if one of
-          those rows itself internally overflows across many further pages — but prints
-          ONLY ONCE, on the table's true last page, when the whole document is a single
-          `<tr>` whose one `<td>` happens to contain everything. That's why each
-          `.print-sheet` below gets its OWN `<tr>`/`<td>` rather than sharing one: with three
-          sibling rows, the tbody genuinely fragments at row boundaries and the footer
-          repeats on every page, including the many further pages Sheet 3 alone spans
-          internally. Each sheet still starts on a fresh page — but that forced break lives
-          on the `<tr>` itself in CSS (`.print-doc > tbody > tr { break-before: page }`),
-          NOT on `.print-sheet`: a `break-after: page` on the sheet `<div>` was silently
-          ignored (no next flow sibling within its own `<td>` for the break to push, and the
-          request didn't propagate across the row boundary to the next `<tr>`), while
-          `break-before: page` on the row itself is what Chromium actually honors, and it
-          composes cleanly with the per-page `<tfoot>` behaviour rather than fighting it.
+      {/* The IN-FLOW half of the hybrid footer: an invisible, fixed-height spacer — no
+          boundary text — repeated per page as a `<tfoot>` running table footer. It reserves
+          the same `height` as `.print-footer` above at the bottom of every page the table
+          spans, which is what stops the fixed footer from painting over flowed content (the
+          occlusion bug a bare `position: fixed` footer caused: table rows, and once a
+          table's own header row, rendered behind/under it no matter how much `@page` margin
+          was budgeted for it — because a fixed element is positioned against the content
+          box and painted after normal flow, not reserved space within it).
+          Chromium's per-page `<tfoot>` repetition needs row-level fragmentation to engage:
+          repeated rendering via isolated repro (see `PrintReports.tsx` git history / PR
+          notes) showed a `<tfoot>` repeats on every page when the `<tbody>` breaks across
+          pages at `<tr>` boundaries — even if one of those rows itself internally overflows
+          across many further pages — but prints ONLY ONCE, on the table's true last page,
+          when the whole document is a single `<tr>` whose one `<td>` happens to contain
+          everything. That's why each `.print-sheet` below still gets its OWN `<tr>`/`<td>`
+          rather than sharing one: with three sibling rows, the tbody genuinely fragments at
+          row boundaries and the spacer repeats (reserving its band) on every page,
+          including the many further pages Sheet 3 alone spans internally. Each sheet still
+          starts on a fresh page — but that forced break lives on the `<tr>` itself in CSS
+          (`.print-doc > tbody > tr { break-before: page }`), NOT on `.print-sheet`: a
+          `break-after: page` on the sheet `<div>` was silently ignored (no next flow
+          sibling within its own `<td>` for the break to push, and the request didn't
+          propagate across the row boundary to the next `<tr>`), while `break-before: page`
+          on the row itself is what Chromium actually honors, and it composes cleanly with
+          the per-page spacer repetition rather than fighting it.
           Verified by rendering to PDF at Letter and A4 with a table-dense record reaching
           every page bottom, AND with minimal isolated repros (single-`<tr>` vs. multi-`<tr>`
           tables; `break-after` on the cell content vs. `break-before` on the row) to confirm
@@ -270,9 +290,7 @@ export function PrintReports() {
         <tfoot className="print-doc__foot">
           <tr>
             <td>
-              <div className="print-footer" role="note">
-                <b>Clinical boundary.</b> {CLINICAL_BOUNDARY_TEXT}
-              </div>
+              <div className="print-doc__foot-spacer" aria-hidden="true" />
             </td>
           </tr>
         </tfoot>

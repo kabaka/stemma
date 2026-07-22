@@ -1320,15 +1320,15 @@ textarea.field {
 /* ---- Printable clinical one-pagers (GAP-ANALYSIS H1) ----
    The three sheets live in a sibling of `.app`, hidden on screen. In print we drop the
    dark app chrome entirely and render these black-on-white, one sheet per page. The
-   clinical boundary runs as a `<tfoot>` running table footer (`.print-doc` /
-   `.print-footer`) repeated by the browser at the bottom of every physical printed page —
-   a first-class element (guardrail #3), not incidental footer text. A `<tfoot>` rather
-   than `position: fixed`: Chromium paints a fixed element's box over flowed content
-   instead of reserving space for it, so table rows (and even a table's own header row)
-   could render behind/under a fixed footer at a page bottom no matter how much `@page`
-   margin was budgeted for it. A `<tfoot>` reserves its height in normal flow on every
-   page its `<table>` spans, so content is laid out to leave room for it — see
-   `PrintReports.tsx` for the `<table className="print-doc">` structure. */
+   clinical boundary (guardrail #3) is a HYBRID of two mechanisms, each doing only the one
+   thing it's good at — see the `.print-footer` / `.print-doc__foot-spacer` comment below
+   for the full rationale. In short: `.print-footer` (`position: fixed; bottom: 0`) PINS the
+   visible boundary text to the bottom of every physical page, including a short record, a
+   single-page print, or the last page of a multi-page print — cases a bare `<tfoot>` can't
+   handle because it only floats up right after the content instead of reaching the page
+   bottom. `.print-doc__foot-spacer` is an invisible, fixed-height `<tfoot>` that reserves
+   that same height in normal flow on every page `.print-doc` spans, which is what stops the
+   fixed footer from painting over flowed content. See `PrintReports.tsx` for the DOM. */
 .print-reports {
   display: none;
 }
@@ -1338,16 +1338,26 @@ textarea.field {
   .app {
     display: none !important;
   }
+  /* Force a white page for print. `body` carries the app's dark theme background
+     (`--bg`, set in theme.css with no print override), which — when a printed page
+     isn't fully filled (a short record, or the blank band above the pinned footer on
+     the last page) — would otherwise show through as a dark band on paper. The printed
+     sheets are explicitly black-on-white, so the page itself must be white too. */
+  html,
+  body {
+    background: #fff !important;
+  }
   .print-reports {
     display: block;
     color: #111;
     background: #fff;
     font-family: var(--font-sans);
   }
-  /* The whole printed document is one `<table>` so its `<tfoot>` (the running clinical
-     boundary) reserves real, space-claiming height in normal flow on every page — see the
-     top-of-file comment. No visual table styling (no borders/cell padding of its own);
-     it exists purely as Chromium's print-repetition mechanism. */
+  /* The whole printed document is one `<table>` so its `<tfoot>` (now an invisible spacer,
+     not the visible boundary text — see the top-of-file comment) reserves real,
+     space-claiming height in normal flow on every page. No visual table styling (no
+     borders/cell padding of its own); it exists purely as Chromium's print-repetition
+     mechanism. */
   .print-doc {
     width: 100%;
     border-collapse: collapse;
@@ -1357,17 +1367,18 @@ textarea.field {
     padding: 0;
   }
   /* Each `.print-sheet` lives in its OWN `<tr>` (see `PrintReports.tsx`) — this is what
-     makes `<tfoot>` repeat correctly on every page, including the several further pages a
-     dense Sheet 3 alone can span (confirmed empirically: a `<tfoot>` repeats per-page when
-     the `<tbody>` fragments at `<tr>` boundaries, but prints only once, on the table's true
-     last page, when the whole document sits in a single `<tr>`/`<td>`).
+     makes the `<tfoot>` spacer repeat correctly on every page, including the several
+     further pages a dense Sheet 3 alone can span (confirmed empirically: a `<tfoot>`
+     repeats per-page when the `<tbody>` fragments at `<tr>` boundaries, but prints only
+     once, on the table's true last page, when the whole document sits in a single
+     `<tr>`/`<td>`).
      A forced break is placed here for the SAME reason it must be `<tr>`-level, not on
      `.print-sheet` itself: `break-after: page` on the sheet `<div>` was silently ignored —
      each sheet is the only child of its cell, so there is no next flow sibling within that
      `<td>` for the break to push, and the break request does not propagate across a
      table-row boundary to affect where the NEXT `<tr>` starts. `break-before: page` on the
      row itself (skipped for the first row) is what Chromium actually honors here — and,
-     confirmed by the same repro, it composes cleanly with the per-page `<tfoot>` behaviour
+     confirmed by the same repro, it composes cleanly with the per-page spacer repetition
      above rather than fighting it. */
   .print-doc > tbody > tr {
     break-before: page;
@@ -1535,12 +1546,44 @@ textarea.field {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  /* No `position`/`height`/`overflow` here — the `<tfoot>` it lives in is what makes it
-     repeat per page and reserves its height in normal flow (see the `.print-doc` comment
-     above), so this is just an ordinary in-flow block, sized by its own content like any
-     other. It can wrap to as many lines as `CLINICAL_BOUNDARY_TEXT` needs without risking
-     overlap with anything, because flowed content is laid out to leave room for it. */
+  /* The IN-FLOW half of the hybrid footer (see the top-of-file comment): an invisible,
+     fixed-height spacer with no boundary text. It renders nothing visible on its own
+     (empty content; `visibility: hidden` is a redundant belt-and-braces backstop given
+     there's no text to hide) — it exists purely so Chromium lays out flowed content to
+     leave `height` untouched at the bottom of every page the `<tfoot>` it lives in repeats
+     on. `height` here and `.print-footer`'s `height` below are ONE COUPLED INVARIANT: this
+     must be >= the footer's rendered height, or content could be laid out into space the
+     fixed footer will then paint over, reintroducing the occlusion bug. Re-measure both via
+     a real PDF render (Letter + A4) if `CLINICAL_BOUNDARY_TEXT`, its font-size, or the
+     `@page` margin below ever changes. */
+  .print-doc__foot-spacer {
+    height: 20mm; /* coupled invariant — keep in sync with .print-footer's height below */
+    visibility: hidden;
+  }
+  /* The VISIBLE half of the hybrid footer: `position: fixed; bottom: 0` pins it to the
+     bottom of every physical page regardless of how much content that page holds — a short
+     record, a single-page print, and the true last page of a multi-page print all get it
+     flush against the page bottom, unlike the `<tfoot>` spacer above, which only reserves
+     space and does not by itself reach the page bottom on a page that doesn't fill up (see
+     the top-of-file comment for the full rationale and why both halves are needed).
+     `height` is a fixed length (not `auto`, not `min-height`) paired with `overflow: hidden`
+     as a pure clip backstop — normal layout should never need it, since
+     `.print-doc__foot-spacer` above reserves the identical height in flow, so content is
+     never laid out into this footer's paint zone in the first place. `box-sizing:
+     border-box` so the border/padding below are counted inside `height`, not added on top
+     of it (which would silently break the spacer/footer height match). Sized with headroom
+     over the ~3–4 lines `CLINICAL_BOUNDARY_TEXT` (`src/domain/boundary.ts`) wraps to at
+     11px/1.35 across both Letter's and A4's printable width at the 12mm `@page` margin below
+     — verified via a real PDF render; re-verify the same way if the text, font-size, or
+     margin changes. */
   .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 20mm; /* coupled invariant — keep in sync with .print-doc__foot-spacer above */
+    overflow: hidden;
+    box-sizing: border-box;
     background: #fff;
     color: #111;
     border-top: 1px solid #111;
@@ -1549,8 +1592,10 @@ textarea.field {
     line-height: 1.35;
   }
 
-  /* Symmetric margin — no longer coupled to the footer's height now that the `<tfoot>`
-     reserves its own space in normal flow instead of painting in the bottom-margin band. */
+  /* The fixed footer paints inside the page's content box (Chromium positions a `position:
+     fixed` element in print against the content box, not the margin band), so this margin
+     does not need to grow to make room for it — the `<tfoot>` spacer above is what reserves
+     that room, inside the content box, on the content side. */
   @page {
     margin: 12mm;
   }
