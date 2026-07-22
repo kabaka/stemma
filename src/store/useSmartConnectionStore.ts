@@ -196,6 +196,19 @@ function sanitizeConnections(input: unknown): SmartConnection[] {
   return Array.isArray(raw) ? raw.filter(isConnection) : [];
 }
 
+/**
+ * Insert-or-replace by `fhirBaseUrl` — the practical "one login per provider portal" key.
+ * Deliberately NOT keyed on `patientId`: it isn't known until the OAuth response comes back
+ * (can't match on it up front), and a single-proband tool has no need to track multiple distinct
+ * patients behind the same portal. A re-auth for a portal Stemma already has a card for replaces
+ * that card in place (reconnect flow, DR-0033); a genuinely new portal appends.
+ */
+function upsertConnection(list: SmartConnection[], connection: SmartConnection): SmartConnection[] {
+  const idx = list.findIndex((c) => c.fhirBaseUrl === connection.fhirBaseUrl);
+  if (idx === -1) return [...list, connection];
+  return list.map((c, i) => (i === idx ? connection : c));
+}
+
 // ---------------------------------------------------------------------------
 // sessionStorage helpers for the transient PKCE handshake.
 // ---------------------------------------------------------------------------
@@ -372,7 +385,12 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
               clientId: pending.clientId,
             });
 
-            const id = newId();
+            // Reconnect-in-place (DR-0033): a callback for a `fhirBaseUrl` Stemma already has a
+            // connection for reuses that connection's `id` (tokens persist under the SAME id,
+            // and the card updates instead of duplicating) rather than always minting a new one.
+            // See `upsertConnection`'s own doc for why the match key is `fhirBaseUrl` alone.
+            const existing = get().connections.find((c) => c.fhirBaseUrl === pending.fhirBaseUrl);
+            const id = existing?.id ?? newId();
             const scopesGranted = scopesFrom(response, pending.scope);
             const connection: SmartConnection = {
               id,
@@ -380,22 +398,25 @@ export const useSmartConnectionStore = create<SmartConnectionStore>()(
               authorizeEndpoint: pending.endpoints.authorizeEndpoint,
               tokenEndpoint: pending.endpoints.tokenEndpoint,
               clientId: pending.clientId,
-              patientId: response.patient ?? null,
+              patientId: response.patient ?? existing?.patientId ?? null,
               scopesGranted,
               offlineAccessGranted: scopesGranted.includes('offline_access'),
               stayConnected: pending.stayConnected,
-              lastSyncAt: null,
-              createdAt: nowIso(),
+              // A reconnect shouldn't reset "last synced" — the auto-sync that follows (via
+              // `requestedSyncId` below) will update it for real once it actually succeeds.
+              lastSyncAt: existing?.lastSyncAt ?? null,
+              createdAt: existing?.createdAt ?? nowIso(),
             };
 
             persistTokens(id, response, pending.stayConnected);
-            // Setting `requestedSyncId` here (the SAME atomic `set` that adds the connection
-            // and clears `callbackError`) is what fixes the "redirected home, nothing
+            // Setting `requestedSyncId` here (the SAME atomic `set` that adds/updates the
+            // connection and clears `callbackError`) is what fixes the "redirected home, nothing
             // happened" bug: previously a successful callback left no trace for the UI to
             // react to at all, unlike a failed one (`callbackError`). This reuses that exact
-            // signal idiom instead of inventing a new toast/latch — see the field's own doc.
+            // signal idiom instead of inventing a new toast/latch — see the field's own doc. It
+            // resolves to `existing.id` on a reconnect so the auto-sync fires for the right card.
             set((s) => ({
-              connections: [...s.connections, connection],
+              connections: upsertConnection(s.connections, connection),
               callbackError: null,
               requestedSyncId: id,
             }));

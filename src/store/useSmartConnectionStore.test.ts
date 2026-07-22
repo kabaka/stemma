@@ -240,6 +240,76 @@ describe('completeCallbackIfPresent — CSRF state verification', () => {
 });
 
 // ---------------------------------------------------------------------------
+// completeCallbackIfPresent — reconnect-in-place (DR-0033)
+// ---------------------------------------------------------------------------
+
+describe('completeCallbackIfPresent — reconnect-in-place (DR-0033)', () => {
+  it('a callback for an ALREADY-CONNECTED fhirBaseUrl updates that connection in place: same id, tokens persisted under it, requestedSyncId resolves to it, and scopes/patientId refresh', async () => {
+    const gateway = fakeGateway();
+    const tokenStore = fakeTokenStore();
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore });
+    // Pre-existing connection for the SAME fhirBaseUrl `beginAndCaptureState` always targets
+    // ('https://ehr.example.org/fhir') — a stale/expired card the reconnect must update, not
+    // duplicate.
+    const existing = seedConnection({
+      id: 'conn-existing',
+      patientId: 'pat-old',
+      scopesGranted: ['patient/Condition.read'],
+      lastSyncAt: '2026-01-15T00:00:00.000Z',
+      createdAt: '2025-06-01T00:00:00.000Z',
+    });
+
+    const state = await beginAndCaptureState(gateway, tokenStore, { stayConnected: true });
+    withCallbackQuery('AUTH-CODE-RECONNECT', state);
+    const resolvedId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
+
+    // Same id reused — no duplicate card.
+    expect(resolvedId).toBe(existing.id);
+    const connections = useSmartConnectionStore.getState().connections;
+    expect(connections).toHaveLength(1);
+    const updated = connections[0];
+    expect(updated.id).toBe(existing.id);
+    expect(updated.createdAt).toBe(existing.createdAt); // createdAt is preserved
+    expect(updated.lastSyncAt).toBe(existing.lastSyncAt); // reconnect doesn't reset last-synced
+    // Refreshed from the new OAuth response/pending handshake.
+    expect(updated.patientId).toBe('pat-1'); // fakeGateway's exchangeCode resolves patient: 'pat-1'
+    expect(updated.stayConnected).toBe(true);
+    expect(updated.scopesGranted).toEqual(expect.arrayContaining(['openid', 'fhirUser']));
+
+    // Tokens persisted under the SAME (reused) id, not a freshly-minted one.
+    expect(tokenStore.saveAccessToken).toHaveBeenCalledWith(
+      existing.id,
+      expect.objectContaining({ accessToken: 'AT-exchanged' }),
+    );
+
+    // The post-callback auto-sync signal targets the EXISTING id.
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBe(existing.id);
+  });
+
+  it('a callback for a NEW fhirBaseUrl still appends rather than colliding with an unrelated existing connection', async () => {
+    const gateway = fakeGateway();
+    const tokenStore = fakeTokenStore();
+    useSmartConnectionStore.getState().configure({ gateway, tokenStore });
+    // An existing connection for a DIFFERENT portal — must be left untouched.
+    const other = seedConnection({
+      id: 'conn-other',
+      fhirBaseUrl: 'https://other-ehr.example.org/fhir',
+    });
+
+    const state = await beginAndCaptureState(gateway, tokenStore);
+    withCallbackQuery('AUTH-CODE-NEW', state);
+    const newId = await useSmartConnectionStore.getState().completeCallbackIfPresent();
+
+    expect(newId).toEqual(expect.any(String));
+    expect(newId).not.toBe(other.id);
+    const connections = useSmartConnectionStore.getState().connections;
+    expect(connections).toHaveLength(2);
+    expect(connections.map((c) => c.id)).toEqual(expect.arrayContaining([other.id, newId]));
+    expect(useSmartConnectionStore.getState().requestedSyncId).toBe(newId);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // requestSync / clearRequestedSync (DR-0016)
 // ---------------------------------------------------------------------------
 

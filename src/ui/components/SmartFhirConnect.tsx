@@ -103,10 +103,10 @@ function friendlyError(err: unknown, context: 'connect' | 'sync'): string {
     return `Sign-in with this provider failed (${message}). Try connecting again, or ask your provider/IT admin to confirm Stemma's redirect URI is registered correctly.`;
   }
   if (/FHIR read failed/i.test(message)) {
-    return `The server rejected the data request (${message}). Your access may have expired — try syncing again, or disconnect and reconnect.`;
+    return `The server rejected the data request (${message}). Your access may have expired — use "Sign in again" below to reconnect.`;
   }
   if (/reauthorized/i.test(message)) {
-    return message;
+    return `${message} Use "Sign in again" below to reconnect.`;
   }
   return context === 'connect' ? `Couldn't connect: ${message}` : `Sync failed: ${message}`;
 }
@@ -145,13 +145,26 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** One connected provider: status, scopes, sync/disconnect controls, and its own sync error
- * (each connection syncs independently, so one failing must never block or hide the others). */
+/** True when a sync error indicates the connection's access has expired and re-auth (not a
+ * retried sync) is what will actually fix it — drives which of "Sync now" / "Sign in again" is
+ * the card's primary action. Tested against the FRIENDLY (already-mapped) error text, since
+ * that's what callers hold; see `friendlyError`'s own `reauthorized`/`FHIR read failed`
+ * branches, both of which route the user to "Sign in again" in their copy. */
+function isExpiryError(syncError: string | null): boolean {
+  return (
+    syncError != null && /reauthoriz|expired|access may have expired|sign in again/i.test(syncError)
+  );
+}
+
+/** One connected provider: status, scopes, sync/reconnect/disconnect controls, and its own sync
+ * error (each connection syncs independently, so one failing must never block or hide the
+ * others). */
 function ConnectionCard({
   connection,
   syncing,
   syncError,
   onSync,
+  onReconnect,
   onDisconnect,
   onSetStayConnected,
 }: {
@@ -159,10 +172,16 @@ function ConnectionCard({
   syncing: boolean;
   syncError: string | null;
   onSync: (id: string) => void;
+  onReconnect: (connection: SmartConnection) => void;
   onDisconnect: (id: string) => void;
   onSetStayConnected: (id: string, stayConnected: boolean) => void;
 }) {
   const stayId = useId();
+  // When the current error means "you need to sign in again" (no refresh token / expired
+  // session — the normal case for Cerner's ~10-min access tokens and for Epic without "Stay
+  // connected"), retrying "Sync now" can't help until re-auth happens, so "Sign in again"
+  // becomes the primary action and "Sync now" steps back to secondary.
+  const expired = isExpiryError(syncError);
   return (
     <div className="card" style={{ padding: '10px 12px', display: 'grid', gap: 10 }}>
       <div className="identity-grid">
@@ -201,11 +220,19 @@ function ConnectionCard({
       <div className="row wrap" style={{ gap: 12 }}>
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className={expired ? 'btn btn--sm' : 'btn btn--primary btn--sm'}
           onClick={() => onSync(connection.id)}
           aria-disabled={syncing}
         >
           {syncing ? 'Syncing…' : 'Sync now'}
+        </button>
+        <button
+          type="button"
+          className={expired ? 'btn btn--primary btn--sm' : 'btn btn--sm'}
+          onClick={() => onReconnect(connection)}
+          aria-label={`Sign in again to ${connection.fhirBaseUrl}`}
+        >
+          Sign in again
         </button>
         <label className="row" style={{ gap: 6, fontSize: 12 }} htmlFor={stayId}>
           <input
@@ -354,6 +381,25 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
     } catch (err) {
       setConnecting(false);
       setConnectError(friendlyError(err, 'connect'));
+    }
+  };
+
+  /** One-click re-auth for an already-connected provider (DR-0033): replay OAuth against the
+   * SAME endpoint/client id/stay-connected choice the connection was made with — no re-picking
+   * needed — so `completeCallbackIfPresent`'s reconnect-in-place logic (see the store) updates
+   * this exact card rather than spawning a new one. `beginConnect` navigates away on success, so
+   * there's nothing to do after that; the only failure mode here is discovery/navigation itself
+   * throwing before the redirect happens (e.g. the server is unreachable), which is surfaced on
+   * this connection's own error slot exactly like a failed sync would be — no re-entrancy guard
+   * beyond that: a duplicate click just re-navigates. */
+  const handleReconnect = async (connection: SmartConnection): Promise<void> => {
+    try {
+      await beginConnect(connection.fhirBaseUrl, connection.clientId, {
+        stayConnected: connection.stayConnected,
+        redirectUri: uri,
+      });
+    } catch (err) {
+      setSyncErrors((prev) => ({ ...prev, [connection.id]: friendlyError(err, 'connect') }));
     }
   };
 
@@ -540,6 +586,7 @@ export function SmartFhirConnect({ record, catalog, onImport, onCancel }: SmartF
                 syncing={syncingId === c.id}
                 syncError={syncErrors[c.id] ?? null}
                 onSync={(id) => void handleSync(id)}
+                onReconnect={(conn) => void handleReconnect(conn)}
                 onDisconnect={disconnect}
                 onSetStayConnected={setStayConnected}
               />
