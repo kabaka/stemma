@@ -446,15 +446,15 @@ describe('TimelineView', () => {
 
   it('renders the clinical boundary at the page level (guardrail #3), unambiguously when there are no labs', () => {
     // The sample family's timeline events are all legacy flat events with no lab
-    // reading, so LabTrend (which renders its own, separate ClinicalBoundary) never
-    // mounts here — exactly one boundary note exists, unambiguously the page-level one.
+    // reading, so LabTrend never mounts here — exactly one boundary note exists,
+    // unambiguously the page-level one.
     render(<TimelineView />);
     expect(screen.queryByRole('heading', { name: /lab trend/i })).not.toBeInTheDocument();
     const boundary = screen.getByRole('note', { name: /clinical boundary/i });
     expect(boundary).toHaveTextContent(/not a diagnostic device/i);
   });
 
-  it('renders the lab-trend surface — with the clinical boundary — when a lab title exists for the person', () => {
+  it('renders the lab-trend surface when a lab title exists, still under the single page-level clinical boundary', () => {
     act(() =>
       useStore.getState().replaceRecord({
         people: [
@@ -489,16 +489,13 @@ describe('TimelineView', () => {
     );
     render(<TimelineView />);
     expect(screen.getByRole('heading', { name: /lab trend/i })).toBeInTheDocument();
-    // Two distinct boundary notes now coexist by design: TimelineView's own page-level
-    // standing disclaimer (guardrail #3, present on every visit regardless of labs — see
-    // the no-labs test above) plus LabTrend's own contextual one rendered alongside the
-    // lab-specific read-model it documents (see LabTrend's docstring). Both must state the
-    // core boundary text.
+    // Exactly one boundary note, even with the lab-trend surface shown: TimelineView's
+    // page-level standing disclaimer (guardrail #3) covers the whole surface, including
+    // the embedded lab trend. LabTrend renders no boundary of its own — a second one here
+    // would only duplicate the page-level one.
     const boundaries = screen.getAllByRole('note', { name: /clinical boundary/i });
-    expect(boundaries).toHaveLength(2);
-    boundaries.forEach((boundary) =>
-      expect(boundary).toHaveTextContent(/not a diagnostic device/i),
-    );
+    expect(boundaries).toHaveLength(1);
+    expect(boundaries[0]).toHaveTextContent(/not a diagnostic device/i);
     expect(screen.getByRole('combobox', { name: /test/i })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: '2020' })).toBeInTheDocument();
     expect(screen.getByText(/130 mg\/dL/)).toBeInTheDocument();
