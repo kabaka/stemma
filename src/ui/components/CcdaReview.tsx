@@ -10,7 +10,9 @@ import type {
   StagedFamilyMember,
 } from '@/import';
 import { formatPartialDate } from '@/domain/dates';
+import { rangePosition } from '@/domain/timeline';
 import type { EventType, FamilyRecord, Person } from '@/domain/types';
+import { RangePositionMark } from './RangePositionMark';
 
 /** Same relation/icon/label idiom as `RELATIVE_GRID` in PersonDrawer.tsx (kept as a
  * separate local copy — that one is a module-private constant there, and this picker's
@@ -104,9 +106,12 @@ const EVENT_GROUPS: { type: Exclude<EventType, 'diagnosis' | 'screening'>; label
 /**
  * Type-specific payload text/markup for one staged event, rendered under its title/date row.
  * Guardrail #1 (never manufacture a risk number): a lab/vital's reference range is rendered
- * as plain transcribed text, explicitly attributed to the source record — never compared
- * against the value, and never as an in-range/out-of-range flag or colour. Severity/reaction
- * are plain text too, never colour-alone (WCAG 1.4.1).
+ * as plain transcribed text, explicitly attributed to the source record. The value line does
+ * carry a strictly positional "above range"/"below range" restatement of THAT SAME reading's
+ * own bounds, via {@link RangePositionMark}/`rangePosition` (DR-0036) — a factual comparison
+ * of the recorded value against the recorded range, never a clinical interpretation, the
+ * H/L/abnormal vocabulary, or colour-only signalling (WCAG 1.4.1). Severity/reaction remain
+ * plain text too, never colour-alone.
  */
 function EventPayload({ event }: { event: StagedEvent }) {
   switch (event.type) {
@@ -118,10 +123,12 @@ function EventPayload({ event }: { event: StagedEvent }) {
         <span className="mono-dim" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span>
             {m.value} {m.unit}
+            <RangePositionMark position={rangePosition(m.value, m.refLow, m.refHigh)} />
           </span>
-          {m.refLow != null && m.refHigh != null && (
+          {(m.refLow != null || m.refHigh != null) && (
             <span>
-              Reference range (from this record): {m.refLow}&ndash;{m.refHigh} {m.unit}
+              Reference range (from this record): {m.refLow ?? '—'}&ndash;{m.refHigh ?? '—'}{' '}
+              {m.unit}
             </span>
           )}
         </span>
@@ -509,6 +516,11 @@ export function CcdaReview({
     });
   };
 
+  // Whether at least one staged lab/vital event is present — gates the co-located
+  // "above range"/"below range" caveat below (DR-0036), rendered once for the whole
+  // section rather than once per row.
+  const hasLabOrVitalEvent = staged.events.some((e) => e.type === 'lab' || e.type === 'vital');
+
   const totalTopLevel =
     staged.probandConditions.length + staged.familyMembers.length + staged.events.length;
   const selectedTopLevel = [...selected].filter(
@@ -664,6 +676,17 @@ export function CcdaReview({
           <Heading id={eventsHeadingId} className="overline" style={{ marginBottom: 8 }}>
             Health events
           </Heading>
+          {hasLabOrVitalEvent && (
+            /* Co-located caveat for the "above range"/"below range" pill (DR-0036): this
+               review surface carries only the generic page-level ClinicalBoundary above, so
+               the marker earns its own explanation right where it's read, rendered once for
+               the whole Health events section rather than once per lab/vital row. */
+            <p className="mono-dim" style={{ margin: '0 0 8px', lineHeight: 1.5 }}>
+              <em>Above range</em> / <em>below range</em> compares a value against the reference
+              range in this record &mdash; a factual comparison, not a clinical assessment. Discuss
+              results with a clinician.
+            </p>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {EVENT_GROUPS.map(({ type, label }) => {
               const items = staged.events.filter((e) => e.type === type);

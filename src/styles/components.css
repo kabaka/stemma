@@ -367,6 +367,18 @@
   white-space: nowrap;
   flex: none;
 }
+/* A single NEUTRAL pill for `RangePositionMark` — same shape/typography as `.badge`, but a
+   muted border + dim text rather than any `--sev-*` severity colour, and IDENTICAL for
+   "above range" and "below range" (guardrail #1: the visible text carries the meaning, a
+   severity colour would smuggle a clinical interpretation back in; WCAG 1.4.1 — never
+   colour-alone anyway, since both states already share this one colour). Inline, marginal
+   spacing so it sits naturally after a value in a table cell. */
+.range-mark {
+  margin-left: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+}
 .flag__criterion {
   font-size: 12px;
   color: var(--text);
@@ -1545,6 +1557,14 @@ textarea.field {
   .print-table tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  /* `.range-mark` (RangePositionMark) is styled off `--border-strong`/`--text-dim`, which
+     are dark-theme values (translucent white / a mid-grey) — invisible-to-illegible against
+     this sheet's forced white background. Same neutral, above/below-identical treatment
+     (guardrail #1), restated in the print palette so the pill is still legible on paper. */
+  .range-mark {
+    border-color: #333;
+    color: #333;
   }
   /* The IN-FLOW half of the hybrid footer (see the top-of-file comment): an invisible,
      fixed-height spacer with no boundary text. It renders nothing visible on its own

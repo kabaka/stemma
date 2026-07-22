@@ -7,11 +7,13 @@ import {
   labSeries,
   labTitles,
   measurementSummaries,
+  rangePosition,
   seriesSummary,
   vitalSeries,
   vitalTitles,
   type LabPoint,
   type MeasurementPoint,
+  type RangePosition,
 } from './timeline';
 
 /** Minimal fixture person, matching the style of record.test.ts / screening.test.ts. */
@@ -1119,5 +1121,134 @@ describe('LabPoint / MeasurementPoint back-compat alias', () => {
     const record = mkRecord([mkPerson('a')], [event]);
     const points: LabPoint[] = labSeries(record, 'a', 'LDL');
     expect(points[0].value).toBe(130);
+  });
+});
+
+/**
+ * `rangePosition` marks whether a value falls outside the user's OWN transcribed
+ * reference bounds — a positional restatement (above/below/within), never a clinical
+ * H/L/abnormal flag or a computed risk (guardrail #1). This oracle is written to the
+ * function's contract, independent of its (not-yet-landed) implementation.
+ */
+describe('rangePosition', () => {
+  describe('both bounds present', () => {
+    it('returns "within" when value sits strictly between refLow and refHigh', () => {
+      expect(rangePosition(5, 0, 10)).toBe('within');
+    });
+
+    it('returns "above" when value is strictly greater than refHigh', () => {
+      expect(rangePosition(11, 0, 10)).toBe('above');
+    });
+
+    it('returns "below" when value is strictly less than refLow', () => {
+      expect(rangePosition(-1, 0, 10)).toBe('below');
+    });
+
+    it('treats the high boundary as inclusive — value === refHigh is "within" (FHIR/lab convention)', () => {
+      expect(rangePosition(10, 0, 10)).toBe('within');
+    });
+
+    it('treats the low boundary as inclusive — value === refLow is "within" (FHIR/lab convention)', () => {
+      expect(rangePosition(0, 0, 10)).toBe('within');
+    });
+  });
+
+  describe('zero is a valid bound, not an absent one', () => {
+    it('honors a zero low bound for a value below it — "below", not falsy-guarded away', () => {
+      expect(rangePosition(-1, 0, 10)).toBe('below');
+    });
+
+    it('honors a zero low bound for a value at it — "within", not falsy-guarded away', () => {
+      expect(rangePosition(0, 0, 10)).toBe('within');
+    });
+
+    it('honors a zero low bound alongside a low refHigh — value above refHigh is "above"', () => {
+      expect(rangePosition(5, 0, 4)).toBe('above');
+    });
+  });
+
+  describe('one-sided ranges', () => {
+    it('refHigh only (refLow undefined): value above refHigh is "above"', () => {
+      expect(rangePosition(11, undefined, 10)).toBe('above');
+    });
+
+    it('refHigh only (refLow undefined): value at or below refHigh is "within" — the unbounded side records nothing', () => {
+      expect(rangePosition(10, undefined, 10)).toBe('within');
+      expect(rangePosition(-1000, undefined, 10)).toBe('within');
+    });
+
+    it('refLow only (refHigh undefined): value below refLow is "below"', () => {
+      expect(rangePosition(2, 3, undefined)).toBe('below');
+    });
+
+    it('refLow only (refHigh undefined): value at or above refLow is "within" — the unbounded side records nothing', () => {
+      expect(rangePosition(3, 3, undefined)).toBe('within');
+      expect(rangePosition(1000, 3, undefined)).toBe('within');
+    });
+  });
+
+  it('returns undefined when neither bound is recorded', () => {
+    expect(rangePosition(5, undefined, undefined)).toBeUndefined();
+  });
+
+  describe('inverted range (refLow > refHigh) — incoherent, emit nothing', () => {
+    it('returns undefined for a value that would read "above" the (lower) high bound', () => {
+      expect(rangePosition(11, 10, 2)).toBeUndefined();
+    });
+
+    it('returns undefined for a value that would read "below" the (higher) low bound', () => {
+      expect(rangePosition(1, 10, 2)).toBeUndefined();
+    });
+
+    it('returns undefined for a value that falls between the two swapped bounds', () => {
+      expect(rangePosition(5, 10, 2)).toBeUndefined();
+    });
+  });
+
+  describe('non-finite guards', () => {
+    it.each([NaN, Infinity, -Infinity])(
+      'returns undefined when value itself is non-finite (%p), even with valid bounds',
+      (badValue) => {
+        expect(rangePosition(badValue, 0, 10)).toBeUndefined();
+      },
+    );
+
+    it('treats a NaN refLow as absent — falls back to one-sided (refHigh-only) behavior', () => {
+      expect(rangePosition(5, NaN, 10)).toBe('within');
+      expect(rangePosition(15, NaN, 10)).toBe('above');
+    });
+
+    it('treats an Infinity refLow as absent — falls back to one-sided (refHigh-only) behavior', () => {
+      expect(rangePosition(5, Infinity, 10)).toBe('within');
+      expect(rangePosition(15, Infinity, 10)).toBe('above');
+    });
+
+    it('treats a non-finite refHigh as absent — falls back to one-sided (refLow-only) behavior', () => {
+      expect(rangePosition(2, 3, NaN)).toBe('below');
+      expect(rangePosition(3, 3, Infinity)).toBe('within');
+    });
+
+    it('returns undefined when both bounds are non-finite (equivalent to no bounds at all)', () => {
+      expect(rangePosition(5, NaN, NaN)).toBeUndefined();
+    });
+  });
+
+  describe('realistic vignettes', () => {
+    it('HbA1c 8.1 against a transcribed reference range of 4.0–5.6 reads "above"', () => {
+      expect(rangePosition(8.1, 4.0, 5.6)).toBe('above');
+    });
+
+    it('potassium 3.1 against a transcribed reference range of 3.5–5.1 reads "below"', () => {
+      expect(rangePosition(3.1, 3.5, 5.1)).toBe('below');
+    });
+
+    it('TSH 2.0 against a transcribed reference range of 0.4–4.0 reads "within"', () => {
+      expect(rangePosition(2.0, 0.4, 4.0)).toBe('within');
+    });
+  });
+
+  it('the RangePosition type covers exactly the three positional labels', () => {
+    const labels: RangePosition[] = ['within', 'above', 'below'];
+    expect(labels).toHaveLength(3);
   });
 });

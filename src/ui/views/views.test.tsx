@@ -2613,8 +2613,39 @@ describe('PrintReports', () => {
     expect(bpRow.textContent).toContain('(2022)');
     expect(bpRow.textContent).toContain('90–120 mmHg');
 
-    // (d) The safety note text is present.
-    expect(screen.getByText(/does not assess whether any value is normal/i)).toBeInTheDocument();
+    // (d) The safety note carries the DR-0036 framing: an "above range"/"below range"
+    // marker is a factual positional comparison against the recorded bounds, never a
+    // clinical assessment, and it still steers the reader to a clinician.
+    expect(screen.getByText(/factual comparison, not a clinical assessment/i)).toBeInTheDocument();
+    expect(screen.getByText(/discuss results with a clinician/i)).toBeInTheDocument();
+  });
+
+  /** A single structured lab reading whose value sits strictly above its own recorded
+   * `refHigh` — used to prove the "Labs & vitals" summary table's latest-value cell
+   * carries the positional out-of-range marker (DR-0036), not just LabTrend's row. */
+  function recordWithOutOfRangeLatestLab(): FamilyRecord {
+    const proband = mkProband();
+    const timeline: TimelineEvent[] = [
+      {
+        id: 'lab-above',
+        person: proband.id,
+        year: 2021,
+        type: 'lab',
+        title: 'HbA1c',
+        detail: '',
+        lab: { value: 7.2, unit: '%', refLow: 4, refHigh: 5.6 },
+      },
+    ];
+    return { people: [proband], unions: [], timeline, probandId: proband.id };
+  }
+
+  it('shows the "above range" marker in the Labs & vitals summary for a latest value above its own recorded refHigh (DR-0036)', () => {
+    act(() => useStore.getState().replaceRecord(recordWithOutOfRangeLatestLab()));
+    render(<PrintReports />);
+
+    const labsTable = screen.getByRole('table', { name: 'Labs' });
+    const hba1cRow = within(labsTable).getByText('HbA1c').closest('tr') as HTMLElement;
+    expect(within(hba1cRow).getByText(/above range/i)).toBeInTheDocument();
   });
 
   /** A structured lab event carrying a free-text `detail` note, alongside a note-less
